@@ -1,10 +1,13 @@
 import { Auth } from '@supabase/auth-ui-react'
 import { ThemeSupa } from '@supabase/auth-ui-shared'
-import { supabase, getSiteUrl } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 export function LoginForm() {
-  const siteUrl = getSiteUrl()
-  
+  // Get the current URL
+  const redirectTo = typeof window !== 'undefined' 
+    ? `${window.location.origin}/auth/callback`
+    : `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
+
   return (
     <div className="w-full max-w-[400px] mx-auto p-6">
       <Auth
@@ -12,7 +15,11 @@ export function LoginForm() {
         appearance={{ theme: ThemeSupa }}
         theme="light"
         providers={['github', 'google', 'twitter']}
-        redirectTo={`${siteUrl}/auth/callback`}
+        redirectTo={redirectTo}
+        queryParams={{
+          access_type: 'offline',
+          prompt: 'consent',
+        }}
       />
     </div>
   )
