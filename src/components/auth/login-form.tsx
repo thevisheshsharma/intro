@@ -11,7 +11,7 @@ export function LoginForm() {
         supabaseClient={supabase}
         appearance={{ theme: ThemeSupa }}
         theme="light"
-        providers={['github', 'google']}
+        providers={['github', 'google', 'twitter']}
         redirectTo={`${siteUrl}/auth/callback`}
       />
     </div>
