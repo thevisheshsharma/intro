@@ -1,51 +1,77 @@
-'use client'
+"use client";
 
-import { createContext, useContext, useEffect, useState } from 'react'
-import { User } from '@supabase/supabase-js'
-import { supabase } from './supabase'
+import { createContext, useContext, useEffect, useState } from "react";
+import { User } from "@supabase/supabase-js";
+import { supabase } from "./supabase";
 
 type AuthContextType = {
-  user: User | null
-  loading: boolean
-}
+  user: User | null;
+  loading: boolean;
+};
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
-})
+});
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check active sessions and sets the user
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
+    let mounted = true;
+
+    async function getInitialSession() {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        // Only update state if component is still mounted
+        if (mounted) {
+          setUser(session?.user ?? null);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Error getting session:", error);
+        if (mounted) {
+          setUser(null);
+          setLoading(false);
+        }
+      }
+    }
+
+    getInitialSession();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
+      if (mounted) {
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
+    });
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const value = {
+    user,
+    loading,
+  };
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
-      {children}
-    </AuthContext.Provider>
-  )
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  );
 }
 
 export const useAuth = () => {
-  const context = useContext(AuthContext)
+  const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider')
+    throw new Error("useAuth must be used within an AuthProvider");
   }
-  return context
-}
+  return context;
+};
