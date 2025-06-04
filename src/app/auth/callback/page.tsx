@@ -34,8 +34,15 @@ export default function AuthCallback() {
         }
 
         if (session) {
-          router.push('/dashboard')
-        } else {
+  // Sync session to server-side cookie
+  await fetch('/api/auth/set', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event: 'SIGNED_IN', session }),
+  });
+  router.push('/dashboard');
+} else {
+          console.error('No session found after auth callback')
           router.push('/')
         }
       } catch (err) {

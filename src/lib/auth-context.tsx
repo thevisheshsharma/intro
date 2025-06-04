@@ -18,30 +18,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  async function getInitialSession(mounted: boolean) {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      // Only update state if component is still mounted
+      if (mounted) {
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error("Error getting session:", error);
+      if (mounted) {
+        setUser(null);
+        setLoading(false);
+      }
+    }
+  }
+
   useEffect(() => {
     let mounted = true;
 
-    async function getInitialSession() {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        // Only update state if component is still mounted
-        if (mounted) {
-          setUser(session?.user ?? null);
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error("Error getting session:", error);
-        if (mounted) {
-          setUser(null);
-          setLoading(false);
-        }
-      }
-    }
-
-    getInitialSession();
+    getInitialSession(mounted);
 
     const {
       data: { subscription },
