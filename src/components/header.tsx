@@ -1,16 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
-import { supabase } from '@/lib/supabase'
+import { UserButton, SignInButton, useUser } from '@clerk/nextjs'
 
 export function Header() {
-  const { user } = useAuth()
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-  }
+  const { user, isSignedIn } = useUser()
 
   return (
     <header className="border-b border-gray-200 bg-white">
@@ -20,28 +15,23 @@ export function Header() {
             <Link href="/" className="text-xl font-bold text-gray-900">
               Intro
             </Link>
-            {user && (
-              <nav className="ml-8">
-                <ul className="flex space-x-4">
-                  <li>
-                    <Link href="/dashboard" className="text-gray-600 hover:text-gray-900">
-                      Dashboard
-                    </Link>
-                  </li>
-                  <li>
-                    <Link href="/profile" className="text-gray-600 hover:text-gray-900">
-                      Profile
-                    </Link>
-                  </li>
-                </ul>
-              </nav>
-            )}
           </div>
           <div>
-            {user && (
-              <Button variant="outline" onClick={handleSignOut}>
-                Sign Out
-              </Button>
+            {!isSignedIn ? (
+              <SignInButton mode="modal">
+                <Button>Sign in</Button>
+              </SignInButton>
+            ) : (
+              <UserButton afterSignOutUrl="/" appearance={{
+                elements: {
+                  userButtonPopoverFooter: {
+                    onClick: () => {
+                      window.location.href = '/';
+                      window.location.reload();
+                    }
+                  }
+                }
+              }} />
             )}
           </div>
         </div>

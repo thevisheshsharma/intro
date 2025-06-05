@@ -1,30 +1,36 @@
-import { supabase } from './supabase'
-import type { Database } from './database.types'
+export interface Profile {
+  id: string;
+  username: string | null;
+  full_name: string | null;
+  email: string | null;
+  updated_at: string | null;
+}
 
-export type Profile = Database['public']['Tables']['profiles']['Row']
-
-export async function getProfile(userId: string) {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', userId)
-    .single()
-
-  if (error) {
+export async function getProfile(userId: string): Promise<Profile | null> {
+  try {
+    const response = await fetch(`/api/profile/${userId}`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch profile')
+    }
+    return await response.json()
+  } catch (error) {
     console.error('Error fetching profile:', error)
     return null
   }
-
-  return data
 }
 
 export async function updateProfile(userId: string, updates: Partial<Profile>) {
-  const { error } = await supabase
-    .from('profiles')
-    .update(updates)
-    .eq('id', userId)
+  const response = await fetch(`/api/profile/${userId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(updates),
+  })
 
-  if (error) {
-    throw error
+  if (!response.ok) {
+    throw new Error('Failed to update profile')
   }
+
+  return await response.json()
 }

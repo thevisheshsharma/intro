@@ -6,8 +6,8 @@ import { Providers } from "@/components/providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Intro - Next.js with Supabase",
-  description: "A modern web application built with Next.js and Supabase",
+  title: "Intro - Next.js with Clerk",
+  description: "A modern web application built with Next.js and Clerk",
 };
 
 export default function RootLayout({

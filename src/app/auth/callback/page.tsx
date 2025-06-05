@@ -2,57 +2,22 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { useAuth } from '@clerk/nextjs'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 
 export default function AuthCallback() {
   const router = useRouter()
+  const { isLoaded, userId } = useAuth()
 
   useEffect(() => {
-    const handleAuthCallback = async () => {
-      try {
-        // Get the OAuth response from the URL
-        const hashParams = new URLSearchParams(window.location.hash.slice(1))
-        const queryParams = new URLSearchParams(window.location.search)
-        
-        // Check both hash and query parameters for auth response
-        const code = hashParams.get('code') || queryParams.get('code')
-        const error = hashParams.get('error') || queryParams.get('error')
-        
-        if (error) {
-          console.error('Error during auth:', error)
-          router.push('/?error=auth')
-          return
-        }
-
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-        
-        if (sessionError) {
-          console.error('Error getting session:', sessionError.message)
-          router.push('/')
-          return
-        }
-
-        if (session) {
-  // Sync session to server-side cookie
-  await fetch('/api/auth/set', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event: 'SIGNED_IN', session }),
-  });
-  router.push('/dashboard');
-} else {
-          console.error('No session found after auth callback')
-          router.push('/')
-        }
-      } catch (err) {
-        console.error('Callback error:', err)
-        router.push('/')
-      }
+    if (isLoaded && userId) {
+      // Successfully signed in, redirect to dashboard
+      router.push('/dashboard')
+    } else if (isLoaded && !userId) {
+      // Not signed in, redirect to home
+      router.push('/')
     }
-
-    handleAuthCallback()
-  }, [router])
+  }, [isLoaded, userId, router])
 
   return (
     <div className="flex min-h-screen items-center justify-center">

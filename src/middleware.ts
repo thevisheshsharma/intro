@@ -1,24 +1,31 @@
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req: request, res })
+// Set the paths that don't require authentication
+const publicPaths = ["/", "/sign-in*", "/sign-up*"];
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  // If there's no session and the user is trying to access protected routes
-  if (!session && (request.nextUrl.pathname.startsWith('/dashboard') || 
-                   request.nextUrl.pathname.startsWith('/profile'))) {
-    return NextResponse.redirect(new URL('/', request.url))
-  }
-
-  return res
+const isPublic = (path: string) => {
+  return publicPaths.find(x => 
+    path.match(new RegExp(`^${x.replace('*', '.*')}$`))
+  );
 }
+
+export default withClerkMiddleware((request: NextRequest) => {
+  if (isPublic(request.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
+  // if the user is not signed in redirect them to the sign in page.
+  const { userId } = getAuth(request);
+
+  if (!userId) {
+    const signInUrl = new URL('/sign-in', request.url);
+    signInUrl.searchParams.set('redirect_url', request.url);
+    return NextResponse.redirect(signInUrl);
+  }
+  return NextResponse.next();
+});
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/profile/:path*'],
-}
+  matcher: ['/((?!.*\\..*|_next).*)', '/', '/(api|trpc)(.*)'],
+};
