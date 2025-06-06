@@ -18,7 +18,6 @@ export default function Home() {
   useEffect(() => {
     if (isLoaded && user) {
       loadProfile()
-      // Find Twitter/X account
       const twitterAccount = user.externalAccounts?.find(
         account => account.provider === 'twitter' || account.provider === 'x'
       )
@@ -55,34 +54,71 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl lg:static lg:w-auto lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4">
-          {user ? `Welcome ${user.firstName || user.emailAddresses[0]?.emailAddress || 'User'}` : 'Welcome to Next.js + Clerk'}
-        </p>
-      </div>
-
-      <div className="relative flex place-items-center">
-        {!user && <LoginForm />}
-      </div>
-
+    
+    <div className="flex min-h-screen w-full" style={{ backgroundColor:"#1f1f23"}}>
+      {/* Left Sidebar */}
       {user && (
-        <div className="mt-8 w-full max-w-xl">
-          {twitterUsername && (
-            <p className="text-gray-600 flex items-center gap-2">
-              <svg className="w-5 h-5 text-[#1DA1F2]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-              </svg>
-              @{twitterUsername}
-            </p>
-          )}
-          <div className="mt-6">
-            <pre className="rounded-lg bg-gray-50 p-4">
-              {JSON.stringify(profile, null, 2)}
-            </pre>
+        <div className="flex flex-col justify-between h-screen border-r border-gray-700">
+          {/* Top Bar */}
+          <div className="h-16 flex items-center px-8 border-b border-gray-700">
+            <span className="text-2xl font-bold text-white">intro</span>
+          </div>
+          {/* Sidebar Content */}
+          <div className="flex-1 flex flex-col px-8 py-6">
+            <div className="mb-8">
+              <p className="text-xl font-bold text-white mb-1">Welcome {user.firstName || user.emailAddresses[0]?.emailAddress || 'User'}</p>
+              {twitterUsername && (
+                <p className="text-gray-400 flex items-center gap-2 mb-1">
+                  <svg className="w-5 h-5 text-[#1DA1F2]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                  </svg>
+                  @{twitterUsername}
+                </p>
+              )}
+              <p className="text-gray-400 text-sm whitespace-pre-line">
+                {profile?.bio || 'fetched bio from the twitter account'}
+              </p>
+            </div>
+            
+            <nav className="flex flex-col gap-2 text-white">
+              <a href="#" className="bg-gray-800 p-2 rounded-lg transition-colors">Twitter</a>
+              <a href="#" className="hover:bg-gray-800 p-2 rounded-lg transition-colors">Events</a>
+              <a href="#" className="hover:bg-gray-800 p-2 rounded-lg transition-colors">Organisation</a>
+              <a href="#" className="hover:bg-gray-800 p-2 rounded-lg transition-colors">DAOs</a>
+              
+            </nav>
+            <div className="flex-1" />
+            <a href="#" className="text-white text-sm mt-8">Profile</a>
+          </div>
+          {/* Footer */}
+          <div className="px-8 py-4 border-t border-gray-700">
+            <p className="text-gray-400 text-xs">Terms | Privacy policy</p>
           </div>
         </div>
       )}
+      {/* Right Panel */}
+      <div className="flex-1 flex flex-col items-center justify-center">
+        <div className="max-w-xl w-full flex flex-col items-center">
+          <h2 className="text-3xl font-bold text-white mb-2 text-center">Connect with your next prospect</h2>
+          <p className="text-gray-300 mb-8 text-center">Leverage your network, connect with anyone<br />with their twitter username</p>
+          <form className="w-full flex flex-col items-center">
+            <div className="flex w-full mb-4">
+              <input
+                type="text"
+                placeholder="Type @username"
+                 style={{ backgroundColor:"#1f1f23"}}
+                className="flex-1 rounded-l-lg px-4 py-3 text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
+              />
+              <button type="submit" className="rounded-r-lg px-6 bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center text-lg">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </button>
+            </div>
+            
+          </form>
+        </div>
+      </div>
     </div>
   )
 }
