@@ -1,9 +1,11 @@
 'use client'
 
-export function LoadingSpinner() {
+interface LoadingSpinnerProps {
+  className?: string;
+}
+
+export function LoadingSpinner({ className }: LoadingSpinnerProps) {
   return (
-    <div className="flex h-[60vh] items-center justify-center">
-      <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-    </div>
+    <div className={`animate-spin rounded-full border-2 border-current border-t-transparent ${className || 'h-12 w-12'}`} />
   )
 }

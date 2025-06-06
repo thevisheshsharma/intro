@@ -4,6 +4,7 @@ export interface Profile {
   full_name: string | null;
   email: string | null;
   updated_at: string | null;
+  bio: string | null;
 }
 
 export async function getProfile(userId: string): Promise<Profile | null> {
