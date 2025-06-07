@@ -28,6 +28,8 @@ export default function Home() {
       )
       if (twitterAccount?.username) {
         setTwitterUsername(twitterAccount.username)
+        // Fetch and cache followers on login
+        fetch(`/api/twitter/followers?username=${twitterAccount.username}`)
       }
     }
   }, [isLoaded, user])

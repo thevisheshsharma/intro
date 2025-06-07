@@ -51,7 +51,7 @@ export async function GET(request: Request) {
     let nextCursor: string | undefined = undefined
     let firstPage = true
     do {
-      let url = `https://api.socialapi.me/twitter/friends/list?user_id=${userObj.id}&limit=200` // use max limit
+      let url = `https://api.socialapi.me/twitter/friends/list?user_id=${userObj.id}` // use max limit
       if (!firstPage && nextCursor) url += `&cursor=${nextCursor}`
       const followingsResponse = await fetch(url, {
         headers: {
