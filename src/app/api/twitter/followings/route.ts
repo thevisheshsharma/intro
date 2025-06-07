@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { getCachedTwitterUser, setCachedTwitterUser, getCachedTwitterFollowings, setCachedTwitterFollowings } from '@/lib/twitter-cache'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -8,72 +9,83 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Username is required' }, { status: 400 })
   }
 
+  // Check followings cache first by username
+  const cachedFollowings = await getCachedTwitterFollowings(username)
+  if (cachedFollowings) {
+    return NextResponse.json({ ...cachedFollowings.followings, _cached: true, _fetched_at: cachedFollowings.fetched_at })
+  }
+
   if (!process.env.SOCIALAPI_BEARER_TOKEN) {
     console.error('SOCIALAPI_BEARER_TOKEN is not set')
     return NextResponse.json({ error: 'API configuration error' }, { status: 500 })
   }
 
   try {
-    // First get the user data using the username
-    const userResponse = await fetch(`https://api.socialapi.me/twitter/user/${username}`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
-        'Accept': 'application/json'
+    // First get the user data using the username (check user cache)
+    let userData = await getCachedTwitterUser(username)
+    let userObj = userData?.user_data
+    if (!userObj) {
+      const userResponse = await fetch(`https://api.socialapi.me/twitter/user/${username}`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
+          'Accept': 'application/json'
+        }
+      })
+      const responseText = await userResponse.text()
+      try {
+        userObj = JSON.parse(responseText)
+      } catch (e) {
+        console.error('Failed to parse user response:', responseText)
+        return NextResponse.json({ error: 'Invalid response from Twitter API' }, { status: 500 })
       }
-    })
-
-    const responseText = await userResponse.text()
-    let userData
-    
-    try {
-      userData = JSON.parse(responseText)
-    } catch (e) {
-      console.error('Failed to parse user response:', responseText)
-      return NextResponse.json({ error: 'Invalid response from Twitter API' }, { status: 500 })
-    }
-
-    if (!userResponse.ok) {
-      console.error('User API error:', userData)
-      return NextResponse.json({ 
-        error: userData.error || 'Failed to fetch user data',
-        details: userData
-      }, { status: userResponse.status })
-    }
-
-    if (!userData.id) {
-      console.error('No user ID in response:', userData)
-      return NextResponse.json({ error: 'User not foundxx' }, { status: 404 })
-    }
-
-    // Then get their followings
-    const followingsResponse = await fetch(`https://api.socialapi.me/twitter/friends/list?user_id=${userData.id}&limit=50`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
-        'Accept': 'application/json'
+      if (userResponse.ok && userObj.id) {
+        await setCachedTwitterUser(username, userObj)
       }
-    })
-
-    const followingsText = await followingsResponse.text()
-    let followingsData
-
-    try {
-      followingsData = JSON.parse(followingsText)
-    } catch (e) {
-      console.error('Failed to parse followings response:', followingsText)
-      return NextResponse.json({ error: 'Invalid response from Twitter API' }, { status: 500 })
+    }
+    if (!userObj || !userObj.id) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    if (!followingsResponse.ok) {
-      console.error('Followings API error:', followingsData)
-      return NextResponse.json({ 
-        error: followingsData.error || 'Failed to fetch followings',
-        details: followingsData
-      }, { status: followingsResponse.status })
-    }
+    // Then get all their followings (handle pagination)
+    let allFollowings: any[] = []
+    let nextCursor: string | undefined = undefined
+    let firstPage = true
+    do {
+      let url = `https://api.socialapi.me/twitter/friends/list?user_id=${userObj.id}&limit=200` // use max limit
+      if (!firstPage && nextCursor) url += `&cursor=${nextCursor}`
+      const followingsResponse = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
+          'Accept': 'application/json'
+        }
+      })
+      const followingsText = await followingsResponse.text()
+      let followingsData
+      try {
+        followingsData = JSON.parse(followingsText)
+      } catch (e) {
+        console.error('Failed to parse followings response:', followingsText)
+        return NextResponse.json({ error: 'Invalid response from Twitter API' }, { status: 500 })
+      }
+      if (!followingsResponse.ok) {
+        return NextResponse.json({ 
+          error: followingsData.error || 'Failed to fetch followings',
+          details: followingsData
+        }, { status: followingsResponse.status })
+      }
+      if (Array.isArray(followingsData.users)) {
+        allFollowings.push(...followingsData.users)
+      }
+      nextCursor = followingsData.next_cursor_str || followingsData.next_cursor
+      firstPage = false
+    } while (nextCursor && nextCursor !== '0')
 
-    return NextResponse.json(followingsData)
+    const userId = userObj.id_str || userObj.id
+    // Save all followings to cache with both username and user_id
+    await setCachedTwitterFollowings(username, { users: allFollowings }, userId)
+
+    return NextResponse.json({ users: allFollowings })
   } catch (error: any) {
-    console.error('Error fetching Twitter data:', error)
     return NextResponse.json({ 
       error: error.message || 'Failed to fetch Twitter data',
       details: error.toString()

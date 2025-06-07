@@ -63,8 +63,8 @@ export default function Home() {
         throw new Error(userData.error || userData.message || 'User not found')
       }
       const user_id = userData.id_str || userData.id
-      // Step 2: Get followings by user_id
-      const followingsRes = await fetch(`/api/twitter/following-list?user_id=${user_id}`)
+      // Step 2: Get followings by user_id (pass username for caching)
+      const followingsRes = await fetch(`/api/twitter/following-list?user_id=${user_id}&username=${username}`)
       const followingsData = await followingsRes.json()
       if (!followingsRes.ok) {
         throw new Error(followingsData.error || followingsData.message || 'Failed to fetch followings')
