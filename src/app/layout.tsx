@@ -19,6 +19,7 @@ export default function RootLayout({
     <html lang="en" className="h-full">
       <body className={`${inter.className} h-full`}>
         <Providers>
+          {/* Header removed for post-login experience. Sidebar and profile management are now in the page. */}
           <main className="min-h-screen bg-gray-50">{children}</main>
         </Providers>
       </body>

@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useUser } from '@clerk/nextjs'
+import { useEffect, useState, useRef } from 'react'
+import { useUser, UserButton } from '@clerk/nextjs'
 import { LoginForm } from '@/components/auth/login-form'
 import { getProfile } from '@/lib/profile'
 import type { Profile } from '@/lib/profile'
@@ -19,6 +19,9 @@ export default function Home() {
   const [followingsLoading, setFollowingsLoading] = useState(false)
   const [followings, setFollowings] = useState<any[]>([])
   const [searchError, setSearchError] = useState<string | null>(null)
+  const [contentAtTop, setContentAtTop] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const rightPanelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (isLoaded && user) {
@@ -92,6 +95,13 @@ export default function Home() {
     }
   }
 
+  // Animate right panel position on search
+  useEffect(() => {
+    if (followings.length > 0) {
+      setContentAtTop(true)
+    }
+  }, [followings])
+
   if (!isLoaded || (user && loading)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -105,51 +115,70 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen w-full" style={{ backgroundColor:"#1f1f23"}}>
+    <div className="flex min-h-screen w-full" style={{ backgroundColor: "#181818" }}>
       {/* Left Sidebar */}
       {user && (
-        <div className="flex flex-col justify-between h-screen border-r border-gray-700">
+        <div className={`flex flex-col justify-between h-screen border-r border-gray-700 sticky top-0 left-0 transition-all duration-300 ${sidebarCollapsed ? 'w-20' : 'w-[280px]'} bg-[#181818]`} style={{ maxWidth: sidebarCollapsed ? 80 : 320, minWidth: sidebarCollapsed ? 80 : 280 }}>
           {/* Top Bar */}
-          <div className="h-16 flex items-center px-8 border-b border-gray-700">
+          <div className="h-16 flex items-center px-4 border-b border-gray-700 justify-between">
             <span className="text-2xl font-bold text-white">intro</span>
+            <button
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              onClick={() => setSidebarCollapsed((c) => !c)}
+              className="ml-2 p-2 rounded hover:bg-gray-800 transition-colors"
+            >
+              {sidebarCollapsed ? (
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+              ) : (
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+              )}
+            </button>
           </div>
           {/* Sidebar Content */}
-          <div className="flex-1 flex flex-col px-8 py-6">
-            <div className="mb-8">
-              <p className="text-xl font-bold text-white mb-1">Welcome {user.firstName || user.emailAddresses[0]?.emailAddress || 'User'}</p>
-              {twitterUsername && (
-                <p className="text-gray-400 flex items-center gap-2 mb-1">
-                  <svg className="w-5 h-5 text-[#1DA1F2]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                  </svg>
-                  @{twitterUsername}
-                </p>
+          <div className={`flex-1 flex flex-col ${sidebarCollapsed ? 'items-center px-0 py-4' : 'px-8 py-6'}`}>
+            <div className={`mb-8 w-full ${sidebarCollapsed ? 'flex flex-col items-center' : ''}`}>
+              {!sidebarCollapsed && (
+                <>
+                  <p className="text-xl text-white mb-1">Welcome {user.firstName || user.emailAddresses[0]?.emailAddress || 'User'}</p>
+                  {twitterUsername && (
+                    <p className="text-gray-400 flex items-center gap-2 mb-1">
+                      <svg className="w-5 h-5 text-[#1DA1F2]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                      </svg>
+                      @{twitterUsername}
+                    </p>
+                  )}
+                  <p className="text-gray-400 text-sm whitespace-pre-line">{profile?.bio || ''}</p>
+                </>
               )}
-              <p className="text-gray-400 text-sm whitespace-pre-line">
-                {profile?.bio || 'fetched bio from the twitter account'}
-              </p>
             </div>
-            
-            <nav className="flex flex-col gap-2 text-white">
-              <a href="#" className="bg-gray-800 p-2 rounded-lg transition-colors">Twitter</a>
-              <a href="#" className="hover:bg-gray-800 p-2 rounded-lg transition-colors">Events</a>
-              <a href="#" className="hover:bg-gray-800 p-2 rounded-lg transition-colors">Organisation</a>
-              <a href="#" className="hover:bg-gray-800 p-2 rounded-lg transition-colors">DAOs</a>
-              
+            <nav className={`flex flex-col gap-2 text-white w-full ${sidebarCollapsed ? 'items-center' : ''}`}>
+              <a href="#" className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${sidebarCollapsed ? 'justify-center' : 'bg-gray-800'}`}> <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22.46 6c-.77.35-1.6.59-2.47.7a4.3 4.3 0 0 0 1.88-2.37 8.59 8.59 0 0 1-2.72 1.04A4.28 4.28 0 0 0 16.11 4c-2.37 0-4.29 1.92-4.29 4.29 0 .34.04.67.11.99C7.69 9.13 4.07 7.38 1.64 4.7c-.37.64-.58 1.38-.58 2.17 0 1.5.76 2.82 1.92 3.6-.71-.02-1.38-.22-1.97-.54v.05c0 2.1 1.5 3.85 3.5 4.25-.36.1-.74.16-1.13.16-.28 0-.54-.03-.8-.08.54 1.7 2.1 2.94 3.95 2.97A8.6 8.6 0 0 1 2 19.54c-.65 0-1.28-.04-1.9-.11A12.13 12.13 0 0 0 7.29 21.5c7.55 0 11.68-6.26 11.68-11.68 0-.18-.01-.36-.02-.54A8.18 8.18 0 0 0 22.46 6z" /></svg> {!sidebarCollapsed && 'Twitter'} </a>
+              <a href="#" className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}> <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" /></svg> {!sidebarCollapsed && 'Events'} </a>
+              <a href="#" className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}> <svg className="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 0 0-3-3.87M9 20H4v-2a4 4 0 0 1 3-3.87m9-4V7a4 4 0 1 0-8 0v2m12 4a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" /></svg> {!sidebarCollapsed && 'Organisation'} </a>
+              <a href="#" className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}> <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h4v4m0-4V8" /></svg> {!sidebarCollapsed && 'DAOs'} </a>
             </nav>
             <div className="flex-1" />
-            <a href="#" className="text-white text-sm mt-8">Profile</a>
+            {/* Profile management moved here */}
+            <div className={`mt-8 flex items-center ${sidebarCollapsed ? 'justify-center' : ''}`}>
+              <UserButton afterSignOutUrl="/" />
+              {!sidebarCollapsed && <span className="ml-2 text-white text-sm">Profile</span>}
+            </div>
           </div>
           {/* Footer */}
-          <div className="px-8 py-4 border-t border-gray-700">
-            <p className="text-gray-400 text-xs">Terms | Privacy policy</p>
+          <div className={`px-8 py-4 border-t border-gray-700 ${sidebarCollapsed ? 'px-0 flex justify-center' : ''}`}>
+            {!sidebarCollapsed && <p className="text-gray-400 text-xs">Terms | Privacy policy</p>}
           </div>
         </div>
       )}
       {/* Right Panel */}
       <div className="flex-1 flex flex-col items-center overflow-y-auto">
-        <div className="max-w-4xl w-full flex flex-col items-center px-4 py-8">
-          <h2 className="text-3xl font-bold text-white mb-2 text-center">Connect with your next prospect</h2>
+        <div
+          ref={rightPanelRef}
+          className={`max-w-4xl w-full flex flex-col items-center px-4 py-8 transition-all duration-500 ${contentAtTop ? 'mt-0' : 'mt-[40vh]'}`}
+          style={{ transitionProperty: 'margin-top' }}
+        >
+          <h2 className="text-3xl text-white mb-2 text-center">Connect with your next prospect</h2>
           <p className="text-gray-300 mb-8 text-center">Leverage your network, connect with anyone<br />with their twitter username</p>
           <form onSubmit={handleSearchSubmit} className="w-full flex flex-col items-center">
             <div className="flex w-full mb-4">
@@ -158,11 +187,11 @@ export default function Home() {
                 placeholder="Type @username"
                 value={searchUsername}
                 onChange={(e) => setSearchUsername(e.target.value)}
-                style={{ backgroundColor:"#1f1f23"}}
+                style={{ backgroundColor: "#181818" }}
                 className="flex-1 rounded-l-lg px-4 py-3 text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
               />
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="rounded-r-lg px-6 bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center text-lg"
                 disabled={followingsLoading}
               >

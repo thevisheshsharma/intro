@@ -2,10 +2,13 @@
 
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { UserButton, SignInButton, useUser } from '@clerk/nextjs'
+import { SignInButton, useUser } from '@clerk/nextjs'
 
 export function Header() {
-  const { user, isSignedIn } = useUser()
+  const { isSignedIn } = useUser()
+
+  // Hide header if user is signed in (profile management is now in sidebar)
+  if (isSignedIn) return null;
 
   return (
     <header className="border-b border-gray-200 bg-white">
@@ -17,22 +20,9 @@ export function Header() {
             </Link>
           </div>
           <div>
-            {!isSignedIn ? (
-              <SignInButton mode="modal">
-                <Button>Sign in</Button>
-              </SignInButton>
-            ) : (
-              <UserButton afterSignOutUrl="/" appearance={{
-                elements: {
-                  userButtonPopoverFooter: {
-                    onClick: () => {
-                      window.location.href = '/';
-                      window.location.reload();
-                    }
-                  }
-                }
-              }} />
-            )}
+            <SignInButton mode="modal">
+              <Button>Sign in</Button>
+            </SignInButton>
           </div>
         </div>
       </div>
