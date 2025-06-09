@@ -12,9 +12,10 @@ interface TwitterUser {
 interface FollowingsTableProps {
   followings: TwitterUser[];
   loading: boolean;
+  compact?: boolean;
 }
 
-export function FollowingsTable({ followings, loading }: FollowingsTableProps) {
+export function FollowingsTable({ followings, loading, compact = false }: FollowingsTableProps) {
   const [page, setPage] = useState(1)
   const pageSize = 10
   const totalPages = Math.ceil(followings.length / pageSize)
@@ -33,59 +34,53 @@ export function FollowingsTable({ followings, loading }: FollowingsTableProps) {
   }
 
   return (
-    <div className="w-full mt-8 overflow-x-auto">
-      <table className="w-full border-collapse">
-        <thead>
-          <tr className="text-left border-b border-gray-700">
-            <th className="p-4 text-gray-400 font-medium">Profile</th>
-            <th className="p-4 text-gray-400 font-medium">Bio</th>
-            <th className="p-4 text-gray-400 font-medium">Followers</th>
-          </tr>
-        </thead>
-        <tbody>
-          {paginated.map((user) => (
-            <tr key={user.id} className="border-b border-gray-700 hover:bg-gray-800/50">
-              <td className="p-4">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={user.profile_image_url_https}
-                    alt={user.name}
-                    className="w-10 h-10 rounded-full"
-                  />
-                  <div>
-                    <div className="font-medium text-white">{user.name}</div>
-                    <div className="text-gray-400">@{user.screen_name}</div>
-                  </div>
-                </div>
-              </td>
-              <td className="p-4 text-gray-300">
-                <div className="max-w-md truncate">{user.description}</div>
-              </td>
-              <td className="p-4 text-gray-300">
-                {user.followers_count.toLocaleString()}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {/* Pagination Controls */}
-      <div className="flex justify-center items-center gap-2 mt-4">
-        <button
-          className="px-3 py-1 rounded bg-gray-700 text-white disabled:opacity-50"
-          onClick={() => setPage(page - 1)}
-          disabled={page === 1}
-        >
-          Previous
-        </button>
-        <span className="text-gray-300">Page {page} of {totalPages}</span>
-        <button
-          className="px-3 py-1 rounded bg-gray-700 text-white disabled:opacity-50"
-          onClick={() => setPage(page + 1)}
-          disabled={page === totalPages}
-        >
-          Next
-        </button>
+    <div className="w-full  flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
+        {paginated.map((user) => (
+          <div
+            key={user.id}
+            className="flex items-center gap-4 bg-[#23272f] rounded-lg shadow-sm px-4 py-3 hover:bg-[#2c313a] transition w-full max-w-full"
+            style={{ minWidth: 0 }}
+          >
+            <img
+              src={user.profile_image_url_https}
+              alt={user.name}
+              className="w-12 h-12 rounded-full border border-gray-700 shadow flex-shrink-0"
+            />
+            <div className="flex flex-col min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-white text-base truncate">{user.name}</span>
+                <span className="text-gray-400 text-sm truncate">@{user.screen_name}</span>
+              </div>
+              <span className="text-gray-300 text-sm mt-1 truncate max-w-full" title={user.description}>{user.description}</span>
+            </div>
+            <div className="flex flex-col items-end min-w-[70px]">
+              <span className="text-gray-400 text-xs">Followers</span>
+              <span className="text-white text-base font-semibold">{user.followers_count.toLocaleString()}</span>
+            </div>
+          </div>
+        ))}
       </div>
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex justify-center items-center gap-2 mt-2">
+          <button
+            className="px-3 py-1 rounded bg-gray-700 text-white disabled:opacity-50"
+            onClick={() => setPage(page - 1)}
+            disabled={page === 1}
+          >
+            Previous
+          </button>
+          <span className="text-gray-300">Page {page} of {totalPages}</span>
+          <button
+            className="px-3 py-1 rounded bg-gray-700 text-white disabled:opacity-50"
+            onClick={() => setPage(page + 1)}
+            disabled={page === totalPages}
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   )
 }
