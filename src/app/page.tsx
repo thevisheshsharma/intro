@@ -68,17 +68,32 @@ export default function Home() {
         throw new Error(userData.error || userData.message || 'User not found')
       }
       const user_id = userData.id_str || userData.id
-      // Step 2: Get followings by user_id (pass username for caching)
+
+      // Step 2: Get followings by user_id (searched user)
       const followingsRes = await fetch(`/api/twitter/following-list?user_id=${user_id}&username=${username}`)
       const followingsData = await followingsRes.json()
       if (!followingsRes.ok) {
         throw new Error(followingsData.error || followingsData.message || 'Failed to fetch followings')
       }
       if (!Array.isArray(followingsData.users)) {
-        throw new Error('Invalid response format from server')
+        throw new Error('Invalid response format from server (followings)')
       }
+      // Step 3: Get followers of logged-in user (from cache if possible)
+      if (!twitterUsername) throw new Error('Your Twitter account is not connected')
+      const followersRes = await fetch(`/api/twitter/followers?username=${twitterUsername}`)
+      const followersData = await followersRes.json()
+      if (!followersRes.ok) {
+        throw new Error(followersData.error || followersData.message || 'Failed to fetch your followers')
+      }
+      if (!Array.isArray(followersData.users)) {
+        throw new Error('Invalid response format from server (followers)')
+      }
+      // Build a Set of follower IDs for fast lookup
+      const followerIds = new Set(followersData.users.map((u: any) => u.id_str || u.id))
+      // Filter followings to only those who are also in your followers
+      const filtered = followingsData.users.filter((user: any) => followerIds.has(user.id_str || user.id))
       // Transform the data to match our table component's expectations
-      const transformedData = followingsData.users.map((user: any) => ({
+      const transformedData = filtered.map((user: any) => ({
         id: user.id_str || user.id,
         name: user.name,
         screen_name: user.screen_name || user.username,
@@ -87,6 +102,9 @@ export default function Home() {
         followers_count: user.followers_count
       }))
       setFollowings(transformedData)
+      if (transformedData.length === 0) {
+        setSearchError('No mutual connections found between your followers and the searched user\'s followings.')
+      }
     } catch (error: any) {
       console.error('Search error:', error)
       setSearchError(error.message)
