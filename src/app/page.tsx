@@ -146,7 +146,7 @@ export default function Home() {
           <div className="w-full flex flex-row gap-8 items-start mt-2 h-full" style={{ minHeight: 0 }}>
             {/* Profile Card (left, 32%) */}
             {searchedProfile && (
-              <div style={{ width: '32%', minWidth: 220, maxWidth: 320 }} className="flex-shrink-0">
+              <div style={{ width: '32%', minWidth: 220, maxWidth: 320, marginTop: '40px' }} className="flex-shrink-0">
                 <SearchedProfileCard user={searchedProfile} />
               </div>
             )}
@@ -188,7 +188,9 @@ function transformUser(user: any) {
     screen_name: user.screen_name || user.username,
     profile_image_url_https: user.profile_image_url_https || user.profile_image_url,
     description: user.description || user.bio,
-    followers_count: user.followers_count
+    followers_count: user.followers_count,
+    friends_count: user.friends_count,
+    verified: user.verified,
   }
 }
 
