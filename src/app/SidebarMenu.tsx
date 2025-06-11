@@ -1,3 +1,4 @@
+// Sidebar menu navigation items
 interface SidebarMenuProps {
   collapsed: boolean
 }
@@ -33,6 +34,7 @@ const items = [
   },
 ]
 
+// Sidebar menu navigation
 export default function SidebarMenu({ collapsed }: SidebarMenuProps) {
   return (
     <nav className={`flex flex-col gap-2 text-white w-full ${collapsed ? 'items-center' : ''}`}>

@@ -1,6 +1,7 @@
 import { FormEvent } from 'react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 
+// Add concise comments and ensure all props are typed
 interface SearchFormProps {
   value: string
   onChange: (v: string) => void
@@ -8,6 +9,7 @@ interface SearchFormProps {
   loading: boolean
 }
 
+// Search form for Twitter username
 export default function SearchForm({ value, onChange, onSubmit, loading }: SearchFormProps) {
   return (
     <form onSubmit={onSubmit} className="w-full flex flex-col items-center">
@@ -17,8 +19,7 @@ export default function SearchForm({ value, onChange, onSubmit, loading }: Searc
           placeholder="Type @username"
           value={value}
           onChange={e => onChange(e.target.value)}
-          style={{ backgroundColor: "#181818" }}
-          className="flex-1 rounded-l-lg px-4 py-3 text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
+          className="flex-1 rounded-l-lg px-4 py-3 text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg bg-[#181818]"
         />
         <button
           type="submit"

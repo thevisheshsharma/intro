@@ -11,6 +11,7 @@ import { FollowingsTable } from '@/components/twitter/followings-table'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import Sidebar from './Sidebar'
 import SearchForm from './SearchForm'
+import { extractTwitterUsername, transformTwitterUser, fetchFollowers, lookupTwitterUser, fetchFollowings } from '../lib/twitter-helpers'
 
 export default function Home() {
   // --- State ---
@@ -32,11 +33,11 @@ export default function Home() {
   useEffect(() => {
     if (isLoaded && user) {
       loadProfile()
-      const username = getTwitterUsername(user)
+      const username = extractTwitterUsername(user)
       if (username) {
         setTwitterUsername(username)
         // Pre-fetch followers for cache
-        fetch(`/api/twitter/followers?username=${username}`)
+        fetchFollowers(username)
       }
     }
   }, [isLoaded, user])
@@ -72,17 +73,7 @@ export default function Home() {
       const username = searchUsername.replace('@', '')
       // 1. Lookup searched user
       const userData = await lookupTwitterUser(username)
-      setSearchedProfile({
-        name: userData.name,
-        screen_name: userData.screen_name || userData.username,
-        profile_image_url_https: userData.profile_image_url_https || userData.profile_image_url,
-        description: userData.description || userData.bio,
-        followers_count: userData.followers_count,
-        friends_count: userData.friends_count,
-        location: userData.location,
-        url: userData.url,
-        verified: userData.verified,
-      })
+      setSearchedProfile(transformTwitterUser(userData))
       const user_id = userData.id_str || userData.id
       // 2. Get followings for searched user
       const followingsList = await fetchFollowings(user_id, username)
@@ -92,13 +83,12 @@ export default function Home() {
       // 4. Filter followings to mutuals
       const followerIds = new Set(followersList.map((u: any) => u.id_str || u.id))
       const mutuals = followingsList.filter((u: any) => followerIds.has(u.id_str || u.id))
-      const transformed = mutuals.map(transformUser)
+      const transformed = mutuals.map(transformTwitterUser)
       setFollowings(transformed)
       if (transformed.length === 0) {
         setSearchError('No mutual connections found between your followers and the searched user\'s followings.')
       }
     } catch (error: any) {
-      console.error('Search error:', error)
       setSearchError(error.message)
     } finally {
       setFollowingsLoading(false)
@@ -146,7 +136,7 @@ export default function Home() {
           <div className="w-full flex flex-row gap-8 items-start mt-2 h-full" style={{ minHeight: 0 }}>
             {/* Profile Card (left, 32%) */}
             {searchedProfile && (
-              <div style={{ width: '32%', minWidth: 220, maxWidth: 320, marginTop: '40px' }} className="flex-shrink-0">
+              <div style={{ width: '32%', minWidth: 220, maxWidth: 320, marginTop: '45px' }} className="flex-shrink-0">
                 <SearchedProfileCard user={searchedProfile} />
               </div>
             )}
@@ -170,52 +160,4 @@ export default function Home() {
       </div>
     </div>
   )
-}
-
-// Helper: Extract Twitter username from Clerk user
-function getTwitterUsername(user: any): string | null {
-  const twitterAccount = user?.externalAccounts?.find(
-    (account: any) => account.provider === 'twitter' || account.provider === 'x'
-  )
-  return twitterAccount?.username || null
-}
-
-// Helper: Transform Twitter user data for table
-function transformUser(user: any) {
-  return {
-    id: user.id_str || user.id,
-    name: user.name,
-    screen_name: user.screen_name || user.username,
-    profile_image_url_https: user.profile_image_url_https || user.profile_image_url,
-    description: user.description || user.bio,
-    followers_count: user.followers_count,
-    friends_count: user.friends_count,
-    verified: user.verified,
-  }
-}
-
-// Helper: Fetch and cache followers for a username
-async function fetchFollowers(username: string) {
-  const res = await fetch(`/api/twitter/followers?username=${username}`)
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || data.message || 'Failed to fetch followers')
-  if (!Array.isArray(data.users)) throw new Error('Invalid response format from server (followers)')
-  return data.users
-}
-
-// Helper: Lookup Twitter user by username
-async function lookupTwitterUser(username: string) {
-  const res = await fetch(`/api/twitter/user-lookup?screen_name=${username}`)
-  const data = await res.json()
-  if (!res.ok || !data.id) throw new Error(data.error || data.message || 'User not found')
-  return data
-}
-
-// Helper: Fetch followings for a user_id
-async function fetchFollowings(user_id: string, username: string) {
-  const res = await fetch(`/api/twitter/following-list?user_id=${user_id}&username=${username}`)
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || data.message || 'Failed to fetch followings')
-  if (!Array.isArray(data.users)) throw new Error('Invalid response format from server (followings)')
-  return data.users
 }

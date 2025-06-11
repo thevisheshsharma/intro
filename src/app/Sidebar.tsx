@@ -1,6 +1,7 @@
 import { UserButton } from '@clerk/nextjs'
 import SidebarMenu from './SidebarMenu'
 
+// Sidebar for navigation and user info
 interface SidebarProps {
   user: any
   profile: any
