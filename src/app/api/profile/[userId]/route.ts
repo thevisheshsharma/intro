@@ -21,6 +21,7 @@ export async function GET(
       username: null,
       full_name: null,
       email: null,
+      bio: null,
       updated_at: new Date().toISOString(),
     }
 
@@ -52,6 +53,7 @@ export async function PATCH(
       username: updates.username || null,
       full_name: updates.full_name || null,
       email: null,
+      bio: updates.bio || null,
       updated_at: new Date().toISOString(),
     }
 

@@ -1,52 +1,90 @@
-// Utility helpers for Twitter logic, extracted from page.tsx
+// Utility helpers for Twitter API interactions
+
+export interface TwitterUser {
+  name: string
+  screen_name: string
+  profile_image_url_https: string
+  description: string
+  followers_count: number
+  friends_count: number
+  location: string
+  url: string
+  verified: boolean
+  id: string
+}
 
 // Extract Twitter username from Clerk user object
 export function extractTwitterUsername(user: any): string | null {
-  // Try to extract from Clerk's public metadata or username field
   if (!user) return null
-  if (user.username) return user.username
-  if (user.publicMetadata && user.publicMetadata.twitter) return user.publicMetadata.twitter
-  return null
+  
+  // Try multiple sources for Twitter username
+  return user.username || 
+         user.publicMetadata?.twitter || 
+         null
 }
 
-// Transform Twitter user API response to table-friendly object
-export function transformTwitterUser(user: any) {
+// Transform Twitter user API response to standardized format
+export function transformTwitterUser(user: any): TwitterUser {
   return {
-    name: user.name,
-    screen_name: user.screen_name || user.username,
-    profile_image_url_https: user.profile_image_url_https || user.profile_image_url,
-    description: user.description || user.bio,
-    followers_count: user.followers_count,
-    friends_count: user.friends_count,
-    location: user.location,
-    url: user.url,
-    verified: user.verified,
-    id: user.id_str || user.id,
+    name: user.name || '',
+    screen_name: user.screen_name || user.username || '',
+    profile_image_url_https: user.profile_image_url_https || user.profile_image_url || '',
+    description: user.description || user.bio || '',
+    followers_count: user.followers_count || 0,
+    friends_count: user.friends_count || 0,
+    location: user.location || '',
+    url: user.url || '',
+    verified: Boolean(user.verified),
+    id: user.id_str || user.id || '',
   }
 }
 
+// API helper function with error handling
+async function makeTwitterApiRequest(endpoint: string, params: Record<string, string>): Promise<any> {
+  const url = new URL(`/api/twitter/${endpoint}`, window.location.origin)
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.set(key, value)
+  })
+
+  const response = await fetch(url.toString())
+  const data = await response.json()
+  
+  if (!response.ok) {
+    throw new Error(data.error || data.message || `Failed to fetch ${endpoint}`)
+  }
+  
+  return data
+}
+
 // Fetch and cache followers for a username
-export async function fetchFollowers(username: string) {
-  const res = await fetch(`/api/twitter/followers?username=${username}`)
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || data.message || 'Failed to fetch followers')
-  if (!Array.isArray(data.users)) throw new Error('Invalid response format from server (followers)')
+export async function fetchFollowers(username: string): Promise<any[]> {
+  const data = await makeTwitterApiRequest('followers', { username })
+  
+  if (!Array.isArray(data.users)) {
+    throw new Error('Invalid response format from server (followers)')
+  }
+  
   return data.users
 }
 
 // Lookup Twitter user by username
-export async function lookupTwitterUser(username: string) {
-  const res = await fetch(`/api/twitter/user-lookup?screen_name=${username}`)
-  const data = await res.json()
-  if (!res.ok || !data.id) throw new Error(data.error || data.message || 'User not found')
+export async function lookupTwitterUser(username: string): Promise<any> {
+  const data = await makeTwitterApiRequest('user-lookup', { screen_name: username })
+  
+  if (!data.id) {
+    throw new Error('User not found')
+  }
+  
   return data
 }
 
 // Fetch followings for a user_id
-export async function fetchFollowings(user_id: string, username: string) {
-  const res = await fetch(`/api/twitter/following-list?user_id=${user_id}&username=${username}`)
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || data.message || 'Failed to fetch followings')
-  if (!Array.isArray(data.users)) throw new Error('Invalid response format from server (followings)')
+export async function fetchFollowings(user_id: string, username: string): Promise<any[]> {
+  const data = await makeTwitterApiRequest('following-list', { user_id, username })
+  
+  if (!Array.isArray(data.users)) {
+    throw new Error('Invalid response format from server (followings)')
+  }
+  
   return data.users
 }

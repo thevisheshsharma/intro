@@ -73,7 +73,7 @@ export async function GET(request: Request) {
     } while (nextCursor && nextCursor !== '0')
 
     // Save all followers to cache
-    await setCachedTwitterFollowers(resolvedUsername || resolvedUserId!, { users: allFollowers }, resolvedUserId)
+    await setCachedTwitterFollowers(resolvedUsername || resolvedUserId!, { users: allFollowers }, resolvedUserId || undefined)
     return NextResponse.json({ users: allFollowers })
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to fetch Twitter data', details: error.toString() }, { status: 500 })

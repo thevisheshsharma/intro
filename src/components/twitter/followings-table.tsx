@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import clsx from 'clsx'
+import { useState, useRef, useMemo, useCallback } from 'react'
+import { cn } from '@/lib/utils'
 
 interface TwitterUser {
   id: string;
@@ -55,7 +55,7 @@ export function FollowingsTable({ followings, loading, compact = false }: Follow
 
   // Pills UI helpers
   const pillClass = (active: boolean, color: string) =>
-    clsx(
+    cn(
       'px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition border',
       active ? `bg-${color}-600 text-white border-${color}-700` : 'bg-gray-800 text-gray-300 border-gray-700',
       'hover:bg-opacity-80',
@@ -81,7 +81,7 @@ export function FollowingsTable({ followings, loading, compact = false }: Follow
         <div className="relative flex items-center h-8" style={{ minWidth: 0, width: searchOpen ? 210 : 32, transition: 'width 0.3s' }}>
           <button
             type="button"
-            className={clsx(
+            className={cn(
               'transition-all duration-300',
               (!searchOpen && 'opacity-0 group-hover:opacity-100') || (searchOpen && 'opacity-0 pointer-events-none'),
               'bg-transparent border-none p-0 m-0',
@@ -106,7 +106,7 @@ export function FollowingsTable({ followings, loading, compact = false }: Follow
           <input
             ref={searchInputRef}
             type="text"
-            className={clsx(
+            className={cn(
               'absolute text-xs left-0 top-0 h-8 text-white bg-transparent text-base transition-all duration-300',
               'border-b-2 border-blue-500', 'placeholder:text-xs',
               '!outline-none !ring-0 focus:!outline-none focus:!ring-0',
@@ -127,7 +127,7 @@ export function FollowingsTable({ followings, loading, compact = false }: Follow
         {/* Verified Icon Toggle - smaller */}
         <button
           type="button"
-          className={clsx(
+          className={cn(
             'transition',
             (showVerifiedOnly ? '' : 'opacity-0 group-hover:opacity-100'),
             'bg-transparent border-none p-0 m-0',
@@ -149,7 +149,7 @@ export function FollowingsTable({ followings, loading, compact = false }: Follow
         <div className="relative">
           <button
             type="button"
-            className={clsx(
+            className={cn(
               'transition',
               'opacity-0 group-hover:opacity-100',
               'bg-transparent border-none p-0 m-0',
@@ -168,28 +168,28 @@ export function FollowingsTable({ followings, loading, compact = false }: Follow
           {sortDropdownOpen && (
             <div className="absolute right-0 mt-2 w-44 bg-[#23272f] border border-gray-700 rounded-lg shadow-lg z-10">
               <button
-                className={clsx('w-full text-left px-4 py-2 hover:bg-gray-700 rounded-t-lg text-xs', sortBy === 'az' ? 'bg-blue-600 text-white' : 'text-gray-200')}
+                className={cn('w-full text-left px-4 py-2 hover:bg-gray-700 rounded-t-lg text-xs', sortBy === 'az' ? 'bg-blue-600 text-white' : 'text-gray-200')}
                 onClick={() => { setSortBy('az'); setSortDropdownOpen(false) }}
                 aria-label="Sort Alphabetical (A to Z)"
               >
                 Alphabetical (A → Z)
               </button>
               <button
-                className={clsx('w-full text-left px-4 py-2 hover:bg-gray-700 text-xs', sortBy === 'za' ? 'bg-blue-600 text-white' : 'text-gray-200')}
+                className={cn('w-full text-left px-4 py-2 hover:bg-gray-700 text-xs', sortBy === 'za' ? 'bg-blue-600 text-white' : 'text-gray-200')}
                 onClick={() => { setSortBy('za'); setSortDropdownOpen(false) }}
                 aria-label="Sort Alphabetical (Z to A)"
               >
                 Alphabetical (Z → A)
               </button>
               <button
-                className={clsx('w-full text-left px-4 py-2 hover:bg-gray-700 text-xs', sortBy === 'followingsHigh' ? 'bg-blue-600 text-white' : 'text-gray-200')}
+                className={cn('w-full text-left px-4 py-2 hover:bg-gray-700 text-xs', sortBy === 'followingsHigh' ? 'bg-blue-600 text-white' : 'text-gray-200')}
                 onClick={() => { setSortBy('followingsHigh'); setSortDropdownOpen(false) }}
                 aria-label="Sort Followings High to Low"
               >
                 Followings (High → Low)
               </button>
               <button
-                className={clsx('w-full text-left px-4 py-2 hover:bg-gray-700 rounded-b-lg text-xs', sortBy === 'followingsLow' ? 'bg-blue-600 text-white' : 'text-gray-200')}
+                className={cn('w-full text-left px-4 py-2 hover:bg-gray-700 rounded-b-lg text-xs', sortBy === 'followingsLow' ? 'bg-blue-600 text-white' : 'text-gray-200')}
                 onClick={() => { setSortBy('followingsLow'); setSortDropdownOpen(false) }}
                 aria-label="Sort Followings Low to High"
               >

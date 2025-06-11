@@ -230,13 +230,13 @@ export async function getGrokAnalysisStats() {
 /**
  * Clean old analysis records (optional cleanup function)
  */
-export async function cleanOldAnalysis(daysOld: number = 30) {
+export async function cleanOldAnalysis(daysOld: number = 30): Promise<number> {
   try {
     const cutoffDate = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();
     
-    const { data, error } = await supabase
+    const { count, error } = await supabase
       .from('grok_analysis')
-      .delete()
+      .delete({ count: 'exact' })
       .lt('created_at', cutoffDate);
 
     if (error) {
@@ -244,7 +244,7 @@ export async function cleanOldAnalysis(daysOld: number = 30) {
       return 0;
     }
 
-    return data?.length || 0;
+    return count || 0;
   } catch (error) {
     console.error('Error in cleanOldAnalysis:', error);
     return 0;
