@@ -36,3 +36,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# debug reports and temporary markdown files
+CLEANUP_SUMMARY.md
+DEPLOYMENT_FIX.md
+GROK_DEBUG_REPORT.md
+GROK_INTEGRATION_SIMPLIFIED.md
+GROK_INTEGRATION.md
+PRODUCTION_DEBUG_GUIDE.md
+debug-grok.sh
+test-production.sh
