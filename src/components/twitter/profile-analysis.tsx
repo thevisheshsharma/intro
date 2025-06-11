@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useUser } from '@clerk/nextjs'
 import { useGrokAnalysis } from '@/lib/hooks/useGrok'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { Bot, Briefcase, Building2, Star, User, Database, RefreshCw } from 'lucide-react'
@@ -22,12 +23,18 @@ interface ProfileAnalysisProps {
 }
 
 export function ProfileAnalysis({ user }: ProfileAnalysisProps) {
+  const { user: currentUser, isSignedIn } = useUser()
   const [analysis, setAnalysis] = useState<StructuredAnalysis | null>(null)
   const [isExpanded, setIsExpanded] = useState(false)
   const [isFromCache, setIsFromCache] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { analyze } = useGrokAnalysis()
+
+  // Don't render if user is not signed in
+  if (!isSignedIn) {
+    return null
+  }
 
   const handleAnalyze = async (forceRefresh: boolean = false) => {
     if (analysis && !forceRefresh) {
