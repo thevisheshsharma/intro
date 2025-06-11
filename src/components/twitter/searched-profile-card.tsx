@@ -1,5 +1,6 @@
 import React from 'react';
 import { TwitterProfileCard } from './profile-card';
+import { ProfileAnalysis } from './profile-analysis';
 
 interface SearchedProfileCardProps {
   user: any | null;
@@ -7,5 +8,11 @@ interface SearchedProfileCardProps {
 
 export const SearchedProfileCard: React.FC<SearchedProfileCardProps> = ({ user }) => {
   if (!user) return null;
-  return <TwitterProfileCard user={user} />;
+  
+  return (
+    <div>
+      <TwitterProfileCard user={user} />
+      <ProfileAnalysis user={user} />
+    </div>
+  );
 };

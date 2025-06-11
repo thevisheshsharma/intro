@@ -134,13 +134,15 @@ export default function Home() {
           />
           {/* Profile Card and Results Row */}
           <div className="w-full flex flex-row gap-8 items-start mt-2 h-full" style={{ minHeight: 0 }}>
-            {/* Profile Card (left, 32%) */}
+            {/* Profile Card (left, 25%) */}
             {searchedProfile && (
-              <div style={{ width: '32%', minWidth: 220, maxWidth: 320, marginTop: '45px' }} className="flex-shrink-0">
+              <div style={{ width: '25%', minWidth: 200, maxWidth: 280, marginTop: '45px' }} className="flex-shrink-0">
                 <SearchedProfileCard user={searchedProfile} />
+                
               </div>
             )}
-            {/* Results (right, remaining space) */}
+            
+            {/* Results (center, remaining space) */}
             <div className="flex-1 min-w-0 h-full overflow-y-auto pr-1">
               {searchError && (
                 <div className="w-full mt-2">

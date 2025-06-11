@@ -11,6 +11,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ user, profile, twitterUsername, collapsed, setCollapsed }: SidebarProps) {
+
   return (
     <div className={`flex flex-col justify-between h-screen border-r border-gray-700 sticky top-0 left-0 transition-all duration-300 ${collapsed ? 'w-20' : 'w-[280px]'} bg-[#181818]`} style={{ maxWidth: collapsed ? 80 : 320, minWidth: collapsed ? 80 : 280 }}>
       {/* Top Bar */}
@@ -47,6 +48,7 @@ export default function Sidebar({ user, profile, twitterUsername, collapsed, set
           )}
         </div>
         <SidebarMenu collapsed={collapsed} />
+        
         <div className="flex-1" />
         <div className={`mt-8 flex items-center ${collapsed ? 'justify-center' : ''}`}>
           <UserButton afterSignOutUrl="/" />
