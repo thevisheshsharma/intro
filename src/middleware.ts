@@ -1,31 +1,13 @@
-import { withClerkMiddleware, getAuth } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { authMiddleware } from "@clerk/nextjs";
 
-// Set the paths that don't require authentication
-const publicPaths = ["/", "/sign-in*", "/sign-up*"];
-
-const isPublic = (path: string) => {
-  return publicPaths.find(x => 
-    path.match(new RegExp(`^${x.replace('*', '.*')}$`))
-  );
-}
-
-export default withClerkMiddleware((request: NextRequest) => {
-  if (isPublic(request.nextUrl.pathname)) {
-    return NextResponse.next();
-  }
-  // if the user is not signed in redirect them to the sign in page.
-  const { userId } = getAuth(request);
-
-  if (!userId) {
-    const signInUrl = new URL('/sign-in', request.url);
-    signInUrl.searchParams.set('redirect_url', request.url);
-    return NextResponse.redirect(signInUrl);
-  }
-  return NextResponse.next();
+export default authMiddleware({
+  // Routes that can be accessed while signed out
+  publicRoutes: ["/"],
+  // Routes that can always be accessed, and have
+  // no authentication information
+  ignoredRoutes: ["/api/grok-analyze", "/api/grok-stream", "/api/grok-functions"],
 });
 
 export const config = {
-  matcher: ['/((?!.*\\..*|_next).*)', '/', '/(api|trpc)(.*)'],
+  matcher: ['/((?!.+\\.[\\w]+$|_next).*)', '/', '/(api|trpc)(.*)'],
 };

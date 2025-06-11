@@ -4,13 +4,24 @@ import { getAuth } from '@clerk/nextjs/server';
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('Grok stream POST request received');
+
+    // Check if API key is available first
+    if (!process.env.GROK_API_KEY) {
+      console.error('GROK_API_KEY environment variable is not set');
+      return NextResponse.json({ error: 'Grok API key not configured' }, { status: 500 });
+    }
+
     const { userId } = getAuth(request);
+    console.log('User ID:', userId);
     
     if (!userId) {
+      console.log('No user ID found, returning 401');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
+    console.log('Request body:', JSON.stringify(body, null, 2));
     const { 
       message, 
       context, 

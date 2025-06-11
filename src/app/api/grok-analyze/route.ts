@@ -14,13 +14,24 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('Grok analyze POST request received');
+
+    // Check if API key is available first
+    if (!process.env.GROK_API_KEY) {
+      console.error('GROK_API_KEY environment variable is not set');
+      return NextResponse.json({ error: 'Grok API key not configured' }, { status: 500 });
+    }
+
     const { userId } = getAuth(request);
+    console.log('User ID:', userId);
     
     if (!userId) {
+      console.log('No user ID found, returning 401');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
+    console.log('Request body:', JSON.stringify(body, null, 2));
     const { 
       message, 
       context, 
@@ -67,13 +78,25 @@ export async function POST(request: NextRequest) {
     } else {
       config = GROK_CONFIGS.MINI;
     }
-    
+
+    console.log('Selected config:', config);
+    console.log('Messages to send:', JSON.stringify(messages, null, 2));
+
+    console.log('Calling Grok API...');
     const completion = await createGrokChatCompletion(messages, config, { stream: false }) as OpenAI.Chat.Completions.ChatCompletion;
+    
+    console.log('Grok API response received:', {
+      model: completion.model,
+      usage: completion.usage,
+      hasContent: !!completion.choices[0]?.message?.content
+    });
 
     if (!completion.choices[0]?.message?.content) {
+      console.error('No content in Grok response:', completion);
       return NextResponse.json({ error: 'No response from Grok' }, { status: 500 });
     }
 
+    console.log('Returning successful response');
     return NextResponse.json({
       response: completion.choices[0].message.content,
       model: completion.model,
