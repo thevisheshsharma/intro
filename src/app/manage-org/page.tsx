@@ -16,6 +16,8 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { ErrorDisplay } from '@/components/ui/error-display'
 import { ICPDisplay } from '@/components/icp/icp-display'
 import { ICPEditForm } from '@/components/icp/icp-edit-form'
+import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
+import { lookupTwitterUser, transformTwitterUser } from '@/lib/twitter-helpers'
 import type { Organization, OrganizationICP } from '@/lib/organization'
 
 export default function ManageOrgPage() {
@@ -28,6 +30,7 @@ export default function ManageOrgPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [showEditForm, setShowEditForm] = useState(false)
+  const [orgTwitterProfile, setOrgTwitterProfile] = useState<any | null>(null)
   
   // Form state
   const [formData, setFormData] = useState({
@@ -87,17 +90,15 @@ export default function ManageOrgPage() {
 
   const handleSaveOrganization = async (e: React.FormEvent) => {
     e.preventDefault()
-    
     if (!formData.twitter_username) {
       setError('Twitter username is required')
       return
     }
-
     try {
       setSaving(true)
       setError(null)
       setSuccess(null)
-
+      setOrgTwitterProfile(null)
       const response = await fetch('/api/organization-icp-analysis/save', {
         method: 'POST',
         headers: {
@@ -105,15 +106,19 @@ export default function ManageOrgPage() {
         },
         body: JSON.stringify(formData)
       })
-
       const data = await response.json()
-
       if (!response.ok) {
         throw new Error(data.error || 'Failed to save organization')
       }
-
       setOrganization(data.organization)
       setSuccess('Organization saved successfully!')
+      // Fetch Twitter profile for the org
+      try {
+        const userData = await lookupTwitterUser(formData.twitter_username.replace('@', ''))
+        setOrgTwitterProfile(transformTwitterUser(userData))
+      } catch (err) {
+        setOrgTwitterProfile(null)
+      }
     } catch (error: any) {
       console.error('Error saving organization:', error)
       setError(error.message)
@@ -316,6 +321,12 @@ export default function ManageOrgPage() {
               )}
             </button>
           </form>
+
+          {orgTwitterProfile && (
+            <div className="mt-6">
+              <SearchedProfileCard user={orgTwitterProfile} />
+            </div>
+          )}
         </div>
 
         {/* ICP Analysis Section */}
