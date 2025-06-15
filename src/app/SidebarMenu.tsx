@@ -1,6 +1,9 @@
 // Sidebar menu navigation items
+import { useRouter } from 'next/navigation'
+
 interface SidebarMenuProps {
   collapsed: boolean
+  onNavigate?: (key: string) => void
 }
 
 const items = [
@@ -11,6 +14,14 @@ const items = [
       <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22.46 6c-.77.35-1.6.59-2.47.7a4.3 4.3 0 0 0 1.88-2.37 8.59 8.59 0 0 1-2.72 1.04A4.28 4.28 0 0 0 16.11 4c-2.37 0-4.29 1.92-4.29 4.29 0 .34.04.67.11.99C7.69 9.13 4.07 7.38 1.64 4.7c-.37.64-.58 1.38-.58 2.17 0 1.5.76 2.82 1.92 3.6-.71-.02-1.38-.22-1.97-.54v.05c0 2.1 1.5 3.85 3.5 4.25-.36.1-.74.16-1.13.16-.28 0-.54-.03-.8-.08.54 1.7 2.1 2.94 3.95 2.97A8.6 8.6 0 0 1 2 19.54c-.65 0-1.28-.04-1.9-.11A12.13 12.13 0 0 0 7.29 21.5c7.55 0 11.68-6.26 11.68-11.68 0-.18-.01-.36-.02-.54A8.18 8.18 0 0 0 22.46 6z" /></svg>
     ),
     active: true
+  },
+  {
+    key: 'manage-org',
+    label: 'Manage Org',
+    icon: (
+      <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+    ),
+    href: '/manage-org'
   },
   {
     key: 'events',
@@ -36,12 +47,23 @@ const items = [
 ]
 
 // Sidebar menu navigation
-export default function SidebarMenu({ collapsed }: SidebarMenuProps) {
+export default function SidebarMenu({ collapsed, onNavigate }: SidebarMenuProps) {
+  const router = useRouter()
+  
+  const handleClick = (item: typeof items[0]) => {
+    if (item.key === 'manage-org') {
+      router.push('/manage-org')
+    } else if (onNavigate) {
+      onNavigate(item.key)
+    }
+  }
+
   return (
     <nav className={`flex flex-col gap-2 text-white w-full ${collapsed ? 'items-center' : ''}`}>
       {items.map((item) => (
         <button
           key={item.key}
+          onClick={() => handleClick(item)}
           className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${collapsed ? 'justify-center' : ''} ${
             item.active || item.key === 'twitter' ? 'bg-[#343434]' : 'hover:bg-gray-800'
           } w-full text-left`}
