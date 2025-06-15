@@ -9,6 +9,7 @@ import { FollowingsTable } from '@/components/twitter/followings-table'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import Sidebar from './Sidebar'
 import SearchForm from './SearchForm'
+import ManageOrgPanel from '@/components/icp/manage-org-panel'
 import { 
   extractTwitterUsername, 
   transformTwitterUser, 
@@ -31,6 +32,7 @@ export default function Home() {
   const [contentAtTop, setContentAtTop] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [searchedProfile, setSearchedProfile] = useState<any | null>(null)
+  const [selectedPanel, setSelectedPanel] = useState<'twitter' | 'manage-org'>('twitter')
   const rightPanelRef = useRef<HTMLDivElement>(null)
 
   // --- Handlers ---
@@ -127,68 +129,71 @@ export default function Home() {
           twitterUsername={twitterUsername}
           collapsed={sidebarCollapsed}
           setCollapsed={setSidebarCollapsed}
+          selectedPanel={selectedPanel}
+          setSelectedPanel={setSelectedPanel}
         />
       )}
-      
       {/* Right Panel */}
       <div className="flex-1 flex flex-col items-center overflow-y-auto">
-        <div
-          ref={rightPanelRef}
-          className={`max-w-4xl w-full flex flex-col items-center px-4 py-8 transition-all duration-500 ${
-            contentAtTop ? 'mt-0' : 'mt-[40vh]'
-          }`}
-          style={{ 
-            transitionProperty: 'margin-top', 
-            height: 'calc(100vh - 64px)', 
-            maxHeight: '900px', 
-            minHeight: '600px' 
-          }}
-        >
-          <h2 className="text-3xl text-white mb-2 text-center">
-            Connect with your next prospect
-          </h2>
-          <p className="text-gray-300 mb-8 text-center">
-            Leverage your network, connect with anyone<br />
-            with their twitter username
-          </p>
-          
-          <SearchForm
-            value={searchUsername}
-            onChange={setSearchUsername}
-            onSubmit={handleSearchSubmit}
-            loading={followingsLoading}
-          />
-          
-          {/* Profile Card and Results Row */}
-          <div className="w-full flex flex-row gap-8 items-start mt-2 h-full" style={{ minHeight: 0 }}>
-            {/* Profile Card (left, 25%) */}
-            {searchedProfile && (
-              <div 
-                style={{ width: '25%', minWidth: 200, maxWidth: 280, marginTop: '45px' }} 
-                className="flex-shrink-0"
-              >
-                <SearchedProfileCard user={searchedProfile} />
+        {selectedPanel === 'twitter' ? (
+          <div
+            ref={rightPanelRef}
+            className={`max-w-4xl w-full flex flex-col items-center px-4 py-8 transition-all duration-500 ${
+              contentAtTop ? 'mt-0' : 'mt-[40vh]'
+            }`}
+            style={{ 
+              transitionProperty: 'margin-top', 
+              height: 'calc(100vh - 64px)', 
+              maxHeight: '900px', 
+              minHeight: '600px' 
+            }}
+          >
+            <h2 className="text-3xl text-white mb-2 text-center">
+              Connect with your next prospect
+            </h2>
+            <p className="text-gray-300 mb-8 text-center">
+              Leverage your network, connect with anyone<br />
+              with their twitter username
+            </p>
+            <SearchForm
+              value={searchUsername}
+              onChange={setSearchUsername}
+              onSubmit={handleSearchSubmit}
+              loading={followingsLoading}
+            />
+            {/* Profile Card and Results Row */}
+            <div className="w-full flex flex-row gap-8 items-start mt-2 h-full" style={{ minHeight: 0 }}>
+              {/* Profile Card (left, 25%) */}
+              {searchedProfile && (
+                <div 
+                  style={{ width: '25%', minWidth: 200, maxWidth: 280, marginTop: '45px' }} 
+                  className="flex-shrink-0"
+                >
+                  <SearchedProfileCard user={searchedProfile} />
+                </div>
+              )}
+              {/* Results (center, remaining space) */}
+              <div className="flex-1 min-w-0 h-full overflow-y-auto pr-1">
+                {searchError && (
+                  <div className="w-full mt-2">
+                    <ErrorDisplay message={searchError} compact={true} />
+                  </div>
+                )}
+                {followingsLoading ? (
+                  <div className="w-full mt-8 flex justify-center">
+                    <LoadingSpinner className="w-8 h-8" />
+                  </div>
+                ) : (
+                  <FollowingsTable followings={followings} loading={false} compact />
+                )}
               </div>
-            )}
-            
-            {/* Results (center, remaining space) */}
-            <div className="flex-1 min-w-0 h-full overflow-y-auto pr-1">
-              {searchError && (
-                <div className="w-full mt-2">
-                  <ErrorDisplay message={searchError} compact={true} />
-                </div>
-              )}
-              
-              {followingsLoading ? (
-                <div className="w-full mt-8 flex justify-center">
-                  <LoadingSpinner className="w-8 h-8" />
-                </div>
-              ) : (
-                <FollowingsTable followings={followings} loading={false} compact />
-              )}
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="w-full flex flex-col items-center px-4 py-8">
+            <ManageOrgPanel />
+          </div>
+        )}
       </div>
     </div>
   )

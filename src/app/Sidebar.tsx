@@ -4,12 +4,14 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import SidebarMenu from './SidebarMenu'
 
 // Sidebar for navigation and user info
-interface SidebarProps {
+export interface SidebarProps {
   user: any
   profile: any
   twitterUsername: string | null
   collapsed: boolean
   setCollapsed: (c: boolean | ((c: boolean) => boolean)) => void
+  selectedPanel: 'twitter' | 'manage-org'
+  setSelectedPanel: (panel: 'twitter' | 'manage-org') => void
 }
 
 const Sidebar = memo(function Sidebar({ 
@@ -17,7 +19,9 @@ const Sidebar = memo(function Sidebar({
   profile, 
   twitterUsername, 
   collapsed, 
-  setCollapsed 
+  setCollapsed,
+  selectedPanel,
+  setSelectedPanel
 }: SidebarProps) {
   const displayName = user.firstName || user.emailAddresses[0]?.emailAddress || 'User'
 
@@ -68,7 +72,11 @@ const Sidebar = memo(function Sidebar({
           )}
         </div>
         
-        <SidebarMenu collapsed={collapsed} />
+        <SidebarMenu 
+          collapsed={collapsed} 
+          selectedPanel={selectedPanel}
+          setSelectedPanel={setSelectedPanel}
+        />
         
         <div className="flex-1" />
         

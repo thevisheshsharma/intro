@@ -3,7 +3,8 @@ import { useRouter } from 'next/navigation'
 
 interface SidebarMenuProps {
   collapsed: boolean
-  onNavigate?: (key: string) => void
+  selectedPanel: 'twitter' | 'manage-org'
+  setSelectedPanel: (panel: 'twitter' | 'manage-org') => void
 }
 
 const items = [
@@ -47,14 +48,10 @@ const items = [
 ]
 
 // Sidebar menu navigation
-export default function SidebarMenu({ collapsed, onNavigate }: SidebarMenuProps) {
-  const router = useRouter()
-  
+export default function SidebarMenu({ collapsed, selectedPanel, setSelectedPanel }: SidebarMenuProps) {
   const handleClick = (item: typeof items[0]) => {
-    if (item.key === 'manage-org') {
-      router.push('/manage-org')
-    } else if (onNavigate) {
-      onNavigate(item.key)
+    if (item.key === 'twitter' || item.key === 'manage-org') {
+      setSelectedPanel(item.key as 'twitter' | 'manage-org')
     }
   }
 
@@ -65,9 +62,9 @@ export default function SidebarMenu({ collapsed, onNavigate }: SidebarMenuProps)
           key={item.key}
           onClick={() => handleClick(item)}
           className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${collapsed ? 'justify-center' : ''} ${
-            item.active || item.key === 'twitter' ? 'bg-[#343434]' : 'hover:bg-gray-800'
+            selectedPanel === item.key ? 'bg-[#343434]' : 'hover:bg-gray-800'
           } w-full text-left`}
-          style={{ minHeight: 44, background: item.active || item.key === 'twitter' ? '#343434' : 'none' }}
+          style={{ minHeight: 44, background: selectedPanel === item.key ? '#343434' : 'none' }}
         >
           {item.icon}
           {!collapsed && <span className="truncate">{item.label}</span>}
