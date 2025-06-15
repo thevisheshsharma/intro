@@ -9,6 +9,7 @@ import {
   type ICPAnalysisRequest,
   type ICPAnalysisResponse 
 } from '@/lib/organization'
+import { getOrgICPCache, setOrgICPCache } from '@/lib/grok-cache'
 
 export async function POST(request: NextRequest) {
   try {
@@ -58,6 +59,19 @@ export async function POST(request: NextRequest) {
         error: 'Failed to save organization' 
       }, { status: 500 })
     }
+
+    // --- ICP CACHE CHECK ---
+    const cachedICP = await getOrgICPCache(organization.twitter_username)
+    if (cachedICP) {
+      console.log('Returning cached ICP for org:', organization.twitter_username)
+      return NextResponse.json({
+        success: true,
+        organization,
+        icp: cachedICP,
+        usage: { cached: true }
+      })
+    }
+    // --- END ICP CACHE CHECK ---
 
     // Create comprehensive prompt for Grok live search analysis
     const searchQuery = `Research and analyze organization for comprehensive ICP (Ideal Customer Profile): Twitter @${twitterUsername.replace('@', '')}`
@@ -216,6 +230,9 @@ export async function POST(request: NextRequest) {
         error: 'Failed to save ICP analysis - database operation returned null' 
       }, { status: 500 })
     }
+
+    // Save to cache for future requests
+    await setOrgICPCache(organization.twitter_username, savedICP)
 
     // Fetch canonical ICP from DB to ensure consistency
     const canonicalICP = await getICPAnalysis(organization.id!)
