@@ -5,6 +5,7 @@ import {
   saveOrganization, 
   saveICPAnalysis, 
   updateOrganizationSocialInsights,
+  getICPAnalysis,
   type ICPAnalysisRequest,
   type ICPAnalysisResponse 
 } from '@/lib/organization'
@@ -216,12 +217,15 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
+    // Fetch canonical ICP from DB to ensure consistency
+    const canonicalICP = await getICPAnalysis(organization.id!)
+
     console.log('ICP analysis completed successfully')
 
     return NextResponse.json({
       success: true,
       organization,
-      icp: icpAnalysis,
+      icp: canonicalICP,
       usage: completion.usage
     })
 

@@ -312,7 +312,7 @@ export default function ManageOrgPage() {
                   Saving...
                 </>
               ) : (
-                'Save Organization'
+                'Find Organisation'
               )}
             </button>
           </form>

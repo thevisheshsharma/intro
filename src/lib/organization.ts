@@ -151,21 +151,22 @@ export async function saveOrganization(
       return data
     } else {
       // Create new organization
+      const orgToInsert = {
+        ...organization,
+        name: organization.name || organization.twitter_username || 'Unknown',
+        description: organization.description || 'No description provided',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
       const { data, error } = await supabase
         .from('organizations')
-        .insert({
-          ...organization,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
+        .insert(orgToInsert)
         .select()
         .single()
-
       if (error) {
         console.error('Error creating organization:', error)
         return null
       }
-
       return data
     }
   } catch (error) {
@@ -199,6 +200,29 @@ export async function getOrganizationByUserId(
     return data
   } catch (error) {
     console.error('Error fetching organization:', error)
+    return null
+  }
+}
+
+/**
+ * Get organization by user ID and Twitter username
+ */
+export async function getOrganizationByUserIdAndTwitter(userId: string, twitterUsername: string): Promise<Organization | null> {
+  try {
+    const { data, error } = await supabase
+      .from('organizations')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('twitter_username', twitterUsername.replace('@', ''))
+      .single()
+    if (error) {
+      if (error.code === 'PGRST116') return null
+      console.error('Error fetching organization by user and twitter:', error)
+      return null
+    }
+    return data
+  } catch (error) {
+    console.error('Error fetching organization by user and twitter:', error)
     return null
   }
 }
