@@ -4,9 +4,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { 
-  Building2, 
-  Twitter, 
-  Globe, 
   Bot, 
   Loader,
   AlertCircle,
@@ -216,46 +213,17 @@ export default function ManageOrgPanel() {
         Search for your organization by Twitter username and analyze your ideal customer profile
       </p>
       {/* Search Form */}
-      <div className="w-full max-w-xl mb-6">
+      <div className="w-full max-w-xl mb-0"> {/* Remove margin below search bar */}
         <SearchForm
           value={searchValue}
           onChange={setSearchValue}
           onSubmit={handleSearchSubmit}
           loading={searching}
         />
-      </div>
-      {/* Organization Details Form always visible below search */}
-      <div className="w-full max-w-xl mb-8">
-        <form onSubmit={handleSaveOrganization} className="bg-gray-800/50 border border-gray-600 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <Building2 className="w-6 h-6 text-blue-400" />
-            <h2 className="text-xl font-semibold text-white">Organization Details</h2>
-          </div>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-300 mb-2">Business Information</label>
-            <textarea
-              value={formData.business_info}
-              onChange={e => handleInputChange('business_info', e.target.value)}
-              rows={3}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none resize-none"
-              placeholder="Additional business details, target market, unique value proposition, etc."
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white px-6 py-2 rounded-lg transition-colors flex items-center gap-2"
-          >
-            {saving ? (
-              <>
-                <Loader className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              'Save Organization Info'
-            )}
-          </button>
-        </form>
+        {/* Org Profile Card directly below search bar, no gap, same width */}
+        {orgTwitterProfile && (
+          <SearchedProfileCard user={orgTwitterProfile} showQuickAnalysis={false} showQuickAnalysisButton={false} />
+        )}
       </div>
       {/* Error/Success Messages */}
       {error && (
@@ -271,11 +239,7 @@ export default function ManageOrgPanel() {
       )}
       {/* Main Content Row */}
       <div className="w-full flex flex-row gap-8 items-start mt-2 h-full max-w-4xl" style={{ minHeight: 0 }}>
-        {/* Org Profile Card (left) */}
-        <div style={{ width: '25%', minWidth: 200, maxWidth: 280, marginTop: '45px' }} className="flex-shrink-0">
-          {orgTwitterProfile && <SearchedProfileCard user={orgTwitterProfile} />}
-        </div>
-        {/* ICP Analysis & Org Details (right) */}
+        {/* ICP Analysis (right) */}
         <div className="flex-1 min-w-0 h-full overflow-y-auto pr-1">
           {/* ICP Analysis Section */}
           {organization && (

@@ -16,7 +16,7 @@ interface TwitterProfileCardProps {
 
 export const TwitterProfileCard: React.FC<TwitterProfileCardProps> = ({ user }) => {
   return (
-    <div className="bg-[#181818] border border-gray-700 rounded-xl p-4 flex flex-col items-start w-full max-w-sm shadow-lg" style={{ minWidth: 0 }}>
+    <div className="bg-[#181818] border border-gray-700 rounded-xl p-4 flex flex-col items-start w-full shadow-lg" style={{ minWidth: 0 }}>
       <div className="flex items-center gap-3 mb-2">
         <img
           src={user.profile_image_url_https}
