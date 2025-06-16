@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "lint:fix": "next lint --fix",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf .next node_modules/.cache",
+    "db:migrate": "cd migrations && for file in *.sql; do echo \"Running $file...\"; psql $DATABASE_URL -f \"$file\"; done"
   },
   "dependencies": {
     "@clerk/nextjs": "4.29.9",

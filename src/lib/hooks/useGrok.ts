@@ -1,11 +1,16 @@
 import { useState, useCallback } from 'react';
+import { ANALYSIS_TYPES, type AnalysisType } from '@/lib/constants';
 
 export interface GrokResponse {
-  response?: string;
-  model?: string;
+  response: string;
+  model: string;
   usage?: any;
-  analysisType?: string;
-  error?: string;
+  analysisType: AnalysisType;
+  config: {
+    model: string;
+    temperature: number;
+    maxTokens: number;
+  };
 }
 
 export interface GrokStreamResponse {
@@ -23,19 +28,23 @@ export interface GrokFunctionResponse {
   usage?: any;
 }
 
-// Hook for basic Grok analysis
+export interface GrokAnalysisOptions {
+  context?: string;
+  analysisType?: AnalysisType;
+  useFullModel?: boolean;
+  useFastModel?: boolean;
+}
+
+/**
+ * Hook for basic Grok analysis
+ */
 export function useGrokAnalysis() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const analyze = useCallback(async (
     message: string,
-    options?: {
-      context?: string;
-      analysisType?: 'general' | 'twitter' | 'profile' | 'content';
-      useFullModel?: boolean;
-      useFastModel?: boolean;
-    }
+    options: GrokAnalysisOptions = {}
   ): Promise<GrokResponse | null> => {
     setLoading(true);
     setError(null);
@@ -48,22 +57,25 @@ export function useGrokAnalysis() {
         },
         body: JSON.stringify({
           message,
-          context: options?.context,
-          analysisType: options?.analysisType || 'general',
-          useFullModel: options?.useFullModel ?? true,
-          useFastModel: options?.useFastModel ?? false,
+          context: options.context,
+          analysisType: options.analysisType || ANALYSIS_TYPES.GENERAL,
+          useFullModel: options.useFullModel ?? true,
+          useFastModel: options.useFastModel ?? false,
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to analyze');
+        throw new Error(errorData.error?.message || 'Failed to analyze');
       }
 
       const data = await response.json();
-      return data;
-    } catch (err: any) {
-      setError(err.message);
+      return data.success ? data.data : data;
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error 
+        ? err.message 
+        : 'An unexpected error occurred';
+      setError(errorMessage);
       return null;
     } finally {
       setLoading(false);

@@ -1,43 +1,62 @@
 import OpenAI from 'openai';
 
-// Grok API configuration
+/**
+ * Grok API client configuration
+ * Uses the official X.AI API endpoint for Grok models
+ */
 export const grokClient = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
   baseURL: 'https://api.x.ai/v1',
 });
 
-// Available Grok models - Updated for latest API
+/**
+ * Available Grok models with their specific use cases
+ */
 export const GROK_MODELS = {
-  GROK_3: 'grok-3', // Main Grok 3 model with live search
+  /** Main Grok 3 model with live search capabilities */
+  GROK_3: 'grok-3',
+  /** Grok 3 Mini - balanced performance and speed */
   GROK_3_MINI: 'grok-3-mini',
+  /** Grok 3 Mini Fast - optimized for quick responses */
   GROK_3_MINI_FAST: 'grok-3-mini-fast',
-  // Legacy support
+  /** Legacy support for latest model */
   GROK_3_LATEST: 'grok-3-latest',
 } as const;
 
-// Default configuration for different use cases
+/**
+ * Predefined configurations for different use cases
+ */
+/**
+ * Predefined configurations for different use cases
+ */
 export const GROK_CONFIGS = {
-  // For quick responses and simpler tasks
+  /** For quick responses and simpler tasks */
   MINI_FAST: {
     model: GROK_MODELS.GROK_3_MINI_FAST,
     temperature: 0.7,
     max_tokens: 1000,
   },
-  // For standard tasks with good balance of speed and quality
+  /** For standard tasks with balanced speed and quality */
   MINI: {
     model: GROK_MODELS.GROK_3_MINI,
     temperature: 0.5,
     max_tokens: 2000,
   },
-  // For detailed analysis and complex tasks with live search
+  /** For detailed analysis and complex tasks with live search */
   FULL: {
-    model: GROK_MODELS.GROK_3, // Use the main Grok 3 model for live search
+    model: GROK_MODELS.GROK_3,
     temperature: 0.3,
     max_tokens: 4000,
   },
 } as const;
 
-// Helper function to create chat completion with live search support
+/**
+ * Create a chat completion with Grok
+ * @param messages - Array of chat messages
+ * @param config - Configuration object (defaults to FULL)
+ * @param options - Additional options for the request
+ * @returns Promise<OpenAI.Chat.Completions.ChatCompletion>
+ */
 export async function createGrokChatCompletion(
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   config: typeof GROK_CONFIGS.MINI_FAST | typeof GROK_CONFIGS.MINI | typeof GROK_CONFIGS.FULL = GROK_CONFIGS.FULL,
@@ -64,12 +83,17 @@ export async function createGrokChatCompletion(
     const completion = await grokClient.chat.completions.create(params);
     return completion;
   } catch (error) {
-    console.error('Grok API Error:', error);
     throw error;
   }
 }
 
-// Helper function specifically for live search analysis
+/**
+ * Create a live search analysis using Grok
+ * @param query - The search query
+ * @param context - Additional context for the analysis
+ * @param config - Configuration object (defaults to FULL)
+ * @returns Promise<OpenAI.Chat.Completions.ChatCompletion>
+ */
 export async function createGrokLiveSearchAnalysis(
   query: string,
   context: string,
@@ -119,12 +143,16 @@ IMPORTANT: Use your live search capabilities to find current, real information a
 
     return completion;
   } catch (error) {
-    console.error('Grok Live Search Error:', error);
     throw error;
   }
 }
 
-// Helper function for streaming responses
+/**
+ * Create a streaming chat completion with Grok
+ * @param messages - Array of chat messages
+ * @param config - Configuration object (defaults to FULL)
+ * @returns Promise<Stream<OpenAI.Chat.Completions.ChatCompletionChunk>>
+ */
 export async function createGrokStreamCompletion(
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   config: typeof GROK_CONFIGS.MINI_FAST | typeof GROK_CONFIGS.MINI | typeof GROK_CONFIGS.FULL = GROK_CONFIGS.FULL
@@ -138,12 +166,17 @@ export async function createGrokStreamCompletion(
     
     return stream;
   } catch (error) {
-    console.error('Grok Stream API Error:', error);
     throw error;
   }
 }
 
-// Helper function for function calling
+/**
+ * Create a function call with Grok
+ * @param messages - Array of chat messages
+ * @param functions - Array of available functions
+ * @param config - Configuration object (defaults to FULL)
+ * @returns Promise<OpenAI.Chat.Completions.ChatCompletion>
+ */
 export async function createGrokFunctionCall(
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   functions: OpenAI.Chat.Completions.ChatCompletionCreateParams.Function[],
@@ -159,7 +192,6 @@ export async function createGrokFunctionCall(
     
     return completion;
   } catch (error) {
-    console.error('Grok Function Call Error:', error);
     throw error;
   }
 }

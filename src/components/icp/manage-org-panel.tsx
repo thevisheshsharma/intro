@@ -222,7 +222,7 @@ export default function ManageOrgPanel() {
         />
         {/* Org Profile Card directly below search bar, no gap, same width */}
         {orgTwitterProfile && (
-          <SearchedProfileCard user={orgTwitterProfile} showQuickAnalysis={false} showQuickAnalysisButton={false} />
+          <SearchedProfileCard user={orgTwitterProfile} />
         )}
       </div>
       {/* Error/Success Messages */}

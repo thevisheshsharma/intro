@@ -1,38 +1,94 @@
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase';
+import { CACHE_DURATIONS } from '@/lib/constants';
 
-// Cache Twitter user data by username or user ID
-export async function getCachedTwitterUser(identifier: string) {
-  const { data: dataByUsername, error: errorByUsername } = await supabase
+export interface TwitterUserData {
+  id: string;
+  id_str: string;
+  screen_name: string;
+  name: string;
+  description: string;
+  location?: string;
+  url?: string;
+  followers_count: number;
+  friends_count: number;
+  verified: boolean;
+  profile_image_url?: string;
+  created_at: string;
+}
+
+export interface CachedTwitterUser {
+  user_data: TwitterUserData;
+  fetched_at: string;
+}
+
+/**
+ * Check if cached data is still valid based on cache duration
+ */
+function isCacheValid(fetchedAt: string): boolean {
+  const fetchTime = new Date(fetchedAt).getTime();
+  const now = Date.now();
+  return (now - fetchTime) < CACHE_DURATIONS.TWITTER_PROFILE;
+}
+
+/**
+ * Get cached Twitter user data by username or user ID
+ * @param identifier - Username or user ID to search for
+ * @returns Cached user data if valid, null otherwise
+ */
+export async function getCachedTwitterUser(identifier: string): Promise<CachedTwitterUser | null> {
+  // Try to find by username first
+  const { data: dataByUsername } = await supabase
     .from('twitter_user_cache')
     .select('user_data, fetched_at')
-    .eq('username', identifier)
-    .single()
+    .eq('username', identifier.toLowerCase())
+    .single();
 
-  if (dataByUsername) return dataByUsername
+  if (dataByUsername && isCacheValid(dataByUsername.fetched_at)) {
+    return dataByUsername;
+  }
 
-  const { data: dataByUserId, error: errorByUserId } = await supabase
+  // Try to find by user ID
+  const { data: dataByUserId } = await supabase
     .from('twitter_user_cache')
     .select('user_data, fetched_at')
     .eq('user_id', identifier)
-    .single()
+    .single();
 
-  if (errorByUserId && errorByUsername) return null
-  return dataByUserId
+  if (dataByUserId && isCacheValid(dataByUserId.fetched_at)) {
+    return dataByUserId;
+  }
+
+  return null;
 }
 
-export async function setCachedTwitterUser(username: string, userData: any) {
-  const user_id = userData.id_str || userData.id
-  await supabase
+/**
+ * Cache Twitter user data
+ * @param username - Twitter username (without @)
+ * @param userData - User data from Twitter API
+ */
+export async function setCachedTwitterUser(username: string, userData: TwitterUserData): Promise<void> {
+  const user_id = userData.id_str || userData.id;
+  
+  const { error } = await supabase
     .from('twitter_user_cache')
     .upsert({ 
-      username, 
+      username: username.toLowerCase(), 
       user_id,
       user_data: userData, 
-      fetched_at: new Date().toISOString() 
-    })
+      fetched_at: new Date().toISOString()
+    }, {
+      onConflict: 'username'
+    });
+
+  if (error) {
+    console.error('Error caching Twitter user:', error);
+    throw new Error('Failed to cache Twitter user data');
+  }
 }
 
-// Cache Twitter followings by username or user ID
+/**
+ * Get cached Twitter followings by username or user ID
+ */
 export async function getCachedTwitterFollowings(identifier: string) {
   const { data: dataByUsername, error: errorByUsername } = await supabase
     .from('twitter_followings_cache')

@@ -38,7 +38,7 @@ export async function GET(request: Request) {
         console.error('Failed to parse user response:', responseText)
         return NextResponse.json({ error: 'Invalid response from Twitter API' }, { status: 500 })
       }
-      if (userResponse.ok && userObj.id) {
+      if (userResponse.ok && userObj?.id) {
         await setCachedTwitterUser(username, userObj)
       }
     }

@@ -1,12 +1,13 @@
-import { supabase } from './supabase'
-import crypto from 'crypto'
+import { supabase } from './supabase';
+import { CONFIDENCE_LEVELS, ANALYSIS_TYPES, type ConfidenceLevel, type AnalysisType } from './constants';
+import crypto from 'crypto';
 
 export interface StructuredAnalysis {
   role: string;
   company: string;
   expertise: string;
   summary: string;
-  confidence: 'high' | 'medium' | 'low';
+  confidence: ConfidenceLevel;
 }
 
 export interface GrokAnalysisRecord {
@@ -18,11 +19,11 @@ export interface GrokAnalysisRecord {
   company?: string;
   expertise?: string;
   summary?: string;
-  confidence?: 'high' | 'medium' | 'low';
+  confidence?: ConfidenceLevel;
   raw_profile_data?: any;
   raw_grok_response?: string;
   model_used?: string;
-  analysis_type?: string;
+  analysis_type?: AnalysisType;
   token_usage?: number;
   created_at?: string;
   updated_at?: string;
@@ -81,7 +82,7 @@ export async function saveGrokAnalysis(
       raw_profile_data: profile,
       raw_grok_response: metadata.rawResponse,
       model_used: metadata.modelUsed || 'grok-3-mini-fast',
-      analysis_type: metadata.analysisType || 'profile',
+      analysis_type: (metadata.analysisType as AnalysisType) || ANALYSIS_TYPES.PROFILE,
       token_usage: metadata.tokenUsage
     };
 

@@ -43,6 +43,17 @@ DEPLOYMENT_FIX.md
 GROK_DEBUG_REPORT.md
 GROK_INTEGRATION_SIMPLIFIED.md
 GROK_INTEGRATION.md
+GROK_LIVE_SEARCH_STATUS.md
+GROK_ERROR_FIX_SUMMARY.md
 PRODUCTION_DEBUG_GUIDE.md
 debug-grok.sh
 test-production.sh
+
+# test and utility files
+test-*.js
+test-*.mjs
+test-*.ts
+*.test.js
+*.test.ts
+run-migration.js
+add-research-fields.mjs

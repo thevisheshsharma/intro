@@ -1,113 +1,133 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createGrokChatCompletion, GROK_CONFIGS } from '@/lib/grok';
+import { ANALYSIS_TYPES, type AnalysisType } from '@/lib/constants';
+import { 
+  createSuccessResponse, 
+  createErrorResponse, 
+  ValidationError, 
+  AuthenticationError,
+  validateRequiredFields 
+} from '@/lib/api-utils';
 import { getAuth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';
 
-// Add GET method for debugging
+/**
+ * Health check endpoint
+ */
 export async function GET() {
-  return NextResponse.json({ 
+  return NextResponse.json(createSuccessResponse({
     message: 'Grok analyze endpoint is working',
     methods: ['POST'],
-    timestamp: new Date().toISOString()
-  });
+    availableAnalysisTypes: Object.values(ANALYSIS_TYPES),
+  }));
 }
+
+interface GrokAnalyzeRequest {
+  message: string;
+  context?: string;
+  analysisType?: AnalysisType;
+  useFullModel?: boolean;
+  useFastModel?: boolean;
+}
+
+/**
+ * System prompts for different analysis types
+ */
+const SYSTEM_PROMPTS: Record<AnalysisType, string> = {
+  [ANALYSIS_TYPES.GENERAL]: 'You are Grok, an AI assistant that provides helpful, accurate, and engaging responses. Be conversational but informative.',
+  [ANALYSIS_TYPES.TWITTER]: 'You are Grok, analyzing Twitter/social media data. Provide insights about user behavior, follower patterns, engagement, and social media strategy.',
+  [ANALYSIS_TYPES.PROFILE]: 'You are Grok, analyzing user profiles and social media presence. Focus on professional insights, networking opportunities, and social media optimization.',
+  [ANALYSIS_TYPES.CONTENT]: 'You are Grok, analyzing content and providing creative suggestions. Focus on content strategy, engagement optimization, and audience insights.',
+  [ANALYSIS_TYPES.ORGANIZATION]: 'You are Grok, analyzing organizations and business data. Focus on market analysis, competitive positioning, and strategic insights.',
+};
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('Grok analyze POST request received');
-
-    // Check if API key is available first
+    // Environment validation
     if (!process.env.GROK_API_KEY) {
-      console.error('GROK_API_KEY environment variable is not set');
-      return NextResponse.json({ error: 'Grok API key not configured' }, { status: 500 });
+      return NextResponse.json(
+        createErrorResponse('Grok API key not configured'),
+        { status: 500 }
+      );
     }
 
+    // Authentication
     const { userId } = getAuth(request);
-    console.log('User ID:', userId);
-    
     if (!userId) {
-      console.log('No user ID found, returning 401');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      throw new AuthenticationError();
     }
 
-    const body = await request.json();
-    console.log('Request body:', JSON.stringify(body, null, 2));
+    // Request validation
+    const body: GrokAnalyzeRequest = await request.json();
+    validateRequiredFields(body, ['message']);
+
     const { 
       message, 
       context, 
-      analysisType = 'general',
+      analysisType = ANALYSIS_TYPES.GENERAL,
       useFullModel = true,
       useFastModel = false
     } = body;
 
-    if (!message) {
-      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
+    // Validate analysis type
+    if (!Object.values(ANALYSIS_TYPES).includes(analysisType)) {
+      throw new ValidationError(`Invalid analysis type: ${analysisType}`);
     }
 
-    // Build the system prompt based on analysis type
-    const systemPrompts = {
-      general: 'You are Grok, an AI assistant that provides helpful, accurate, and engaging responses. Be conversational but informative.',
-      twitter: 'You are Grok, analyzing Twitter/social media data. Provide insights about user behavior, follower patterns, engagement, and social media strategy.',
-      profile: 'You are Grok, analyzing user profiles and social media presence. Focus on professional insights, networking opportunities, and social media optimization.',
-      content: 'You are Grok, analyzing content and providing creative suggestions. Focus on content strategy, engagement optimization, and audience insights.'
-    };
+    // Build system prompt
+    const systemPrompt = SYSTEM_PROMPTS[analysisType];
 
-    const systemPrompt = systemPrompts[analysisType as keyof typeof systemPrompts] || systemPrompts.general;
-
-    const messages = [
-      {
-        role: 'system' as const,
-        content: systemPrompt
-      },
-      ...(context ? [{
-        role: 'user' as const,
-        content: `Context: ${context}`
-      }] : []),
-      {
-        role: 'user' as const,
-        content: message
-      }
+    // Build messages array
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      ...(context ? [{ role: 'user' as const, content: `Context: ${context}` }] : []),
+      { role: 'user', content: message }
     ];
 
-    // Select the appropriate config based on user preferences
-    let config;
-    if (useFastModel) {
-      config = GROK_CONFIGS.MINI_FAST;
-    } else if (useFullModel) {
-      config = GROK_CONFIGS.FULL;
-    } else {
-      config = GROK_CONFIGS.MINI;
+    // Select configuration based on preferences
+    const config = useFastModel 
+      ? GROK_CONFIGS.MINI_FAST 
+      : useFullModel 
+        ? GROK_CONFIGS.FULL 
+        : GROK_CONFIGS.MINI;
+
+    // Make API call
+    const completion = await createGrokChatCompletion(
+      messages, 
+      config, 
+      { stream: false }
+    ) as OpenAI.Chat.Completions.ChatCompletion;
+
+    const responseContent = completion.choices[0]?.message?.content;
+    if (!responseContent) {
+      return NextResponse.json(
+        createErrorResponse('No response from Grok'),
+        { status: 500 }
+      );
     }
 
-    console.log('Selected config:', config);
-    console.log('Messages to send:', JSON.stringify(messages, null, 2));
-
-    console.log('Calling Grok API...');
-    const completion = await createGrokChatCompletion(messages, config, { stream: false }) as OpenAI.Chat.Completions.ChatCompletion;
-    
-    console.log('Grok API response received:', {
+    return NextResponse.json(createSuccessResponse({
+      response: responseContent,
       model: completion.model,
       usage: completion.usage,
-      hasContent: !!completion.choices[0]?.message?.content
-    });
-
-    if (!completion.choices[0]?.message?.content) {
-      console.error('No content in Grok response:', completion);
-      return NextResponse.json({ error: 'No response from Grok' }, { status: 500 });
-    }
-
-    console.log('Returning successful response');
-    return NextResponse.json({
-      response: completion.choices[0].message.content,
-      model: completion.model,
-      usage: completion.usage,
-      analysisType
-    });
+      analysisType,
+      config: {
+        model: config.model,
+        temperature: config.temperature,
+        maxTokens: config.max_tokens,
+      }
+    }));
 
   } catch (error: any) {
-    console.error('Grok analyze error:', error);
+    if (error instanceof ValidationError || error instanceof AuthenticationError) {
+      return NextResponse.json(
+        createErrorResponse(error),
+        { status: error.statusCode }
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Failed to analyze with Grok', details: error.message },
+      createErrorResponse('Failed to analyze with Grok', { originalError: error.message }),
       { status: 500 }
     );
   }

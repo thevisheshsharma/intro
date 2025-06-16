@@ -31,7 +31,7 @@ export async function GET(request: Request) {
         const userRes = await fetch(`https://api.socialapi.me/twitter/user/${resolvedUsername}`,
           { headers: { 'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`, 'Accept': 'application/json' } })
         userObj = await userRes.json()
-        if (userRes.ok && userObj.id) {
+        if (userRes.ok && userObj?.id) {
           await setCachedTwitterUser(resolvedUsername, userObj)
         }
       }
