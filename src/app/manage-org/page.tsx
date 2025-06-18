@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { ErrorDisplay } from '@/components/ui/error-display'
-import { ICPDisplay } from '@/components/icp/icp-display'
+import { EnhancedICPDisplay } from '@/components/icp/enhanced-icp-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { lookupTwitterUser, transformTwitterUser } from '@/lib/twitter-helpers'
 import type { Organization, OrganizationICP } from '@/lib/organization'
@@ -332,7 +332,7 @@ export default function ManageOrgPage() {
                   </button>
                 </div>
                 
-                <ICPDisplay 
+                <EnhancedICPDisplay 
                   icp={icp} 
                   onEdit={() => {}}
                   editable={false}

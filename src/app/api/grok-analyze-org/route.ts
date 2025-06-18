@@ -7,7 +7,8 @@ import {
   updateOrganizationSocialInsights,
   getICPAnalysis,
   type ICPAnalysisRequest,
-  type ICPAnalysisResponse 
+  type ICPAnalysisResponse,
+  type DetailedICPAnalysisResponse 
 } from '@/lib/organization'
 import { getOrgICPCache, setOrgICPCache } from '@/lib/grok-cache'
 
@@ -342,7 +343,7 @@ export async function POST(request: NextRequest) {
     console.log('Full Grok response length:', response.length)
 
     // Parse the JSON response
-    let icpAnalysis: ICPAnalysisResponse
+    let icpAnalysis: any
     try {
       // Try to find JSON in the response (Grok might include extra text)
       const jsonMatch = response.match(/\{[\s\S]*\}/)
@@ -357,8 +358,29 @@ export async function POST(request: NextRequest) {
     }
 
     // Update organization with social insights if found
-    if (icpAnalysis.social_insights && organization.id) {
-      await updateOrganizationSocialInsights(organization.id, icpAnalysis.social_insights)
+    if (organization.id) {
+      console.log('Updating organization with social insights')
+      
+      // Extract social insights from the detailed response
+      let socialInsights: any = {}
+      
+      if (icpAnalysis.basic_identification) {
+        socialInsights = {
+          website_url: icpAnalysis.basic_identification.website_url,
+          industry_classification: icpAnalysis.basic_identification.industry_classification,
+          estimated_company_size: icpAnalysis.governance_tokenomics?.organizational_structure?.team_structure,
+          recent_developments: icpAnalysis.ecosystem_analysis?.recent_developments?.join('; '),
+          key_partnerships: icpAnalysis.ecosystem_analysis?.notable_partnerships || [],
+          funding_info: icpAnalysis.governance_tokenomics?.organizational_structure?.funding_info
+        }
+      } else if (icpAnalysis.social_insights) {
+        // Legacy format
+        socialInsights = icpAnalysis.social_insights
+      }
+      
+      if (Object.keys(socialInsights).length > 0) {
+        await updateOrganizationSocialInsights(organization.id, socialInsights)
+      }
     }
 
     // Save ICP analysis to database

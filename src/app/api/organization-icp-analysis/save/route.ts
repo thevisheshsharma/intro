@@ -55,7 +55,14 @@ export async function POST(request: NextRequest) {
     let icpFields: Partial<OrganizationICP> | undefined
     if (body.basic_identification && body.icp_synthesis) {
       const mapped = mapNewOrgJsonToDbFields(body)
-      orgFields = { ...mapped.org, user_id: userId }
+      orgFields = { 
+        ...mapped.org, 
+        user_id: userId,
+        // Ensure required fields are present
+        name: mapped.org.name || body.twitter_username || 'Unknown',
+        twitter_username: mapped.org.twitter_username || body.twitter_username || '',
+        description: mapped.org.description || 'No description provided'
+      }
       icpFields = mapped.icp
     } else {
       // Fallback to legacy fields
