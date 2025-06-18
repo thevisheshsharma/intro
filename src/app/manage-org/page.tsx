@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { 
   Building2, 
@@ -15,7 +15,6 @@ import {
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { ErrorDisplay } from '@/components/ui/error-display'
 import { ICPDisplay } from '@/components/icp/icp-display'
-import { ICPEditForm } from '@/components/icp/icp-edit-form'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { lookupTwitterUser, transformTwitterUser } from '@/lib/twitter-helpers'
 import type { Organization, OrganizationICP } from '@/lib/organization'
@@ -29,7 +28,6 @@ export default function ManageOrgPage() {
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [showEditForm, setShowEditForm] = useState(false)
   const [orgTwitterProfile, setOrgTwitterProfile] = useState<any | null>(null)
   
   // Form state
@@ -37,11 +35,6 @@ export default function ManageOrgPage() {
     twitter_username: '',
     business_info: ''
   })
-
-  // Memoized callbacks
-  const handleEditICP = useCallback(() => {
-    setShowEditForm(true)
-  }, [])
 
   // Load existing organization data
   useEffect(() => {
@@ -162,54 +155,6 @@ export default function ManageOrgPage() {
       setError(error.message)
     } finally {
       setAnalyzing(false)
-    }
-  }
-
-  const handleSaveICPEdit = async (updatedICP: Partial<OrganizationICP>) => {
-    if (!organization?.id) return
-
-    try {
-      setSaving(true)
-      setError(null)
-
-      const response = await fetch('/api/organization-icp-analysis/save', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          organizationId: organization.id,
-          icp: {
-            target_industry: updatedICP.target_industry,
-            target_role: updatedICP.target_role,
-            company_size: updatedICP.company_size,
-            geographic_location: updatedICP.geographic_location,
-            pain_points: updatedICP.pain_points,
-            keywords: updatedICP.keywords,
-            demographics: updatedICP.demographics,
-            psychographics: icp?.psychographics,
-            behavioral_traits: icp?.behavioral_traits,
-            confidence_score: icp?.confidence_score || 0.5,
-            analysis_summary: icp?.analysis_summary || 'Custom ICP'
-          },
-          customNotes: updatedICP.custom_notes
-        })
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to save ICP')
-      }
-
-      setIcp(data.icp)
-      setShowEditForm(false)
-      setSuccess('ICP updated successfully!')
-    } catch (error: any) {
-      console.error('Error saving ICP:', error)
-      setError(error.message)
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -389,22 +334,12 @@ export default function ManageOrgPage() {
                 
                 <ICPDisplay 
                   icp={icp} 
-                  onEdit={handleEditICP}
-                  editable={true}
+                  onEdit={() => {}}
+                  editable={false}
                 />
               </div>
             )}
           </div>
-        )}
-
-        {/* Edit ICP Form Modal */}
-        {showEditForm && icp && (
-          <ICPEditForm
-            icp={icp}
-            onSave={handleSaveICPEdit}
-            onCancel={() => setShowEditForm(false)}
-            loading={saving}
-          />
         )}
       </div>
     </div>

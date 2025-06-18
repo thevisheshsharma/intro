@@ -12,7 +12,6 @@ import {
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { ErrorDisplay } from '@/components/ui/error-display'
 import { ICPDisplay } from '@/components/icp/icp-display'
-import { ICPEditForm } from '@/components/icp/icp-edit-form'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { lookupTwitterUser, transformTwitterUser } from '@/lib/twitter-helpers'
 import type { Organization, OrganizationICP } from '@/lib/organization'
@@ -35,10 +34,6 @@ export default function ManageOrgPanel() {
   })
   const [searchValue, setSearchValue] = useState('')
   const [searching, setSearching] = useState(false)
-
-  const handleEditICP = useCallback(() => {
-    setShowEditForm(true)
-  }, [])
 
   useEffect(() => {
     if (isLoaded && user) {
@@ -294,21 +289,10 @@ export default function ManageOrgPanel() {
                       )}
                     </button>
                   </div>
-                  <ICPDisplay icp={icp} onEdit={handleEditICP} editable={true} />
+                  <ICPDisplay icp={icp} editable={false} />
                 </div>
               )}
             </div>
-          )}
-          {/* Edit ICP Form Modal */}
-          {showEditForm && icp && (
-            <ICPEditForm
-              icp={icp}
-              onSave={async (updatedICP) => {
-                setShowEditForm(false)
-              }}
-              onCancel={() => setShowEditForm(false)}
-              loading={saving}
-            />
           )}
         </div>
       </div>

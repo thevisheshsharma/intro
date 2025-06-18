@@ -6,6 +6,7 @@ import {
   getOrganizationByUserIdAndTwitter,
   saveICPAnalysis,
   getICPAnalysis,
+  mapNewOrgJsonToDbFields,
   type Organization,
   type OrganizationICP 
 } from '@/lib/organization'
@@ -49,24 +50,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const body = await request.json()
-    const { twitter_username, business_info } = body
-    if (!twitter_username) {
-      return NextResponse.json({ 
-        error: 'Twitter username is required' 
-      }, { status: 400 })
+    // If the body is in the new JSON format, map it
+    let orgFields: Organization
+    let icpFields: Partial<OrganizationICP> | undefined
+    if (body.basic_identification && body.icp_synthesis) {
+      const mapped = mapNewOrgJsonToDbFields(body)
+      orgFields = { ...mapped.org, user_id: userId }
+      icpFields = mapped.icp
+    } else {
+      // Fallback to legacy fields
+      const { twitter_username, business_info } = body
+      if (!twitter_username) {
+        return NextResponse.json({ 
+          error: 'Twitter username is required' 
+        }, { status: 400 })
+      }
+      orgFields = {
+        user_id: userId,
+        twitter_username: twitter_username.replace('@', ''),
+        business_info
+      }
     }
-    const organization = await saveOrganization({
-      user_id: userId,
-      twitter_username: twitter_username.replace('@', ''),
-      business_info
-    })
+    const organization = await saveOrganization(orgFields)
     if (!organization) {
       return NextResponse.json({ 
         error: 'Failed to save organization' 
       }, { status: 500 })
     }
-    // Always return canonical org+icp after save
-    const icp = await getICPAnalysis(organization.id!)
+    // Save ICP if present in new format
+    let icp = null
+    if (icpFields) {
+      icp = await saveICPAnalysis(organization.id!, icpFields as any, {})
+    } else {
+      icp = await getICPAnalysis(organization.id!)
+    }
     return NextResponse.json({ organization, icp })
   } catch (error: any) {
     console.error('Error saving organization:', error)
