@@ -5,18 +5,7 @@ export interface Organization {
   user_id: string
   name?: string
   twitter_username: string
-  description?: string
-  business_info?: string
   website_url?: string
-  industry?: string
-  employee_count?: string
-  location?: string
-  social_links?: any
-  // New research fields from live search
-  research_sources?: any
-  recent_developments?: string
-  key_partnerships?: string[]
-  funding_info?: string
   created_at?: string
   updated_at?: string
 }
@@ -24,15 +13,7 @@ export interface Organization {
 export interface OrganizationICP {
   id?: string
   organization_id: string
-  target_industry?: string
-  target_role?: string
-  company_size?: string
-  geographic_location?: string
-  pain_points?: string[]
-  keywords?: string[]
-  demographics?: any
-  psychographics?: any
-  behavioral_traits?: any
+  // Essential metadata columns
   confidence_score?: number
   analysis_summary?: string
   grok_response?: string
@@ -48,15 +29,41 @@ export interface OrganizationICP {
     competitor_insights?: string
     search_confidence?: string
   }
+  // Enhanced structured fields (new format)
+  basic_identification?: any
+  core_metrics?: any
+  ecosystem_analysis?: any
+  governance_tokenomics?: any
+  user_behavior_insights?: any
+  icp_synthesis?: any
+  messaging_strategy?: any
+  operational_chains?: any
+  audit_info?: any
+  market_position?: any
+  technical_links?: any
+  community_links?: any
+  full_icp_json?: any
+  enhanced_format_updated_at?: string
+  legacy_columns_migrated?: boolean
   created_at?: string
   updated_at?: string
+  
+  // Legacy fields for backward compatibility (computed from structured fields when needed)
+  // These are not stored in DB anymore but computed on-the-fly for display components
+  target_industry?: string
+  target_role?: string
+  company_size?: string
+  geographic_location?: string
+  pain_points?: string[]
+  keywords?: string[]
+  demographics?: any
+  psychographics?: any
+  behavioral_traits?: any
 }
 
 export interface ICPAnalysisRequest {
   organizationName: string
   twitterUsername: string
-  description: string
-  businessInfo?: string
 }
 
 export interface ICPAnalysisResponse {
@@ -86,15 +93,6 @@ export interface ICPAnalysisResponse {
   }
   confidence_score: number
   analysis_summary: string
-  social_insights: {
-    website_url?: string
-    additional_social_links?: string[]
-    industry_classification?: string
-    estimated_company_size?: string
-    recent_developments?: string
-    key_partnerships?: string[]  
-    funding_info?: string
-  }
   research_sources: {
     twitter_analysis?: string
     website_insights?: string
@@ -207,62 +205,49 @@ export function mapNewOrgJsonToDbFields(grokResponse: DetailedICPAnalysisRespons
   org: Partial<Organization>
   icp: Partial<OrganizationICP>
 } {
-  // Extract organization fields
+  // Extract organization fields - only essential data, detailed analysis goes to ICP
   const org: Partial<Organization> = {
     name: grokResponse.basic_identification?.project_name || 'Unknown Project',
     twitter_username: grokResponse.twitter_username?.replace('@', '') || '',
-    description: grokResponse.basic_identification?.industry_classification && grokResponse.basic_identification?.protocol_category 
-      ? `${grokResponse.basic_identification.industry_classification} - ${grokResponse.basic_identification.protocol_category}`
-      : 'No description available',
-    website_url: grokResponse.basic_identification?.website_url,
-    industry: grokResponse.basic_identification?.industry_classification,
-    employee_count: grokResponse.governance_tokenomics?.organizational_structure?.team_structure || 'Not specified',
-    location: grokResponse.icp_synthesis?.demographic_profile?.geographic_distribution || 'Global',
-    social_links: {
-      ...grokResponse.basic_identification?.community_links,
-      ...grokResponse.basic_identification?.technical_links
-    },
-    research_sources: {
-      audit_info: grokResponse.core_metrics?.audit_info,
-      operational_chains: grokResponse.core_metrics?.operational_chains || [],
-      market_narratives: grokResponse.ecosystem_analysis?.market_narratives || []
-    },
-    recent_developments: grokResponse.ecosystem_analysis?.recent_developments?.join('; '),
-    key_partnerships: grokResponse.ecosystem_analysis?.notable_partnerships || [],
-    funding_info: grokResponse.governance_tokenomics?.organizational_structure?.funding_info
+    website_url: grokResponse.basic_identification?.website_url
   }
 
   // Extract and map ICP fields with proper structure
   const icp: Partial<OrganizationICP> = {
-    target_industry: grokResponse.basic_identification?.industry_classification,
-    target_role: grokResponse.icp_synthesis?.primary_user_archetypes?.join(', '),
-    company_size: grokResponse.icp_synthesis?.demographic_profile?.experience_level,
-    geographic_location: grokResponse.icp_synthesis?.demographic_profile?.geographic_distribution,
-    pain_points: grokResponse.icp_synthesis?.psychographic_drivers?.key_challenges || [],
-    keywords: grokResponse.messaging_strategy?.content_keywords || [],
-    
-    // Map to legacy structure for compatibility
-    demographics: {
-      age_range: grokResponse.icp_synthesis?.demographic_profile?.vibe_range || 'Not specified',
-      education_level: grokResponse.icp_synthesis?.demographic_profile?.experience_level || 'Not specified',
-      income_level: 'Not specified',
-      job_seniority: grokResponse.icp_synthesis?.demographic_profile?.roles?.join(', ') || 'Not specified'
+    // Store only in structured format, legacy fields will be computed
+    // Basic identification data
+    basic_identification: {
+      industry_classification: grokResponse.basic_identification?.industry_classification,
+      protocol_category: grokResponse.basic_identification?.protocol_category,
+      technical_links: grokResponse.basic_identification?.technical_links,
+      community_links: grokResponse.basic_identification?.community_links
     },
     
-    psychographics: {
-      values: grokResponse.icp_synthesis?.psychographic_drivers?.core_values || [],
-      interests: grokResponse.icp_synthesis?.psychographic_drivers?.trending_interests || [],
-      motivations: grokResponse.icp_synthesis?.psychographic_drivers?.primary_motivations || [],
-      challenges: grokResponse.icp_synthesis?.psychographic_drivers?.key_challenges || []
+    // Core customer profile synthesis
+    icp_synthesis: {
+      target_web3_segment: grokResponse.icp_synthesis?.target_web3_segment,
+      primary_user_archetypes: grokResponse.icp_synthesis?.primary_user_archetypes,
+      demographic_profile: grokResponse.icp_synthesis?.demographic_profile,
+      psychographic_drivers: grokResponse.icp_synthesis?.psychographic_drivers,
+      behavioral_indicators: grokResponse.icp_synthesis?.behavioral_indicators
     },
     
-    behavioral_traits: {
-      preferred_channels: ['Twitter', 'Discord', 'Governance Forums'], // Inferred from Web3 context
-      decision_making_style: grokResponse.user_behavior_insights?.engagement_characteristics?.decision_making_style || 'Not specified',
-      buying_behavior: grokResponse.icp_synthesis?.behavioral_indicators?.purchase_motives?.join(', ') || 'Not specified',
-      communication_style: grokResponse.messaging_strategy?.communication_style || 'Not specified'
+    // Messaging strategy
+    messaging_strategy: {
+      communication_style: grokResponse.messaging_strategy?.communication_style,
+      key_messaging_angles: grokResponse.messaging_strategy?.key_messaging_angles,
+      content_keywords: grokResponse.messaging_strategy?.content_keywords
     },
+
+    // User behavior insights
+    user_behavior_insights: grokResponse.user_behavior_insights,
     
+    // Core metrics and other structured fields
+    core_metrics: grokResponse.core_metrics,
+    ecosystem_analysis: grokResponse.ecosystem_analysis,
+    governance_tokenomics: grokResponse.governance_tokenomics,
+    
+    // Essential metadata
     confidence_score: grokResponse.confidence_score || 0,
     analysis_summary: `Target Segment: ${grokResponse.icp_synthesis?.target_web3_segment || 'Not specified'}. Key User Types: ${grokResponse.icp_synthesis?.primary_user_archetypes?.join(', ') || 'Not specified'}. Communication Style: ${grokResponse.messaging_strategy?.communication_style || 'Not specified'}`,
     
@@ -299,18 +284,12 @@ export async function saveOrganization(
     }
 
     if (existing) {
-      // Update existing organization
+      // Update existing organization - only update essential fields
       const { data, error } = await supabase
         .from('organizations')
         .update({
           name: organization.name,
-          description: organization.description,
-          business_info: organization.business_info,
           website_url: organization.website_url,
-          industry: organization.industry,
-          employee_count: organization.employee_count,
-          location: organization.location,
-          social_links: organization.social_links,
           updated_at: new Date().toISOString()
         })
         .eq('id', existing.id)
@@ -328,7 +307,6 @@ export async function saveOrganization(
       const orgToInsert = {
         ...organization,
         name: organization.name || organization.twitter_username || 'Unknown',
-        description: organization.description || 'No description provided',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }
@@ -429,23 +407,41 @@ export async function saveICPAnalysis(
         model_used: metadata.modelUsed,
         token_usage: metadata.tokenUsage,
         is_custom: metadata.isCustom || false,
-        custom_notes: metadata.customNotes
+        custom_notes: metadata.customNotes,
+        legacy_columns_migrated: true
       }
     } else if ('target_industry' in icp) {
-      // Legacy format (ICPAnalysisResponse)
-      console.log('Processing legacy ICP response format')
+      // Legacy format (ICPAnalysisResponse) - convert to structured format
+      console.log('Processing legacy ICP response format - converting to structured format')
       const legacyIcp = icp as ICPAnalysisResponse
+      
+      // Convert legacy format to structured format
       icpData = {
         organization_id: organizationId,
-        target_industry: legacyIcp.target_industry,
-        target_role: legacyIcp.target_role,
-        company_size: legacyIcp.company_size,
-        geographic_location: legacyIcp.geographic_location,
-        pain_points: legacyIcp.pain_points,
-        keywords: legacyIcp.keywords,
-        demographics: legacyIcp.demographics,
-        psychographics: legacyIcp.psychographics,
-        behavioral_traits: legacyIcp.behavioral_traits,
+        // Store in structured format
+        basic_identification: {
+          industry_classification: legacyIcp.target_industry,
+          protocol_category: legacyIcp.target_industry
+        },
+        icp_synthesis: {
+          target_web3_segment: legacyIcp.target_role,
+          primary_user_archetypes: legacyIcp.target_role ? [legacyIcp.target_role] : [],
+          demographic_profile: {
+            experience_level: legacyIcp.company_size,
+            geographic_distribution: legacyIcp.geographic_location,
+            ...legacyIcp.demographics
+          },
+          psychographic_drivers: {
+            key_challenges: legacyIcp.pain_points || [],
+            ...legacyIcp.psychographics
+          },
+          behavioral_indicators: legacyIcp.behavioral_traits
+        },
+        messaging_strategy: {
+          content_keywords: legacyIcp.keywords || [],
+          communication_style: legacyIcp.behavioral_traits?.communication_style
+        },
+        // Essential fields
         confidence_score: legacyIcp.confidence_score,
         analysis_summary: legacyIcp.analysis_summary,
         research_sources: legacyIcp.research_sources,
@@ -453,7 +449,8 @@ export async function saveICPAnalysis(
         model_used: metadata.modelUsed,
         token_usage: metadata.tokenUsage,
         is_custom: metadata.isCustom || false,
-        custom_notes: metadata.customNotes
+        custom_notes: metadata.customNotes,
+        legacy_columns_migrated: true
       }
     } else {
       // Direct OrganizationICP partial object
@@ -465,7 +462,8 @@ export async function saveICPAnalysis(
         model_used: metadata.modelUsed,
         token_usage: metadata.tokenUsage,
         is_custom: metadata.isCustom || false,
-        custom_notes: metadata.customNotes
+        custom_notes: metadata.customNotes,
+        legacy_columns_migrated: true
       }
     }
 
@@ -540,6 +538,111 @@ export async function saveICPAnalysis(
 }
 
 /**
+ * Enhanced save function that properly stores parsed sections in new structured fields
+ */
+export async function saveEnhancedICPAnalysis(
+  organizationId: string,
+  detailedResponse: DetailedICPAnalysisResponse,
+  metadata: {
+    grokResponse?: string
+    modelUsed?: string
+    tokenUsage?: number
+    isCustom?: boolean
+    customNotes?: string
+  }
+): Promise<OrganizationICP | null> {
+  try {
+    console.log('Saving enhanced ICP analysis with structured fields')
+    
+    // Parse the detailed response into legacy and enhanced format
+    const mapped = mapNewOrgJsonToDbFields(detailedResponse)
+    
+    const enhancedData = {
+      organization_id: organizationId,
+      ...mapped.icp,
+      // Store raw response
+      grok_response: metadata.grokResponse,
+      // Store parsed sections in new structured fields
+      basic_identification: detailedResponse.basic_identification,
+      core_metrics: detailedResponse.core_metrics,
+      ecosystem_analysis: detailedResponse.ecosystem_analysis,
+      governance_tokenomics: detailedResponse.governance_tokenomics,
+      user_behavior_insights: detailedResponse.user_behavior_insights,
+      icp_synthesis: detailedResponse.icp_synthesis,
+      messaging_strategy: detailedResponse.messaging_strategy,
+      operational_chains: detailedResponse.core_metrics?.operational_chains,
+      audit_info: detailedResponse.core_metrics?.audit_info,
+      market_position: detailedResponse.core_metrics?.market_position,
+      technical_links: detailedResponse.basic_identification?.technical_links,
+      community_links: detailedResponse.basic_identification?.community_links,
+      // Store complete response in full_icp_json
+      full_icp_json: detailedResponse,
+      // Metadata
+      model_used: metadata.modelUsed,
+      token_usage: metadata.tokenUsage,
+      is_custom: metadata.isCustom || false,
+      custom_notes: metadata.customNotes,
+      enhanced_format_updated_at: new Date().toISOString()
+    }
+
+    // Check if ICP already exists
+    const { data: existing, error: checkError } = await supabase
+      .from('organization_icp')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .single()
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('Error checking existing enhanced ICP:', checkError)
+      return null
+    }
+
+    if (existing) {
+      // Update existing
+      const { data, error } = await supabase
+        .from('organization_icp')
+        .update({
+          ...enhancedData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id)
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error updating enhanced ICP:', error)
+        return null
+      }
+
+      console.log('Enhanced ICP updated successfully')
+      return data
+    } else {
+      // Create new
+      const { data, error } = await supabase
+        .from('organization_icp')
+        .insert({
+          ...enhancedData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error creating enhanced ICP:', error)
+        return null
+      }
+
+      console.log('Enhanced ICP created successfully')
+      return data
+    }
+  } catch (error) {
+    console.error('Error saving enhanced ICP analysis:', error)
+    return null
+  }
+}
+
+/**
  * Get ICP analysis by organization ID
  */
 export async function getICPAnalysis(
@@ -561,7 +664,8 @@ export async function getICPAnalysis(
       return null
     }
 
-    return data
+    // Apply backward compatibility layer
+    return computeLegacyFieldsFromStructured(data)
   } catch (error) {
     console.error('Error fetching ICP analysis:', error)
     return null
@@ -569,7 +673,175 @@ export async function getICPAnalysis(
 }
 
 /**
+ * Query ICP analyses by specific criteria using the new structured fields
+ */
+export async function queryICPAnalyses(filters: {
+  userId?: string
+  industry?: string
+  protocolCategory?: string
+  targetSegment?: string
+  minConfidence?: number
+  hasAudit?: boolean
+}): Promise<OrganizationICP[]> {
+  try {
+    let query = supabase
+      .from('organization_icp')
+      .select(`
+        *,
+        organizations (
+          user_id,
+          name,
+          twitter_username
+        )
+      `)
+
+    // Apply filters
+    if (filters.userId) {
+      query = query.eq('organizations.user_id', filters.userId)
+    }
+
+    if (filters.industry) {
+      query = query.eq('basic_identification->>industry_classification', filters.industry)
+    }
+
+    if (filters.protocolCategory) {
+      query = query.eq('basic_identification->>protocol_category', filters.protocolCategory)
+    }
+
+    if (filters.targetSegment) {
+      query = query.eq('icp_synthesis->>target_web3_segment', filters.targetSegment)
+    }
+
+    if (filters.minConfidence) {
+      query = query.gte('confidence_score', filters.minConfidence)
+    }
+
+    if (filters.hasAudit) {
+      query = query.not('audit_info', 'is', null)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('Error querying ICP analyses:', error)
+      return []
+    }
+
+    // Apply backward compatibility layer to all results
+    return (data || []).map(icp => computeLegacyFieldsFromStructured(icp))
+  } catch (error) {
+    console.error('Error querying ICP analyses:', error)
+    return []
+  }
+}
+
+/**
+ * Get aggregated insights across multiple ICP analyses
+ */
+export async function getICPInsights(userId?: string): Promise<{
+  totalAnalyses: number
+  industryBreakdown: Record<string, number>
+  averageConfidence: number
+  topProtocolCategories: Array<{ category: string; count: number }>
+  recentAnalyses: OrganizationICP[]
+}> {
+  try {
+    let query = supabase
+      .from('organization_icp')
+      .select(`
+        *,
+        organizations (
+          user_id,
+          name,
+          twitter_username
+        )
+      `)
+
+    if (userId) {
+      query = query.eq('organizations.user_id', userId)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('Error getting ICP insights:', error)
+      return {
+        totalAnalyses: 0,
+        industryBreakdown: {},
+        averageConfidence: 0,
+        topProtocolCategories: [],
+        recentAnalyses: []
+      }
+    }
+
+    if (!data) return {
+      totalAnalyses: 0,
+      industryBreakdown: {},
+      averageConfidence: 0,
+      topProtocolCategories: [],
+      recentAnalyses: []
+    }
+
+    // Calculate insights
+    const industryBreakdown: Record<string, number> = {}
+    const protocolCategories: Record<string, number> = {}
+    let totalConfidence = 0
+    let confidenceCount = 0
+
+    data.forEach(icp => {
+      // Industry breakdown
+      const industry = icp.basic_identification?.industry_classification
+      if (industry) {
+        industryBreakdown[industry] = (industryBreakdown[industry] || 0) + 1
+      }
+
+      // Protocol categories
+      const category = icp.basic_identification?.protocol_category
+      if (category) {
+        protocolCategories[category] = (protocolCategories[category] || 0) + 1
+      }
+
+      // Confidence calculation
+      if (icp.confidence_score) {
+        totalConfidence += icp.confidence_score
+        confidenceCount++
+      }
+    })
+
+    // Sort top protocol categories
+    const topProtocolCategories = Object.entries(protocolCategories)
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+
+    // Get recent analyses with compatibility layer
+    const recentAnalyses = data
+      .sort((a, b) => new Date(b.updated_at || '').getTime() - new Date(a.updated_at || '').getTime())
+      .slice(0, 5)
+      .map(icp => computeLegacyFieldsFromStructured(icp))
+
+    return {
+      totalAnalyses: data.length,
+      industryBreakdown,
+      averageConfidence: confidenceCount > 0 ? totalConfidence / confidenceCount : 0,
+      topProtocolCategories,
+      recentAnalyses
+    }
+  } catch (error) {
+    console.error('Error getting ICP insights:', error)
+    return {
+      totalAnalyses: 0,
+      industryBreakdown: {},
+      averageConfidence: 0,
+      topProtocolCategories: [],
+      recentAnalyses: []
+    }
+  }
+}
+
+/**
  * Update organization with social insights from Grok
+ * Note: Only updates essential organization fields, detailed data goes to organization_icp
  */
 export async function updateOrganizationSocialInsights(
   organizationId: string,
@@ -586,36 +858,18 @@ export async function updateOrganizationSocialInsights(
   try {
     const updates: Partial<Organization> = {}
     
+    // Only update essential organization fields (redundant fields have been removed)
     if (socialInsights.website_url) {
       updates.website_url = socialInsights.website_url
     }
     
-    if (socialInsights.industry_classification) {
-      updates.industry = socialInsights.industry_classification
-    }
-    
-    if (socialInsights.estimated_company_size) {
-      updates.employee_count = socialInsights.estimated_company_size
-    }
-    
-    if (socialInsights.additional_social_links) {
-      updates.social_links = {
-        additional_links: socialInsights.additional_social_links
-      }
-    }
+    // Skip all other fields - they're now stored in organization_icp
+    // Industry, partnerships, funding info, etc. are handled in ICP analysis
 
-    // New research fields (commented out until database is updated)
-    // if (socialInsights.recent_developments) {
-    //   updates.recent_developments = socialInsights.recent_developments
-    // }
-
-    // if (socialInsights.key_partnerships) {
-    //   updates.key_partnerships = socialInsights.key_partnerships
-    // }
-
-    // if (socialInsights.funding_info) {
-    //   updates.funding_info = socialInsights.funding_info
-    // }
+    // Only update if we have something to update
+    if (Object.keys(updates).length === 0) {
+      return true
+    }
 
     const { error } = await supabase
       .from('organizations')
@@ -632,4 +886,77 @@ export async function updateOrganizationSocialInsights(
     console.error('Error updating organization social insights:', error)
     return false
   }
+}
+
+/**
+ * Compute legacy fields from structured JSONB fields for backward compatibility
+ * This allows existing display components to work without modification
+ */
+export function computeLegacyFieldsFromStructured(icp: OrganizationICP): OrganizationICP {
+  // If legacy fields are already present, return as-is
+  if (icp.target_industry || icp.target_role || icp.demographics || icp.psychographics) {
+    return icp
+  }
+
+  // Compute legacy fields from structured data
+  const computed: Partial<OrganizationICP> = {
+    ...icp
+  }
+
+  // Extract basic targeting info
+  if (icp.basic_identification) {
+    computed.target_industry = icp.basic_identification.industry_classification || 
+                               icp.basic_identification.protocol_category
+  }
+
+  // Extract target role and demographics from ICP synthesis
+  if (icp.icp_synthesis) {
+    computed.target_role = icp.icp_synthesis.primary_user_archetypes?.join(', ') ||
+                          icp.icp_synthesis.target_web3_segment
+
+    computed.company_size = icp.icp_synthesis.demographic_profile?.experience_level ||
+                           icp.icp_synthesis.demographic_profile?.vibe_range
+
+    computed.geographic_location = icp.icp_synthesis.demographic_profile?.geographic_distribution
+
+    // Map structured demographics to legacy format
+    if (icp.icp_synthesis.demographic_profile) {
+      computed.demographics = {
+        age_range: icp.icp_synthesis.demographic_profile.vibe_range || 'Not specified',
+        education_level: icp.icp_synthesis.demographic_profile.experience_level || 'Not specified',
+        income_level: 'Not specified', // Not typically in structured format
+        job_seniority: icp.icp_synthesis.demographic_profile.roles?.join(', ') || 'Not specified'
+      }
+    }
+
+    // Map structured psychographics to legacy format
+    if (icp.icp_synthesis.psychographic_drivers) {
+      computed.psychographics = {
+        values: icp.icp_synthesis.psychographic_drivers.core_values || [],
+        interests: icp.icp_synthesis.psychographic_drivers.trending_interests || [],
+        motivations: icp.icp_synthesis.psychographic_drivers.primary_motivations || [],
+        challenges: icp.icp_synthesis.psychographic_drivers.key_challenges || []
+      }
+    }
+
+    // Extract pain points
+    computed.pain_points = icp.icp_synthesis.psychographic_drivers?.key_challenges || []
+  }
+
+  // Extract behavioral traits from user behavior insights and ICP synthesis
+  if (icp.user_behavior_insights || icp.icp_synthesis?.behavioral_indicators) {
+    computed.behavioral_traits = {
+      preferred_channels: ['Twitter', 'Discord', 'Governance Forums'], // Web3 default
+      decision_making_style: icp.user_behavior_insights?.engagement_characteristics?.decision_making_style || 'Not specified',
+      buying_behavior: icp.icp_synthesis?.behavioral_indicators?.purchase_motives?.join(', ') || 'Not specified',
+      communication_style: icp.messaging_strategy?.communication_style || 'Not specified'
+    }
+  }
+
+  // Extract keywords from messaging strategy
+  if (icp.messaging_strategy) {
+    computed.keywords = icp.messaging_strategy.content_keywords || []
+  }
+
+  return computed as OrganizationICP
 }

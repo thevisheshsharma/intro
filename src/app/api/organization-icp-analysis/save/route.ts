@@ -60,13 +60,12 @@ export async function POST(request: NextRequest) {
         user_id: userId,
         // Ensure required fields are present
         name: mapped.org.name || body.twitter_username || 'Unknown',
-        twitter_username: mapped.org.twitter_username || body.twitter_username || '',
-        description: mapped.org.description || 'No description provided'
+        twitter_username: mapped.org.twitter_username || body.twitter_username || ''
       }
       icpFields = mapped.icp
     } else {
-      // Fallback to legacy fields
-      const { twitter_username, business_info } = body
+      // Fallback to legacy fields - only essential organization data
+      const { twitter_username } = body
       if (!twitter_username) {
         return NextResponse.json({ 
           error: 'Twitter username is required' 
@@ -74,8 +73,7 @@ export async function POST(request: NextRequest) {
       }
       orgFields = {
         user_id: userId,
-        twitter_username: twitter_username.replace('@', ''),
-        business_info
+        twitter_username: twitter_username.replace('@', '')
       }
     }
     const organization = await saveOrganization(orgFields)

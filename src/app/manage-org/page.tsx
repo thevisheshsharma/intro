@@ -32,8 +32,7 @@ export default function ManageOrgPage() {
   
   // Form state
   const [formData, setFormData] = useState({
-    twitter_username: '',
-    business_info: ''
+    twitter_username: ''
   })
 
   // Load existing organization data
@@ -58,8 +57,7 @@ export default function ManageOrgPage() {
       if (data.organization) {
         setOrganization(data.organization)
         setFormData({
-          twitter_username: data.organization.twitter_username || '',
-          business_info: data.organization.business_info || ''
+          twitter_username: data.organization.twitter_username || ''
         })
       }
 
@@ -137,8 +135,7 @@ export default function ManageOrgPage() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          twitterUsername: organization.twitter_username,
-          businessInfo: organization.business_info
+          twitterUsername: organization.twitter_username
         })
       })
 
@@ -236,19 +233,6 @@ export default function ManageOrgPage() {
                   />
                 </div>
               </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Business Information
-              </label>
-              <textarea
-                value={formData.business_info}
-                onChange={(e) => handleInputChange('business_info', e.target.value)}
-                rows={3}
-                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none resize-none"
-                placeholder="Additional business details, target market, unique value proposition, etc."
-              />
             </div>
 
             <button

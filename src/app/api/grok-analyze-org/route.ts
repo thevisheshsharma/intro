@@ -3,7 +3,8 @@ import { getAuth } from '@clerk/nextjs/server'
 import { createGrokLiveSearchAnalysis, GROK_CONFIGS } from '@/lib/grok'
 import { 
   saveOrganization, 
-  saveICPAnalysis, 
+  saveICPAnalysis,
+  saveEnhancedICPAnalysis,
   updateOrganizationSocialInsights,
   getICPAnalysis,
   type ICPAnalysisRequest,
@@ -38,9 +39,8 @@ export async function POST(request: NextRequest) {
     console.log('Request body:', JSON.stringify(body, null, 2))
     
     const { 
-      twitterUsername,
-      businessInfo
-    }: { twitterUsername: string, businessInfo?: string } = body
+      twitterUsername
+    }: { twitterUsername: string } = body
 
     if (!twitterUsername) {
       return NextResponse.json({ 
@@ -51,8 +51,7 @@ export async function POST(request: NextRequest) {
     // First, save the organization
     const organization = await saveOrganization({
       user_id: userId,
-      twitter_username: twitterUsername.replace('@', ''),
-      business_info: businessInfo
+      twitter_username: twitterUsername.replace('@', '')
     })
 
     if (!organization) {
@@ -90,7 +89,6 @@ export async function POST(request: NextRequest) {
       ``,
       `ORGANIZATION TO RESEARCH:`,
       `- Twitter: @${twitterUsername.replace('@', '')}`,
-      businessInfo ? `- Business Info: ${businessInfo}` : '',
       ``,
       `REQUIRED LIVE SEARCH TASKS:`,
       `You MUST use live web search to find real, current information. Perform these searches:`,
@@ -373,9 +371,6 @@ export async function POST(request: NextRequest) {
           key_partnerships: icpAnalysis.ecosystem_analysis?.notable_partnerships || [],
           funding_info: icpAnalysis.governance_tokenomics?.organizational_structure?.funding_info
         }
-      } else if (icpAnalysis.social_insights) {
-        // Legacy format
-        socialInsights = icpAnalysis.social_insights
       }
       
       if (Object.keys(socialInsights).length > 0) {
@@ -385,15 +380,32 @@ export async function POST(request: NextRequest) {
 
     // Save ICP analysis to database
     console.log('Attempting to save ICP analysis for organization:', organization.id)
-    const savedICP = await saveICPAnalysis(
-      organization.id!,
-      icpAnalysis,
-      {
-        grokResponse: response,
-        modelUsed: completion.model,
-        tokenUsage: completion.usage?.total_tokens
-      }
-    )
+    
+    // Check if this is the enhanced detailed format
+    let savedICP: any = null
+    if (icpAnalysis.basic_identification && icpAnalysis.icp_synthesis) {
+      console.log('Detected enhanced format - using saveEnhancedICPAnalysis')
+      savedICP = await saveEnhancedICPAnalysis(
+        organization.id!,
+        icpAnalysis as DetailedICPAnalysisResponse,
+        {
+          grokResponse: response,
+          modelUsed: completion.model,
+          tokenUsage: completion.usage?.total_tokens
+        }
+      )
+    } else {
+      console.log('Detected legacy format - using saveICPAnalysis')
+      savedICP = await saveICPAnalysis(
+        organization.id!,
+        icpAnalysis,
+        {
+          grokResponse: response,
+          modelUsed: completion.model,
+          tokenUsage: completion.usage?.total_tokens
+        }
+      )
+    }
 
     if (!savedICP) {
       console.error('Failed to save ICP analysis - savedICP is null')

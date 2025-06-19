@@ -29,8 +29,7 @@ export default function ManageOrgPanel() {
   const [showEditForm, setShowEditForm] = useState(false)
   const [orgTwitterProfile, setOrgTwitterProfile] = useState<any | null>(null)
   const [formData, setFormData] = useState({
-    twitter_username: '',
-    business_info: ''
+    twitter_username: ''
   })
   const [searchValue, setSearchValue] = useState('')
   const [searching, setSearching] = useState(false)
@@ -54,8 +53,7 @@ export default function ManageOrgPanel() {
       if (data.organization) {
         setOrganization(data.organization)
         setFormData({
-          twitter_username: data.organization.twitter_username || '',
-          business_info: data.organization.business_info || ''
+          twitter_username: data.organization.twitter_username || ''
         })
       }
       if (data.icp) {
@@ -128,8 +126,7 @@ export default function ManageOrgPanel() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          twitterUsername: organization.twitter_username,
-          businessInfo: organization.business_info
+          twitterUsername: organization.twitter_username
         })
       })
       const data = await response.json()
@@ -171,8 +168,7 @@ export default function ManageOrgPanel() {
       if (!response.ok) throw new Error(data.error || 'Failed to load organization')
       setOrganization(data.organization)
       setFormData({
-        twitter_username: data.organization?.twitter_username || '',
-        business_info: data.organization?.business_info || ''
+        twitter_username: data.organization?.twitter_username || ''
       })
       if (data.icp) setIcp(data.icp)
     } catch (err: any) {

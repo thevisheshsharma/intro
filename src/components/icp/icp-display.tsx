@@ -296,55 +296,6 @@ export const ICPDisplay = React.memo(function ICPDisplay({ icp, onEdit, editable
         </div>
       )}
 
-      {/* Social Insights - Enhanced */}
-      {(icp as any).social_insights && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="w-5 h-5 text-orange-400" />
-            <h4 className="text-sm font-medium text-gray-300">Company Intelligence</h4>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {(icp as any).social_insights.website_url && (
-              <div className="bg-gray-900/50 rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-2">Official Website</p>
-                <a 
-                  href={(icp as any).social_insights.website_url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:text-blue-300 text-sm underline"
-                >
-                  {(icp as any).social_insights.website_url}
-                </a>
-              </div>
-            )}
-            {(icp as any).social_insights.recent_developments && (
-              <div className="bg-gray-900/50 rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-2">Recent Developments</p>
-                <p className="text-white text-sm">{(icp as any).social_insights.recent_developments}</p>
-              </div>
-            )}
-            {Array.isArray((icp as any).social_insights.key_partnerships) && (icp as any).social_insights.key_partnerships.length > 0 && (
-              <div className="bg-gray-900/50 rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-2">Key Partnerships</p>
-                <div className="flex flex-wrap gap-1">
-                  {(icp as any).social_insights.key_partnerships.map((partnership: string, index: number) => (
-                    <span key={index} className="bg-orange-900/50 text-orange-300 px-2 py-1 rounded text-xs">
-                      {partnership}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {(icp as any).social_insights.funding_info && (
-              <div className="bg-gray-900/50 rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-2">Funding Information</p>
-                <p className="text-white text-sm">{(icp as any).social_insights.funding_info}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Custom Notes */}
       {icp.custom_notes && (
         <div className="bg-purple-900/20 border border-purple-600/50 rounded-lg p-4">
