@@ -94,8 +94,7 @@ export async function POST(request: NextRequest) {
     // Make API call
     const completion = await createGrokChatCompletion(
       messages, 
-      config, 
-      { stream: false }
+      config
     ) as OpenAI.Chat.Completions.ChatCompletion;
 
     const responseContent = completion.choices[0]?.message?.content;

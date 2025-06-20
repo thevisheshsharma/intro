@@ -23,7 +23,7 @@ interface ProfileAnalysisProps {
 }
 
 export function ProfileAnalysis({ user }: ProfileAnalysisProps) {
-  const { user: currentUser, isSignedIn } = useUser()
+  const { isSignedIn } = useUser()
   const [analysis, setAnalysis] = useState<StructuredAnalysis | null>(null)
   const [isExpanded, setIsExpanded] = useState(false)
   const [isFromCache, setIsFromCache] = useState(false)

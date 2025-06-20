@@ -9,12 +9,6 @@ export const CACHE_DURATIONS = {
   ORGANIZATION_DATA: 1000 * 60 * 60 * 6, // 6 hours
 } as const;
 
-// API rate limits
-export const RATE_LIMITS = {
-  TWITTER_API: 300, // requests per 15 minutes
-  GROK_API: 100, // requests per minute
-} as const;
-
 // Analysis confidence levels
 export const CONFIDENCE_LEVELS = {
   HIGH: 'high',
@@ -29,12 +23,6 @@ export const ANALYSIS_TYPES = {
   PROFILE: 'profile',
   CONTENT: 'content',
   ORGANIZATION: 'organization',
-} as const;
-
-// Default pagination settings
-export const PAGINATION = {
-  DEFAULT_PAGE_SIZE: 20,
-  MAX_PAGE_SIZE: 100,
 } as const;
 
 export type ConfidenceLevel = typeof CONFIDENCE_LEVELS[keyof typeof CONFIDENCE_LEVELS];

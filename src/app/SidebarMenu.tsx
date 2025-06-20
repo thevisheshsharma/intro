@@ -1,5 +1,4 @@
 // Sidebar menu navigation items
-import { useRouter } from 'next/navigation'
 
 interface SidebarMenuProps {
   collapsed: boolean

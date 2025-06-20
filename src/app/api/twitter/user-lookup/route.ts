@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
 import { getCachedTwitterUser, setCachedTwitterUser } from '@/lib/twitter-cache'
 
 export async function GET(request: Request) {

@@ -6,8 +6,6 @@ import {
   Target, 
   TrendingUp, 
   MessageSquare,
-  Brain,
-  Heart,
   Zap,
   AlertCircle,
   Globe,
@@ -18,7 +16,6 @@ import {
   BarChart3,
   DollarSign,
   Activity,
-  Layers,
   Network,
   Award
 } from 'lucide-react'

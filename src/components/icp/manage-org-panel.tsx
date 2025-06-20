@@ -1,19 +1,18 @@
 // ManageOrgPanel.tsx
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { 
   Bot, 
   Loader,
-  AlertCircle,
   CheckCircle
 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { ErrorDisplay } from '@/components/ui/error-display'
 import { EnhancedICPDisplay } from '@/components/icp/enhanced-icp-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
-import { lookupTwitterUser, transformTwitterUser } from '@/lib/twitter-helpers'
+import { lookupTwitterUser, transformTwitterUser } from '../../lib/twitter-helpers'
 import type { Organization, OrganizationICP } from '@/lib/organization'
 import SearchForm from '@/app/SearchForm'
 
@@ -22,13 +21,13 @@ export default function ManageOrgPanel() {
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [icp, setIcp] = useState<OrganizationICP | null>(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [, setSaving] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [showEditForm, setShowEditForm] = useState(false)
+  const [,] = useState(false)
   const [orgTwitterProfile, setOrgTwitterProfile] = useState<any | null>(null)
-  const [formData, setFormData] = useState({
+  const [, setFormData] = useState({
     twitter_username: ''
   })
   const [searchValue, setSearchValue] = useState('')
@@ -63,51 +62,6 @@ export default function ManageOrgPanel() {
       setError(error.message)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }))
-  }
-
-  const handleSaveOrganization = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!formData.twitter_username) {
-      setError('Twitter username is required')
-      return
-    }
-    try {
-      setSaving(true)
-      setError(null)
-      setSuccess(null)
-      setOrgTwitterProfile(null)
-      const response = await fetch('/api/organization-icp-analysis/save', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
-      })
-      const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to save organization')
-      }
-      setOrganization(data.organization)
-      setSuccess('Organization saved successfully!')
-      // Fetch Twitter profile for the org
-      try {
-        const userData = await lookupTwitterUser(formData.twitter_username.replace('@', ''))
-        setOrgTwitterProfile(transformTwitterUser(userData))
-      } catch (err) {
-        setOrgTwitterProfile(null)
-      }
-    } catch (error: any) {
-      setError(error.message)
-    } finally {
-      setSaving(false)
     }
   }
 

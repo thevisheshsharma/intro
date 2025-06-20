@@ -14,7 +14,7 @@ export class APIError extends Error {
 }
 
 export class ValidationError extends APIError {
-  constructor(message: string, field?: string) {
+  constructor(message: string, _field?: string) {
     super(message, 400, 'VALIDATION_ERROR');
     this.name = 'ValidationError';
   }
@@ -24,13 +24,6 @@ export class AuthenticationError extends APIError {
   constructor(message: string = 'Unauthorized') {
     super(message, 401, 'AUTHENTICATION_ERROR');
     this.name = 'AuthenticationError';
-  }
-}
-
-export class RateLimitError extends APIError {
-  constructor(message: string = 'Rate limit exceeded') {
-    super(message, 429, 'RATE_LIMIT_ERROR');
-    this.name = 'RateLimitError';
   }
 }
 

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import type { Profile } from '@/lib/profile'
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: { userId: string } }
 ) {
   const { userId: currentUserId } = auth()

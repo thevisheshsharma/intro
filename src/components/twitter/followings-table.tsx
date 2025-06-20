@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import { cn } from '@/lib/utils'
 
 interface TwitterUser {
@@ -18,7 +18,7 @@ interface FollowingsTableProps {
   compact?: boolean;
 }
 
-export function FollowingsTable({ followings, loading, compact = false }: FollowingsTableProps) {
+export function FollowingsTable({ followings, loading }: FollowingsTableProps) {
   const [page, setPage] = useState(1)
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false)
   const [sortBy, setSortBy] = useState<'az' | 'za' | 'followingsHigh' | 'followingsLow'>('az')
@@ -52,14 +52,6 @@ export function FollowingsTable({ followings, loading, compact = false }: Follow
 
   const totalPages = Math.ceil(filtered.length / pageSize)
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
-
-  // Pills UI helpers
-  const pillClass = (active: boolean, color: string) =>
-    cn(
-      'px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition border',
-      active ? `bg-${color}-600 text-white border-${color}-700` : 'bg-gray-800 text-gray-300 border-gray-700',
-      'hover:bg-opacity-80',
-    )
 
   if (loading) {
     return (

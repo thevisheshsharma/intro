@@ -151,7 +151,6 @@ src/
 
 ### Grok AI
 - `POST /api/grok-analyze` - Analyze content with Grok
-- `POST /api/grok-stream` - Stream responses from Grok
 - `POST /api/grok-analyze-org` - Organization-specific analysis
 
 ### Twitter

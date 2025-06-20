@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { CONFIDENCE_LEVELS, ANALYSIS_TYPES, type ConfidenceLevel, type AnalysisType } from './constants';
+import { ANALYSIS_TYPES, type ConfidenceLevel, type AnalysisType } from './constants';
 import crypto from 'crypto';
 
 export interface StructuredAnalysis {
@@ -108,47 +108,6 @@ export async function saveGrokAnalysis(
 }
 
 /**
- * Get existing Grok analysis from database
- */
-export async function getGrokAnalysis(
-  profile: TwitterProfile
-): Promise<StructuredAnalysis | null> {
-  try {
-    const profileHash = generateProfileHash(profile);
-    
-    const { data, error } = await supabase
-      .from('grok_analysis')
-      .select('*')
-      .eq('twitter_username', profile.screen_name)
-      .eq('profile_hash', profileHash)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error fetching Grok analysis:', error);
-      return null;
-    }
-
-    if (!data) {
-      return null;
-    }
-
-    // Convert database record to StructuredAnalysis
-    return {
-      role: data.role || 'Unknown',
-      company: data.company || 'Not specified',
-      expertise: data.expertise || 'Not specified',
-      summary: data.summary || 'No summary available',
-      confidence: data.confidence || 'low'
-    };
-  } catch (error) {
-    console.error('Error in getGrokAnalysis:', error);
-    return null;
-  }
-}
-
-/**
  * Check if we have a recent analysis for this profile
  * Returns cached analysis if profile hasn't changed and analysis is recent
  */
@@ -194,60 +153,4 @@ export async function getCachedGrokAnalysis(
   }
 }
 
-/**
- * Get analysis statistics
- */
-export async function getGrokAnalysisStats() {
-  try {
-    const { data, error } = await supabase
-      .from('grok_analysis')
-      .select('confidence, model_used, created_at', { count: 'exact' });
 
-    if (error) {
-      console.error('Error fetching analysis stats:', error);
-      return null;
-    }
-
-    return {
-      total: data.length,
-      byConfidence: data.reduce((acc, item) => {
-        acc[item.confidence] = (acc[item.confidence] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
-      byModel: data.reduce((acc, item) => {
-        acc[item.model_used] = (acc[item.model_used] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
-      recent: data.filter(item => 
-        new Date(item.created_at) > new Date(Date.now() - 24 * 60 * 60 * 1000)
-      ).length
-    };
-  } catch (error) {
-    console.error('Error in getGrokAnalysisStats:', error);
-    return null;
-  }
-}
-
-/**
- * Clean old analysis records (optional cleanup function)
- */
-export async function cleanOldAnalysis(daysOld: number = 30): Promise<number> {
-  try {
-    const cutoffDate = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();
-    
-    const { count, error } = await supabase
-      .from('grok_analysis')
-      .delete({ count: 'exact' })
-      .lt('created_at', cutoffDate);
-
-    if (error) {
-      console.error('Error cleaning old analysis:', error);
-      return 0;
-    }
-
-    return count || 0;
-  } catch (error) {
-    console.error('Error in cleanOldAnalysis:', error);
-    return 0;
-  }
-}

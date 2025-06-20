@@ -4,7 +4,7 @@ import OpenAI from 'openai';
  * Grok API client configuration
  * Uses the official X.AI API endpoint for Grok models
  */
-export const grokClient = new OpenAI({
+const grokClient = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
   baseURL: 'https://api.x.ai/v1',
 });
@@ -19,13 +19,8 @@ export const GROK_MODELS = {
   GROK_3_MINI: 'grok-3-mini',
   /** Grok 3 Mini Fast - optimized for quick responses */
   GROK_3_MINI_FAST: 'grok-3-mini-fast',
-  /** Legacy support for latest model */
-  GROK_3_LATEST: 'grok-3-latest',
 } as const;
 
-/**
- * Predefined configurations for different use cases
- */
 /**
  * Predefined configurations for different use cases
  */
@@ -61,7 +56,6 @@ export async function createGrokChatCompletion(
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   config: typeof GROK_CONFIGS.MINI_FAST | typeof GROK_CONFIGS.MINI | typeof GROK_CONFIGS.FULL = GROK_CONFIGS.FULL,
   options?: {
-    stream?: boolean;
     functions?: OpenAI.Chat.Completions.ChatCompletionCreateParams.Function[];
     function_call?: 'auto' | 'none' | { name: string };
     enableLiveSearch?: boolean;
@@ -74,10 +68,9 @@ export async function createGrokChatCompletion(
       ...options,
     };
 
-    // Enable live search if requested - this allows Grok to search the web in real-time
+    // Enable live search if requested
     if (options?.enableLiveSearch) {
       // Live search is enabled by default in Grok models when accessing real-time information
-      // No additional parameters needed - Grok automatically uses live search when appropriate
     }
 
     const completion = await grokClient.chat.completions.create(params);
@@ -138,7 +131,6 @@ IMPORTANT: Use your live search capabilities to find current, real information a
     const completion = await grokClient.chat.completions.create({
       ...config,
       messages,
-      // Grok automatically uses live search when appropriate based on the prompt context
     });
 
     return completion;
@@ -146,55 +138,3 @@ IMPORTANT: Use your live search capabilities to find current, real information a
     throw error;
   }
 }
-
-/**
- * Create a streaming chat completion with Grok
- * @param messages - Array of chat messages
- * @param config - Configuration object (defaults to FULL)
- * @returns Promise<Stream<OpenAI.Chat.Completions.ChatCompletionChunk>>
- */
-export async function createGrokStreamCompletion(
-  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-  config: typeof GROK_CONFIGS.MINI_FAST | typeof GROK_CONFIGS.MINI | typeof GROK_CONFIGS.FULL = GROK_CONFIGS.FULL
-) {
-  try {
-    const stream = await grokClient.chat.completions.create({
-      ...config,
-      messages,
-      stream: true,
-    });
-    
-    return stream;
-  } catch (error) {
-    throw error;
-  }
-}
-
-/**
- * Create a function call with Grok
- * @param messages - Array of chat messages
- * @param functions - Array of available functions
- * @param config - Configuration object (defaults to FULL)
- * @returns Promise<OpenAI.Chat.Completions.ChatCompletion>
- */
-export async function createGrokFunctionCall(
-  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-  functions: OpenAI.Chat.Completions.ChatCompletionCreateParams.Function[],
-  config: typeof GROK_CONFIGS.MINI_FAST | typeof GROK_CONFIGS.MINI | typeof GROK_CONFIGS.FULL = GROK_CONFIGS.FULL
-) {
-  try {
-    const completion = await grokClient.chat.completions.create({
-      ...config,
-      messages,
-      functions,
-      function_call: 'auto',
-    });
-    
-    return completion;
-  } catch (error) {
-    throw error;
-  }
-}
-
-export type GrokModel = typeof GROK_MODELS[keyof typeof GROK_MODELS];
-export type GrokConfig = typeof GROK_CONFIGS[keyof typeof GROK_CONFIGS];
