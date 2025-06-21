@@ -16,14 +16,4 @@ export const CONFIDENCE_LEVELS = {
   LOW: 'low',
 } as const;
 
-// Analysis types
-export const ANALYSIS_TYPES = {
-  GENERAL: 'general',
-  TWITTER: 'twitter',
-  PROFILE: 'profile',
-  CONTENT: 'content',
-  ORGANIZATION: 'organization',
-} as const;
-
 export type ConfidenceLevel = typeof CONFIDENCE_LEVELS[keyof typeof CONFIDENCE_LEVELS];
-export type AnalysisType = typeof ANALYSIS_TYPES[keyof typeof ANALYSIS_TYPES];

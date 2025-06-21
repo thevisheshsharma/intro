@@ -21,15 +21,10 @@ export default function ManageOrgPanel() {
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [icp, setIcp] = useState<OrganizationICP | null>(null)
   const [loading, setLoading] = useState(true)
-  const [, setSaving] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [,] = useState(false)
   const [orgTwitterProfile, setOrgTwitterProfile] = useState<any | null>(null)
-  const [, setFormData] = useState({
-    twitter_username: ''
-  })
   const [searchValue, setSearchValue] = useState('')
   const [searching, setSearching] = useState(false)
 
@@ -51,9 +46,6 @@ export default function ManageOrgPanel() {
       }
       if (data.organization) {
         setOrganization(data.organization)
-        setFormData({
-          twitter_username: data.organization.twitter_username || ''
-        })
       }
       if (data.icp) {
         setIcp(data.icp)
@@ -105,7 +97,6 @@ export default function ManageOrgPanel() {
     setOrgTwitterProfile(null)
     setOrganization(null)
     setIcp(null)
-    setSaving(false)
     setSearching(true)
     try {
       // Lookup Twitter user and org
@@ -121,9 +112,6 @@ export default function ManageOrgPanel() {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Failed to load organization')
       setOrganization(data.organization)
-      setFormData({
-        twitter_username: data.organization?.twitter_username || ''
-      })
       if (data.icp) setIcp(data.icp)
     } catch (err: any) {
       setError(err.message)

@@ -59,7 +59,7 @@ export function ProfileAnalysis({ user }: ProfileAnalysisProps) {
       if (!forceRefresh) {
         const cachedAnalysis = await getCachedGrokAnalysis(twitterProfile, 24) // 24 hours cache
         if (cachedAnalysis) {
-          console.log('Using cached analysis for', user.screen_name)
+          // Using cached analysis
           setAnalysis(cachedAnalysis)
           setIsFromCache(true)
           setIsExpanded(true)
@@ -69,7 +69,7 @@ export function ProfileAnalysis({ user }: ProfileAnalysisProps) {
       }
 
       // If no cache or force refresh, call Grok API
-      console.log('Fetching new analysis for', user.screen_name)
+      // Fetching new analysis
       
       const prompt = `Analyze this Twitter profile and provide a structured analysis in JSON format:
 
@@ -91,7 +91,7 @@ Please respond with a JSON object containing:
 Only respond with valid JSON, no other text.`
 
       const result = await analyze(prompt, {
-        analysisType: 'profile',
+        isProfileAnalysis: true,
         useFullModel: false,
         useFastModel: true
       })
@@ -113,23 +113,14 @@ Only respond with valid JSON, no other text.`
           setIsFromCache(false)
           setIsExpanded(true)
         } catch (parseError) {
-          console.error('Failed to parse analysis JSON:', parseError)
-          // Fallback to a default structure if JSON parsing fails
+          // Use raw response as summary if JSON parsing fails
           const fallbackAnalysis: StructuredAnalysis = {
             role: 'Unknown',
-            company: 'Not determined',
+            company: 'Not determined', 
             expertise: 'Not specified',
             summary: result.response,
             confidence: 'low'
           }
-          
-          // Still save the fallback analysis
-          await saveGrokAnalysis(twitterProfile, fallbackAnalysis, {
-            rawResponse: result.response,
-            modelUsed: result.model,
-            analysisType: result.analysisType,
-            tokenUsage: result.usage?.total_tokens
-          })
           
           setAnalysis(fallbackAnalysis)
           setIsFromCache(false)
@@ -137,7 +128,6 @@ Only respond with valid JSON, no other text.`
         }
       }
     } catch (err: any) {
-      console.error('Analysis error:', err)
       setError(err.message)
     } finally {
       setLoading(false)

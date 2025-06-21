@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { ANALYSIS_TYPES, type ConfidenceLevel, type AnalysisType } from './constants';
+import { type ConfidenceLevel } from './constants';
 import crypto from 'crypto';
 
 export interface StructuredAnalysis {
@@ -23,7 +23,7 @@ export interface GrokAnalysisRecord {
   raw_profile_data?: any;
   raw_grok_response?: string;
   model_used?: string;
-  analysis_type?: AnalysisType;
+  analysis_type?: 'general' | 'profile';
   token_usage?: number;
   created_at?: string;
   updated_at?: string;
@@ -64,7 +64,7 @@ export async function saveGrokAnalysis(
   metadata: {
     rawResponse?: string;
     modelUsed?: string;
-    analysisType?: string;
+    analysisType?: 'general' | 'profile';
     tokenUsage?: number;
   }
 ): Promise<GrokAnalysisRecord | null> {
@@ -82,7 +82,7 @@ export async function saveGrokAnalysis(
       raw_profile_data: profile,
       raw_grok_response: metadata.rawResponse,
       model_used: metadata.modelUsed || 'grok-3-mini-fast',
-      analysis_type: (metadata.analysisType as AnalysisType) || ANALYSIS_TYPES.PROFILE,
+      analysis_type: metadata.analysisType || 'profile',
       token_usage: metadata.tokenUsage
     };
 
@@ -138,7 +138,7 @@ export async function getCachedGrokAnalysis(
       return null;
     }
 
-    console.log(`Found cached analysis for @${profile.screen_name} (${data.created_at})`);
+    // Using cached analysis for profile
 
     return {
       role: data.role || 'Unknown',

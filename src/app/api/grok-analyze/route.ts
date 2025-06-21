@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createGrokChatCompletion, GROK_CONFIGS } from '@/lib/grok';
-import { ANALYSIS_TYPES, type AnalysisType } from '@/lib/constants';
 import { 
   createSuccessResponse, 
   createErrorResponse, 
@@ -18,28 +17,23 @@ export async function GET() {
   return NextResponse.json(createSuccessResponse({
     message: 'Grok analyze endpoint is working',
     methods: ['POST'],
-    availableAnalysisTypes: Object.values(ANALYSIS_TYPES),
+    supportedModes: ['general', 'profile'],
   }));
 }
 
 interface GrokAnalyzeRequest {
   message: string;
   context?: string;
-  analysisType?: AnalysisType;
+  isProfileAnalysis?: boolean;
   useFullModel?: boolean;
   useFastModel?: boolean;
 }
 
 /**
- * System prompts for different analysis types
+ * System prompts for different analysis modes
  */
-const SYSTEM_PROMPTS: Record<AnalysisType, string> = {
-  [ANALYSIS_TYPES.GENERAL]: 'You are Grok, an AI assistant that provides helpful, accurate, and engaging responses. Be conversational but informative.',
-  [ANALYSIS_TYPES.TWITTER]: 'You are Grok, analyzing Twitter/social media data. Provide insights about user behavior, follower patterns, engagement, and social media strategy.',
-  [ANALYSIS_TYPES.PROFILE]: 'You are Grok, analyzing user profiles and social media presence. Focus on professional insights, networking opportunities, and social media optimization.',
-  [ANALYSIS_TYPES.CONTENT]: 'You are Grok, analyzing content and providing creative suggestions. Focus on content strategy, engagement optimization, and audience insights.',
-  [ANALYSIS_TYPES.ORGANIZATION]: 'You are Grok, analyzing organizations and business data. Focus on market analysis, competitive positioning, and strategic insights.',
-};
+const GENERAL_PROMPT = 'You are Grok, an AI assistant that provides helpful, accurate, and engaging responses. Be conversational but informative.';
+const PROFILE_PROMPT = 'You are Grok, analyzing user profiles and social media presence. Focus on professional insights, networking opportunities, and social media optimization.';
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,18 +58,13 @@ export async function POST(request: NextRequest) {
     const { 
       message, 
       context, 
-      analysisType = ANALYSIS_TYPES.GENERAL,
+      isProfileAnalysis = false,
       useFullModel = true,
       useFastModel = false
     } = body;
 
-    // Validate analysis type
-    if (!Object.values(ANALYSIS_TYPES).includes(analysisType)) {
-      throw new ValidationError(`Invalid analysis type: ${analysisType}`);
-    }
-
-    // Build system prompt
-    const systemPrompt = SYSTEM_PROMPTS[analysisType];
+    // Build system prompt based on analysis mode
+    const systemPrompt = isProfileAnalysis ? PROFILE_PROMPT : GENERAL_PROMPT;
 
     // Build messages array
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -109,7 +98,7 @@ export async function POST(request: NextRequest) {
       response: responseContent,
       model: completion.model,
       usage: completion.usage,
-      analysisType,
+      analysisType: isProfileAnalysis ? 'profile' : 'general',
       config: {
         model: config.model,
         temperature: config.temperature,

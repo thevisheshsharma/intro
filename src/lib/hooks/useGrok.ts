@@ -1,11 +1,10 @@
 import { useState, useCallback } from 'react';
-import { ANALYSIS_TYPES, type AnalysisType } from '@/lib/constants';
 
 export interface GrokResponse {
   response: string;
   model: string;
   usage?: any;
-  analysisType: AnalysisType;
+  analysisType: 'general' | 'profile';
   config: {
     model: string;
     temperature: number;
@@ -15,7 +14,7 @@ export interface GrokResponse {
 
 export interface GrokAnalysisOptions {
   context?: string;
-  analysisType?: AnalysisType;
+  isProfileAnalysis?: boolean;
   useFullModel?: boolean;
   useFastModel?: boolean;
 }
@@ -43,7 +42,7 @@ export function useGrokAnalysis() {
         body: JSON.stringify({
           message,
           context: options.context,
-          analysisType: options.analysisType || ANALYSIS_TYPES.GENERAL,
+          isProfileAnalysis: options.isProfileAnalysis || false,
           useFullModel: options.useFullModel ?? true,
           useFastModel: options.useFastModel ?? false,
         }),

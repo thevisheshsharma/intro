@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
-import { createGrokLiveSearchAnalysis, GROK_CONFIGS } from '@/lib/grok'
+import { createStructuredICPAnalysis, GROK_CONFIGS } from '@/lib/grok'
 import { 
   saveOrganization, 
   saveICPAnalysis,
@@ -12,8 +12,6 @@ import {
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('Organization ICP analysis request received')
-
     // Check if API key is available
     if (!process.env.GROK_API_KEY) {
       console.error('GROK_API_KEY environment variable is not set')
@@ -22,18 +20,13 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
-    console.log('Grok API key is configured (length:', process.env.GROK_API_KEY.length, ')')
-
     const { userId } = getAuth(request)
-    console.log('User ID:', userId)
     
     if (!userId) {
-      console.log('No user ID found, returning 401')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const body = await request.json()
-    console.log('Request body:', JSON.stringify(body, null, 2))
     
     const { 
       twitterUsername
@@ -58,292 +51,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Create comprehensive prompt for Grok live search analysis
-    const searchQuery = `Research and analyze organization for comprehensive ICP (Ideal Customer Profile): Twitter @${twitterUsername.replace('@', '')}`
-    
-    const contextPrompt = [
-      `IMPORTANT: You MUST use live search for all queries. Use the most relevant platforms below for each information type. Search directly on these platforms as appropriate. See https://docs.x.ai/docs/guides/live-search for details.`,
-      ``,
-      `PLATFORMS TO SEARCH (use as relevant for each task):`,
-      `- web3_data: defillama, dune, nansen, tokenterminal, chainbase, allium, flipside, santiment, lunarcrush, apespace, footprint, bitquery, kaito, arkham, bubblemaps, coingecko, coinmarketcap, messari, thegraph, moralis, dapplooker, spindl, hypernative, coinapi, parsiq`,
-      `- social_community: x (twitter), discord, linkedin, reddit, telegram, farcaster, lens_protocol, bluesky, threads`,
-      `- web2_pr_news: google_news, crunchbase, company_website, medium, mirror.xyz, techcrunch, coindesk, prnewswire, cointelegraph, decrypt, blockworks, bloomberg, yahoo_finance`,
-      `- code_development: github, gitlab, npmjs, stackoverflow`,
-      ``,
-      `For each search, you MUST use live search and prioritize results from the above platforms. If a platform is not relevant, skip it. If no results are found on a platform, state "Not found in search".`,
-      ``,
-      `ORGANIZATION TO RESEARCH:`,
-      `- Twitter: @${twitterUsername.replace('@', '')}`,
-      ``,
-      `REQUIRED LIVE SEARCH TASKS:`,
-      `You MUST use live web search to find real, current information. Perform these searches:`,
-      ``,
-      `1. 🔍 SOCIAL MEDIA DISCOVERY:`,
-      `   - Search: "${twitterUsername} Twitter"`,
-      `   - Search: "${twitterUsername} LinkedIn company page"`,
-      `   - Search: "${twitterUsername} Discord Telegram Farcaster"`,
-      `   - Find their official website URL from social profiles`,
-      ``,
-      `2. 🔍 COMPANY INTELLIGENCE:`,
-      `   - Search: "${twitterUsername} official website about company"`,
-      `   - Search: "${twitterUsername} products services offerings"`,
-      `   - Search: "${twitterUsername} team founders employees"`,
-      `   - Search: "${twitterUsername} news press releases 2024 2025"`,
-      ``,
-      `3. 🔍 MARKET & INDUSTRY RESEARCH:`,
-      `   - Search: "${twitterUsername} industry competitors"`,
-      `   - Search: "${twitterUsername} customers testimonials reviews"`,
-      `   - Search: "${twitterUsername} pricing target market"`,
-      `   - Search industry trends related to their business`,
-      ``,
-      `4. 🔍 ONCHAIN & PROTOCOL DATA:`,
-      `   - Search: "${twitterUsername} protocol metrics TVL"`,
-      `   - Search: "${twitterUsername} active addresses, chains supported, audit info"`,
-      `   - Search: "${twitterUsername} github activity, codebase, npm packages"`,
-      ``,
-      `5. 🔍 CURRENT CONTEXT:`,
-      `   - Search: "${twitterUsername} recent news updates 2024 2025"`,
-      `   - Search: "${twitterUsername} funding investment partnerships"`,
-      `   - Search: "${twitterUsername} hiring jobs career opportunities"`,
-      ``,
-      `CRITICAL INSTRUCTIONS:`,
-      `- You MUST actually search the web for each item above using live search`,
-      `- Only use information found through live search`,
-      `- If search returns no results, clearly state "Not found in search"`,
-      `- Include specific URLs and sources you found`,
-      `- Focus on recent information (2024-2025)`,
-      ``,
-      `Based ONLY on your live search findings, create this exact JSON structure (replace all values with your findings):`,
-      ``,
-      `{"twitter_username": "@aaveaave",`,
-      ` "timestamp_utc": "2025-06-18T14:30:00Z",`,
-      ` "basic_identification": {`,
-      `   "project_name": "Aave",`,
-      `   "website_url": "https://aave.com/",`,
-      `   "industry_classification": "Decentralized Finance (DeFi)",`,
-      `   "protocol_category": "Lending & Borrowing",`,
-      `   "technical_links": {`,
-      `     "github_url": "https://github.com/aave",`,
-      `     "npmjs_url": "https://www.npmjs.com/org/aave",`,
-      `     "whitepaper_url": "https://github.com/aave/aave-protocol/blob/master/docs/Aave_Protocol_Whitepaper_v1_0.pdf"`,
-      `   },`,
-      `   "community_links": {`,
-      `     "discord": "https://aave.com/discord",`,
-      `     "telegram": "https://t.me/Aavesome",`,
-      `     "farcaster": "https://warpcast.com/aave",`,
-      `     "governance_forum": "https://governance.aave.com/"`,
-      `   }`,
-      ` },`,
-      ` "core_metrics": {`,
-      `   "key_features": [`,
-      `     "Overcollateralized Loans",`,
-      `     "Flash Loans",`,
-      `     "Variable/Stable Interest Rates",`,
-      `     "Aave Portal (Cross-Chain Bridge)"`,
-      `   ],`,
-      `   "market_position": {`,
-      `     "total_value_locked_usd": 12000000000,`,
-      `     "twitter_followers": 500000,`,
-      `     "discord_members_est": 80000,`,
-      `     "active_addresses_30d": 150000,`,
-      `     "chains_supported": 6,`,
-      `     "sentiment_score": 0.82`,
-      `   },`,
-      `   "audit_info": {`,
-      `     "auditor": "Helios",`,
-      `     "date": "2025-06",`,
-      `     "report_url": null,`,
-      `   },`,
-      `   "operational_chains": [`,
-      `     "Ethereum",`,
-      `     "Polygon",`,
-      `     "Arbitrum",`,
-      `     "Optimism",`,
-      `     "Avalanche",`,
-      `     "Metis"`,
-      `   ]`,
-      ` },`,
-      ` "ecosystem_analysis": {`,
-      `   "market_narratives": [`,
-      `     "DeFi Blue Chip",`,
-      `     "Stablecoin Launch",`,
-      `     "Cross-Chain Liquidity"`,
-      `   ],`,
-      `   "notable_partnerships": [`,
-      `     "Polygon",`,
-      `     "Arbitrum",`,
-      `     "Instadapp",`,
-      `     "RealT (Real World Assets)"`,
-      `   ],`,
-      `   "recent_developments": [`,
-      `     "Launch of GHO stablecoin",`,
-      `     "Deployment to Metis network",`,
-      `     "Development underway for Aave V4"`,
-      `   ]`,
-      ` },`,
-      ` "governance_tokenomics": {`,
-      `   "tokenomics": {`,
-      `     "native_token": "AAVE",`,
-      `     "utility": {`,
-      `       "governance": true,`,
-      `       "staking": true,`,
-      `       "fee_discount": false,`,
-      `       "collateral": true`,
-      `     },`,
-      `     "description": "AAVE is a governance and utility token used for protocol governance and staking within the Safety Module, providing a backstop in case of insolvency events."`,
-      `   },`,
-      `   "organizational_structure": {`,
-      `     "governance": "Aave is governed by a DAO where AAVE token holders can vote on Aave Improvement Proposals (AIPs).",`,
-      `     "team_structure": "Based out of NY, ~100-150 core contributors.",`,
-      `     "funding_info": "Raised $25M in 2020 from major VCs like Framework Ventures, Three Arrows Capital, and ParaFi Capital."`,
-      `   }`,
-      ` },`,
-      ` "user_behavior_insights": {`,
-      `   "onchain_activity_patterns": [`,
-      `     "Frequent lending/borrowing transactions",`,
-      `     "Participation in staking via Safety Module",`,
-      `     "Interaction with multiple DeFi protocols",`,
-      `     "Swapping assets across chains via bridges"`,
-      `   ],`,
-      `   "engagement_characteristics": {`,
-      `     "participation_style": "Active. Engages in governance, proposes strategies, and provides liquidity.",`,
-      `     "engagement_level": "High. Follows project updates closely and participates in community discussions.",`,
-      `     "decision_making_style": "Data-driven. Analyzes risk parameters, yields, and on-chain data before acting."`,
-      `   }`,
-      ` },`,
-      ` "icp_synthesis": {`,
-      `   "target_web3_segment": "Sophisticated DeFi Users & Developers",`,
-      `   "primary_user_archetypes": [`,
-      `     "DeFi Power User",`,
-      `     "Protocol Engineer",`,
-      `     "Governance DAO Voter"`,
-      `   ],`,
-      `   "demographic_profile": {`,
-      `     "vibe_range": "Boomer, Millenials, genX, genZ, genAlpha, genBeta",`,
-      `     "experience_level": "Intermediate to Expert",`,
-      `     "roles": [`,
-      `       "Trader",`,
-      `       "Yield Farmer",`,
-      `       "Developer",`,
-      `       "DAO Participant"`,
-      `     ],`,
-      `     "geographic_distribution": "Global, with hubs in North America, Europe, and East Asia."`,
-      `   },`,
-      `   "psychographic_drivers": {`,
-      `     "core_values": [`,
-      `       "Security",`,
-      `       "Capital Efficiency",`,
-      `       "Decentralization",`,
-      `       "Innovation"`,
-      `     ],`,
-      `     "primary_motivations": [`,
-      `       "Generating yield",`,
-      `       "Accessing leverage",`,
-      `       "Building new DeFi products"`,
-      `     ],`,
-      `     "key_challenges": [`,
-      `       "Managing liquidation risk",`,
-      `       "High gas fees",`,
-      `       "Cross-chain complexity"`,
-      `     ],`,
-      `     "trending_interests": [`,
-      `       "L2 Scaling Solutions",`,
-      `       "MEV",`,
-      `       "Composable Money Legos",`,
-      `       "Real World Assets (RWA)"`,
-      `     ]`,
-      `   },`,
-      `   "behavioral_indicators": {`,
-      `     "purchase_motives": [`,
-      `       "Governance voting",`,
-      `       "Staking for yield and security",`,
-      `       "Protocol loyalty"`,
-      `     ]`,
-      `   }`,
-      ` },`,
-      ` "messaging_strategy": {`,
-      `   "communication_style": "Technical, professional, and data-backed. Assumes a knowledgeable audience.",`,
-      `   "key_messaging_angles": [`,
-      `     "Highlight protocol security and audit history",`,
-      `     "Emphasize multi-chain deployment and ecosystem integration",`,
-      `     "Showcase unique use cases enabled by GHO stablecoin and Aave V4"`,
-      `   ],`,
-      `   "content_keywords": [`,
-      `     "DeFi Lending",`,
-      `     "Flash Loans",`,
-      `     "Yield Farming",`,
-      `     "AAVE Governance",`,
-      `     "GHO Stablecoin",`,
-      `     "Cross-Chain Liquidity",`,
-      `   ]`,
-      ` },`,
-      ` "confidence_score": 0.95,`,
-      ` "research_sources": [`,
-      `   "https://aave.com/",`,
-      `   "https://twitter.com/aaveaave",`,
-      `   "https://messari.io/project/aave",`,
-      `   "https://messari.io/project/aave",`,
-      `   "https://messari.io/project/aave/profile",`,
-      `   "https://dune.com/aave",`,
-      `   "https://intel.arkm.com/explorer/entity/aave",`,
-      `   "https://lunarcrush.com/discover/$aave",`,
-      `   "https://messari.io/project/aave/charts/market",`,
-      `   "https://defillama.com/protocol/aave"`,
-      `   "https://thegraph.com/explorer?search=aave"`,
-      `   "https://github.com/aave",`,
-      `   "https://governance.aave.com/"`,
-      `   "https://www.coingecko.com/en/coins/aave",`,
-      ` ]`,
-      `}`,
-      ``,
-      `FINAL REQUIREMENTS:`,
-      `- Use ONLY current, live search results from web searches`,
-      `- Include actual URLs and sources where possible`,
-      `- If specific information isn't found, state "Not found in current search results"`,
-      `- Provide confidence score based on amount of real data found vs. assumptions`,
-      `- Include the most relevant and specific search sources in research_sources`,
-      ``,
-      `SEARCH EVIDENCE REQUIRED:`,
-      `Every field must be filled based on actual search results, not assumptions. If you cannot find specific information through your searches, clearly indicate this limitation.`,
-      ``,
-      `Respond with ONLY the JSON object, no additional text.`
-    ].filter(Boolean).join('\n');
-
-    console.log('Performing live search analysis with Grok...')
-    const completion = await createGrokLiveSearchAnalysis(
-      searchQuery,
-      contextPrompt,
-      GROK_CONFIGS.FULL // Use full model for comprehensive live search analysis
+    const icpAnalysis = await createStructuredICPAnalysis(
+      twitterUsername.replace('@', ''),
+      GROK_CONFIGS.FULL // Use full model for comprehensive analysis
     )
-
-    const response = completion.choices[0]?.message?.content
-    if (!response) {
-      console.error('No response from Grok API - completion:', JSON.stringify(completion, null, 2))
-      throw new Error('No response from Grok API')
-    }
-
-    console.log('Grok response received:', response.substring(0, 200) + '...')
-    console.log('Full Grok response length:', response.length)
-
-    // Parse the JSON response
-    let icpAnalysis: any
-    try {
-      // Try to find JSON in the response (Grok might include extra text)
-      const jsonMatch = response.match(/\{[\s\S]*\}/)
-      const jsonString = jsonMatch ? jsonMatch[0] : response.trim()
-      
-      console.log('Attempting to parse JSON:', jsonString.substring(0, 200) + '...')
-      icpAnalysis = JSON.parse(jsonString)
-    } catch (parseError) {
-      console.error('Failed to parse Grok response as JSON:', parseError)
-      console.error('Raw response:', response)
-      throw new Error(`Invalid JSON response from Grok API: ${parseError}`)
-    }
 
     // Update organization with social insights if found
     if (organization.id) {
-      console.log('Updating organization with social insights')
-      
-      // Extract social insights from the detailed response
+      // Extract social insights from the structured response
       let socialInsights: any = {}
       
       if (icpAnalysis.basic_identification) {
@@ -363,33 +78,79 @@ export async function POST(request: NextRequest) {
     }
 
     // Save ICP analysis to database
-    console.log('Attempting to save ICP analysis for organization:', organization.id)
+    console.log('Attempting to save enhanced ICP analysis for organization:', organization.id)
     
-    // Check if this is the enhanced detailed format
-    let savedICP: any = null
-    if (icpAnalysis.basic_identification && icpAnalysis.icp_synthesis) {
-      console.log('Detected enhanced format - using saveEnhancedICPAnalysis')
-      savedICP = await saveEnhancedICPAnalysis(
-        organization.id!,
-        icpAnalysis as DetailedICPAnalysisResponse,
-        {
-          grokResponse: response,
-          modelUsed: completion.model,
-          tokenUsage: completion.usage?.total_tokens
+    // Convert structured output to expected format
+    const detailedResponse: DetailedICPAnalysisResponse = {
+      twitter_username: icpAnalysis.twitter_username,
+      timestamp_utc: icpAnalysis.timestamp_utc,
+      basic_identification: {
+        project_name: icpAnalysis.basic_identification.project_name,
+        website_url: icpAnalysis.basic_identification.website_url || '',
+        industry_classification: icpAnalysis.basic_identification.industry_classification,
+        protocol_category: icpAnalysis.basic_identification.protocol_category || '',
+        technical_links: {
+          github_url: icpAnalysis.basic_identification.technical_links.github_url || undefined,
+          npmjs_url: icpAnalysis.basic_identification.technical_links.npmjs_url || undefined,
+          whitepaper_url: icpAnalysis.basic_identification.technical_links.whitepaper_url || undefined
+        },
+        community_links: {
+          discord: icpAnalysis.basic_identification.community_links.discord || undefined,
+          telegram: icpAnalysis.basic_identification.community_links.telegram || undefined,
+          farcaster: icpAnalysis.basic_identification.community_links.farcaster || undefined,
+          governance_forum: icpAnalysis.basic_identification.community_links.governance_forum || undefined
         }
-      )
-    } else {
-      console.log('Detected legacy format - using saveICPAnalysis')
-      savedICP = await saveICPAnalysis(
-        organization.id!,
-        icpAnalysis,
-        {
-          grokResponse: response,
-          modelUsed: completion.model,
-          tokenUsage: completion.usage?.total_tokens
+      },
+      core_metrics: {
+        key_features: icpAnalysis.core_metrics.key_features,
+        market_position: {
+          total_value_locked_usd: icpAnalysis.core_metrics.market_position.total_value_locked_usd || undefined,
+          twitter_followers: icpAnalysis.core_metrics.market_position.twitter_followers || undefined,
+          discord_members_est: icpAnalysis.core_metrics.market_position.discord_members_est || undefined,
+          active_addresses_30d: icpAnalysis.core_metrics.market_position.active_addresses_30d || undefined,
+          chains_supported: icpAnalysis.core_metrics.market_position.chains_supported || undefined,
+          sentiment_score: icpAnalysis.core_metrics.market_position.sentiment_score || undefined
+        },
+        audit_info: {
+          auditor: icpAnalysis.core_metrics.audit_info.auditor || undefined,
+          date: icpAnalysis.core_metrics.audit_info.date || undefined,
+          report_url: icpAnalysis.core_metrics.audit_info.report_url || undefined
+        },
+        operational_chains: icpAnalysis.core_metrics.operational_chains
+      },
+      ecosystem_analysis: icpAnalysis.ecosystem_analysis,
+      governance_tokenomics: {
+        tokenomics: icpAnalysis.governance_tokenomics.tokenomics ? {
+          native_token: icpAnalysis.governance_tokenomics.tokenomics.native_token || '',
+          utility: icpAnalysis.governance_tokenomics.tokenomics.utility,
+          description: icpAnalysis.governance_tokenomics.tokenomics.description
+        } : {
+          native_token: '',
+          utility: { governance: false, staking: false, fee_discount: false, collateral: false },
+          description: ''
+        },
+        organizational_structure: {
+          governance: icpAnalysis.governance_tokenomics.organizational_structure.governance,
+          team_structure: icpAnalysis.governance_tokenomics.organizational_structure.team_structure,
+          funding_info: icpAnalysis.governance_tokenomics.organizational_structure.funding_info || ''
         }
-      )
+      },
+      user_behavior_insights: icpAnalysis.user_behavior_insights,
+      icp_synthesis: icpAnalysis.icp_synthesis,
+      messaging_strategy: icpAnalysis.messaging_strategy,
+      confidence_score: icpAnalysis.confidence_score,
+      research_sources: icpAnalysis.research_sources
     }
+    
+    const savedICP = await saveEnhancedICPAnalysis(
+      organization.id!,
+      detailedResponse,
+      {
+        grokResponse: JSON.stringify(icpAnalysis),
+        modelUsed: 'grok-3', // Default model used for structured outputs
+        tokenUsage: undefined // Token usage not available in structured format
+      }
+    )
 
     if (!savedICP) {
       console.error('Failed to save ICP analysis - savedICP is null')
@@ -409,7 +170,7 @@ export async function POST(request: NextRequest) {
       success: true,
       organization,
       icp: canonicalICP,
-      usage: completion.usage
+      usage: undefined // Token usage not available in structured output
     })
 
   } catch (error: any) {

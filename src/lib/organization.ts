@@ -398,7 +398,7 @@ export async function saveICPAnalysis(
 
     // Check if this is a detailed Grok response (new format)
     if ('basic_identification' in icp && 'icp_synthesis' in icp) {
-      console.log('Processing detailed Grok response format')
+      // Processing detailed Grok response format
       const mapped = mapNewOrgJsonToDbFields(icp as DetailedICPAnalysisResponse)
       icpData = {
         organization_id: organizationId,
@@ -412,7 +412,7 @@ export async function saveICPAnalysis(
       }
     } else if ('target_industry' in icp) {
       // Legacy format (ICPAnalysisResponse) - convert to structured format
-      console.log('Processing legacy ICP response format - converting to structured format')
+      // Processing legacy ICP response format - converting to structured format
       const legacyIcp = icp as ICPAnalysisResponse
       
       // Convert legacy format to structured format
@@ -454,7 +454,7 @@ export async function saveICPAnalysis(
       }
     } else {
       // Direct OrganizationICP partial object
-      console.log('Processing direct OrganizationICP object')
+      // Processing direct OrganizationICP object
       icpData = {
         organization_id: organizationId,
         ...icp,
@@ -468,7 +468,7 @@ export async function saveICPAnalysis(
     }
 
     // Check if ICP already exists for this organization
-    console.log('Checking for existing ICP for organization:', organizationId)
+    // Checking for existing ICP for organization
     const { data: existing, error: checkError } = await supabase
       .from('organization_icp')
       .select('*')
@@ -482,11 +482,11 @@ export async function saveICPAnalysis(
       return null
     }
 
-    console.log('Existing ICP found:', !!existing)
+    // Existing ICP found status: !!existing
 
     if (existing) {
       // Update existing ICP
-      console.log('Updating existing ICP with ID:', existing.id)
+      // Updating existing ICP
       const { data, error } = await supabase
         .from('organization_icp')
         .update({
@@ -505,11 +505,11 @@ export async function saveICPAnalysis(
         return null
       }
 
-      console.log('ICP updated successfully')
+      // ICP updated successfully
       return data
     } else {
       // Create new ICP
-      console.log('Creating new ICP for organization:', organizationId)
+      // Creating new ICP for organization
       const { data, error } = await supabase
         .from('organization_icp')
         .insert({
@@ -528,7 +528,7 @@ export async function saveICPAnalysis(
         return null
       }
 
-      console.log('ICP created successfully')
+      // ICP created successfully
       return data
     }
   } catch (error) {
@@ -552,7 +552,7 @@ export async function saveEnhancedICPAnalysis(
   }
 ): Promise<OrganizationICP | null> {
   try {
-    console.log('Saving enhanced ICP analysis with structured fields')
+    // Saving enhanced ICP analysis with structured fields
     
     // Parse the detailed response into legacy and enhanced format
     const mapped = mapNewOrgJsonToDbFields(detailedResponse)
@@ -614,7 +614,7 @@ export async function saveEnhancedICPAnalysis(
         return null
       }
 
-      console.log('Enhanced ICP updated successfully')
+      // Enhanced ICP updated successfully
       return data
     } else {
       // Create new
@@ -633,7 +633,7 @@ export async function saveEnhancedICPAnalysis(
         return null
       }
 
-      console.log('Enhanced ICP created successfully')
+      // Enhanced ICP created successfully
       return data
     }
   } catch (error) {
@@ -898,64 +898,49 @@ export function computeLegacyFieldsFromStructured(icp: OrganizationICP): Organiz
     return icp
   }
 
+  const { basic_identification, icp_synthesis, user_behavior_insights, messaging_strategy } = icp
+  
   // Compute legacy fields from structured data
   const computed: Partial<OrganizationICP> = {
-    ...icp
+    ...icp,
+    target_industry: basic_identification?.industry_classification || basic_identification?.protocol_category,
+    target_role: icp_synthesis?.primary_user_archetypes?.join(', ') || icp_synthesis?.target_web3_segment,
+    company_size: icp_synthesis?.demographic_profile?.experience_level || icp_synthesis?.demographic_profile?.vibe_range,
+    geographic_location: icp_synthesis?.demographic_profile?.geographic_distribution,
+    pain_points: icp_synthesis?.psychographic_drivers?.key_challenges || [],
+    keywords: messaging_strategy?.content_keywords || []
   }
 
-  // Extract basic targeting info
-  if (icp.basic_identification) {
-    computed.target_industry = icp.basic_identification.industry_classification || 
-                               icp.basic_identification.protocol_category
-  }
-
-  // Extract target role and demographics from ICP synthesis
-  if (icp.icp_synthesis) {
-    computed.target_role = icp.icp_synthesis.primary_user_archetypes?.join(', ') ||
-                          icp.icp_synthesis.target_web3_segment
-
-    computed.company_size = icp.icp_synthesis.demographic_profile?.experience_level ||
-                           icp.icp_synthesis.demographic_profile?.vibe_range
-
-    computed.geographic_location = icp.icp_synthesis.demographic_profile?.geographic_distribution
-
-    // Map structured demographics to legacy format
-    if (icp.icp_synthesis.demographic_profile) {
-      computed.demographics = {
-        age_range: icp.icp_synthesis.demographic_profile.vibe_range || 'Not specified',
-        education_level: icp.icp_synthesis.demographic_profile.experience_level || 'Not specified',
-        income_level: 'Not specified', // Not typically in structured format
-        job_seniority: icp.icp_synthesis.demographic_profile.roles?.join(', ') || 'Not specified'
-      }
+  // Map structured demographics to legacy format
+  if (icp_synthesis?.demographic_profile) {
+    const { experience_level, vibe_range, roles } = icp_synthesis.demographic_profile
+    computed.demographics = {
+      age_range: vibe_range || 'Not specified',
+      education_level: experience_level || 'Not specified',
+      income_level: 'Not specified',
+      job_seniority: roles?.join(', ') || 'Not specified'
     }
-
-    // Map structured psychographics to legacy format
-    if (icp.icp_synthesis.psychographic_drivers) {
-      computed.psychographics = {
-        values: icp.icp_synthesis.psychographic_drivers.core_values || [],
-        interests: icp.icp_synthesis.psychographic_drivers.trending_interests || [],
-        motivations: icp.icp_synthesis.psychographic_drivers.primary_motivations || [],
-        challenges: icp.icp_synthesis.psychographic_drivers.key_challenges || []
-      }
-    }
-
-    // Extract pain points
-    computed.pain_points = icp.icp_synthesis.psychographic_drivers?.key_challenges || []
   }
 
-  // Extract behavioral traits from user behavior insights and ICP synthesis
-  if (icp.user_behavior_insights || icp.icp_synthesis?.behavioral_indicators) {
+  // Map structured psychographics to legacy format
+  if (icp_synthesis?.psychographic_drivers) {
+    const { core_values, trending_interests, primary_motivations, key_challenges } = icp_synthesis.psychographic_drivers
+    computed.psychographics = {
+      values: core_values || [],
+      interests: trending_interests || [],
+      motivations: primary_motivations || [],
+      challenges: key_challenges || []
+    }
+  }
+
+  // Extract behavioral traits
+  if (user_behavior_insights || icp_synthesis?.behavioral_indicators) {
     computed.behavioral_traits = {
-      preferred_channels: ['Twitter', 'Discord', 'Governance Forums'], // Web3 default
-      decision_making_style: icp.user_behavior_insights?.engagement_characteristics?.decision_making_style || 'Not specified',
-      buying_behavior: icp.icp_synthesis?.behavioral_indicators?.purchase_motives?.join(', ') || 'Not specified',
-      communication_style: icp.messaging_strategy?.communication_style || 'Not specified'
+      preferred_channels: ['Twitter', 'Discord', 'Governance Forums'],
+      decision_making_style: user_behavior_insights?.engagement_characteristics?.decision_making_style || 'Not specified',
+      buying_behavior: icp_synthesis?.behavioral_indicators?.purchase_motives?.join(', ') || 'Not specified',
+      communication_style: messaging_strategy?.communication_style || 'Not specified'
     }
-  }
-
-  // Extract keywords from messaging strategy
-  if (icp.messaging_strategy) {
-    computed.keywords = icp.messaging_strategy.content_keywords || []
   }
 
   return computed as OrganizationICP
