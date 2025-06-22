@@ -55,9 +55,10 @@ export async function saveGrokAnalysis(
   }
 ): Promise<GrokAnalysisRecord | null> {
   const profileHash = generateProfileHash(profile);
-  
+  // Normalize username to lowercase
+  const normalizedScreenName = profile.screen_name.toLowerCase();
   const record: Omit<GrokAnalysisRecord, 'id' | 'created_at' | 'updated_at'> = {
-    twitter_username: profile.screen_name,
+    twitter_username: normalizedScreenName,
     profile_hash: profileHash,
     role: analysis.role,
     company: analysis.company,
@@ -97,11 +98,12 @@ export async function getCachedGrokAnalysis(
 ): Promise<StructuredAnalysis | null> {
   const profileHash = generateProfileHash(profile);
   const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
-  
+  // Normalize username to lowercase
+  const normalizedScreenName = profile.screen_name.toLowerCase();
   const { data, error } = await supabase
     .from('grok_analysis')
     .select('*')
-    .eq('twitter_username', profile.screen_name)
+    .ilike('twitter_username', normalizedScreenName)
     .eq('profile_hash', profileHash)
     .gte('created_at', cutoffTime)
     .order('created_at', { ascending: false })

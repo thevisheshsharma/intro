@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
+import { getCachedTwitterUser } from './twitter-cache';
 
 /**
  * Grok API client configuration
@@ -221,6 +222,9 @@ export async function createStructuredICPAnalysis(
   config: typeof GROK_CONFIGS.MINI_FAST | typeof GROK_CONFIGS.MINI | typeof GROK_CONFIGS.FULL = GROK_CONFIGS.FULL
 ): Promise<ICPAnalysisType> {
   try {
+    const cachedUserData = await getCachedTwitterUser(twitterUsername.replace('@', ''));
+    const followerCount = cachedUserData?.user_data?.followers_count;
+    
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: 'system',
@@ -229,15 +233,18 @@ export async function createStructuredICPAnalysis(
 CRITICAL: Live search is ENABLED. You have access to current web data, X posts, news, and specific Web3 platforms. Use this live data extensively.
 
 LIVE SEARCH STRATEGY:
-1. First, search for the organization's official presence (website, X profile, GitHub)
-2. Then search Web3 data platforms (DeFiLlama, Dune, Messari, CoinGecko) for metrics
-3. Search recent news and developments from 2024-2025
-4. Cross-reference information across multiple sources for accuracy
+1. Search "@${twitterUsername.replace('@', '')}" on X for recent posts, engagement metrics, and community insights
+2. Search for the organization's official presence (website, X profile, GitHub, Documentation)
+3. Search Web3 data platforms (DeFiLlama, Dune, Messari, CoinGecko) for metrics
+4. Search recent news and developments from 2024-2025
+5. Search for governance proposals, tokenomics, partnerships, integrations and ecosystem positioning
+6. Cross-reference information across multiple sources for accuracy
 
 PRIORITIZED DATA SOURCES (automatically searched):
-🔍 WEB3 DATA: defillama.com, dune.com, messari.io, coingecko.com, coinmarketcap.com
+🔍 WEB3 DATA: site:defillama.com, site:dune.com, site:messari.io, coingecko.com, coinmarketcap.com, app.nansen.ai, tokenterminal.com, app.santiment.net, lunarcrush.com, thegraph.com/explorer, kaito.com, intel.arkm.com
 🔍 DEVELOPMENT: github.com and official documentation sites  
-🔍 SOCIAL: X posts from the specific handle and related accounts
+🔍 SOCIAL: X posts from the specific handle and related accounts 
+🔍 WEB3 SOCIAL: discord, linkedin, telegram, farcaster, lens_protocol
 🔍 NEWS: Recent articles from credible crypto/tech news sources
 🔍 WEB: General web search for additional context
 
@@ -246,8 +253,7 @@ RESEARCH REQUIREMENTS:
 - Cross-validate information across multiple platforms
 - Focus on data from 2024-2025 for recent developments
 - Include actual URLs and specific data points found
-- If contradictory information is found, note the discrepancies
-- Clearly distinguish between verified facts and estimates
+- If contradictory information is found, note the discrepancies and prioritize the official sources
 
 ANALYSIS DEPTH:
 - Extract quantitative metrics (TVL, user counts, transaction volumes)
@@ -325,6 +331,10 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
 
     // Parse the structured response
     const analysis = ICPAnalysisSchema.parse(JSON.parse(content));
+
+    if (followerCount && analysis.core_metrics?.market_position) {
+      analysis.core_metrics.market_position.twitter_followers = followerCount;
+    }
 
     return analysis;
   } catch (error) {

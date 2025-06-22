@@ -124,7 +124,6 @@ export interface OrganizationICP {
   organization_id: string
   // Essential metadata columns
   confidence_score?: number
-  analysis_summary?: string
   grok_response?: string
   model_used?: string
   token_usage?: number
@@ -281,11 +280,6 @@ export function mapNewOrgJsonToDbFields(grokResponse: DetailedICPAnalysisRespons
     
     // Essential metadata
     confidence_score: grokResponse.confidence_score || 0,
-    analysis_summary: [
-      `Target: ${grokResponse.icp_synthesis?.target_web3_segment || 'Not specified'}`,
-      `Users: ${grokResponse.icp_synthesis?.primary_user_archetypes?.join(', ') || 'Not specified'}`,
-      `Style: ${grokResponse.messaging_strategy?.communication_style || 'Not specified'}`
-    ].join('. '),
     
     // Consolidated research sources
     research_sources: {
@@ -357,11 +351,13 @@ export async function getOrganizationByUserId(
  */
 export async function getOrganizationByUserIdAndTwitter(userId: string, twitterUsername: string): Promise<Organization | null> {
   try {
+    // Normalize username: remove '@' and lowercase
+    const normalizedUsername = twitterUsername.replace(/^@/, '').toLowerCase()
     const { data, error } = await supabase
       .from('organizations')
       .select('*')
       .eq('user_id', userId)
-      .eq('twitter_username', twitterUsername.replace('@', ''))
+      .ilike('twitter_username', normalizedUsername)
       .single()
     
     if (error) {

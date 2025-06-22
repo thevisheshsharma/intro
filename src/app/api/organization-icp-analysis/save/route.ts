@@ -18,7 +18,10 @@ export async function GET(request: NextRequest) {
   
   try {
     const { searchParams } = new URL(request.url)
-    const twitter_username = searchParams.get('twitter_username')
+    let twitter_username = searchParams.get('twitter_username')
+    if (twitter_username) {
+      twitter_username = twitter_username.replace(/^@/, '').toLowerCase()
+    }
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -63,20 +66,21 @@ export async function POST(request: NextRequest) {
         user_id: userId,
         // Ensure required fields are present
         name: mapped.org.name || body.twitter_username || 'Unknown',
-        twitter_username: mapped.org.twitter_username || body.twitter_username || ''
+        twitter_username: (mapped.org.twitter_username || body.twitter_username || '').replace(/^@/, '').toLowerCase()
       }
       icpFields = mapped.icp
     } else {
       // Fallback to legacy fields - only essential organization data
-      const { twitter_username } = body
+      let { twitter_username } = body
       if (!twitter_username) {
         return NextResponse.json({ 
           error: 'Twitter username is required' 
         }, { status: 400 })
       }
+      twitter_username = twitter_username.replace(/^@/, '').toLowerCase()
       orgFields = {
         user_id: userId,
-        twitter_username: twitter_username.replace('@', '')
+        twitter_username
       }
     }
     const organization = await saveOrganization(orgFields)
@@ -106,7 +110,11 @@ export async function PUT(request: NextRequest) {
   try {
     const { userId } = getAuth(request)
     const body = await request.json()
-    const { organizationId, icp, customNotes, twitter_username } = body
+    const { organizationId, icp, customNotes } = body
+    let { twitter_username } = body
+    if (twitter_username) {
+      twitter_username = twitter_username.replace(/^@/, '').toLowerCase()
+    }
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

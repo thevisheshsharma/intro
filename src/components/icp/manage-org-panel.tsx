@@ -66,13 +66,15 @@ export default function ManageOrgPanel() {
       setAnalyzing(true)
       setError(null)
       setSuccess(null)
+      // Normalize username for API call
+      const normalizedUsername = organization.twitter_username.replace(/^@/, '').toLowerCase()
       const response = await fetch('/api/grok-analyze-org', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          twitterUsername: organization.twitter_username
+          twitterUsername: normalizedUsername
         })
       })
       const data = await response.json()
@@ -99,15 +101,17 @@ export default function ManageOrgPanel() {
     setIcp(null)
     setSearching(true)
     try {
+      // Normalize username: remove '@' and lowercase
+      const normalizedUsername = searchValue.replace(/^@/, '').toLowerCase()
       // Lookup Twitter user and org
-      const userData = await lookupTwitterUser(searchValue.replace('@', ''))
+      const userData = await lookupTwitterUser(normalizedUsername)
       const profile = transformTwitterUser(userData)
       setOrgTwitterProfile(profile)
       // Try to load org data for this username
       const response = await fetch('/api/organization-icp-analysis/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ twitter_username: searchValue.replace('@', '') })
+        body: JSON.stringify({ twitter_username: normalizedUsername })
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Failed to load organization')
@@ -183,7 +187,7 @@ export default function ManageOrgPanel() {
                   <Bot className="w-12 h-12 text-blue-400 mx-auto mb-4" />
                   <h3 className="text-lg font-semibold text-white mb-2">Ready to Analyze Your ICP?</h3>
                   <p className="text-gray-400 mb-4">
-                    Let Grok analyze your organization's Twitter presence and create a comprehensive Ideal Customer Profile using live web search and AI insights.
+                    Let Grok analyze your organization&apos;s Twitter presence and create a comprehensive Ideal Customer Profile using live web search and AI insights.
                   </p>
                   <button
                     onClick={handleAnalyzeICP}

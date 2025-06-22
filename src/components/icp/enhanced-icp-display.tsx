@@ -137,14 +137,6 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
         </div>
       </div>
 
-      {/* Analysis Summary */}
-      {icp.analysis_summary && (
-        <div className="bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/30 rounded-lg p-4">
-          <h4 className="text-sm font-medium text-blue-300 mb-2">Analysis Summary</h4>
-          <p className="text-white leading-relaxed">{icp.analysis_summary}</p>
-        </div>
-      )}
-
       {/* Basic Information from Detailed Response */}
       {detailedData?.basic_identification && (
         <DetailedSection title="Organization Overview" icon={Building2} iconColor="text-blue-400">
