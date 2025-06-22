@@ -1,7 +1,9 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { getAuth } from '@clerk/nextjs/server'
+import { logExternalServiceError, logParsingError } from '@/lib/error-utils'
 import { getCachedTwitterFollowers, setCachedTwitterFollowers, getCachedTwitterUser, setCachedTwitterUser } from '@/lib/twitter-cache'
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const username = searchParams.get('username')?.replace('@', '')
   const user_id = searchParams.get('user_id')
@@ -59,7 +61,8 @@ export async function GET(request: Request) {
       try {
         followersData = JSON.parse(followersText)
       } catch (e) {
-        console.error('Failed to parse followers response:', followersText)
+        const { userId } = getAuth(request)
+        logParsingError(e, 'parsing Twitter followers response', 'JSON', userId || undefined)
         return NextResponse.json({ error: 'Invalid response from Twitter API' }, { status: 500 })
       }
       if (!followersRes.ok) {

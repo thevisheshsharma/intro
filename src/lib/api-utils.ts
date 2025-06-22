@@ -1,6 +1,7 @@
 /**
  * API error handling utilities
  */
+import { DatabaseUtils } from '@/lib/organization';
 
 export class APIError extends Error {
   constructor(
@@ -14,7 +15,7 @@ export class APIError extends Error {
 }
 
 export class ValidationError extends APIError {
-  constructor(message: string, _field?: string) {
+  constructor(message: string) {
     super(message, 400, 'VALIDATION_ERROR');
     this.name = 'ValidationError';
   }
@@ -30,7 +31,7 @@ export class AuthenticationError extends APIError {
 /**
  * Standard API response wrapper
  */
-export interface APIResponse<T = any> {
+interface APIResponse<T = any> {
   success: boolean;
   data?: T;
   error?: {
@@ -48,7 +49,7 @@ export function createSuccessResponse<T>(data: T): APIResponse<T> {
   return {
     success: true,
     data,
-    timestamp: new Date().toISOString(),
+    timestamp: DatabaseUtils.timestamp(),
   };
 }
 
@@ -78,7 +79,7 @@ export function createErrorResponse(
       code,
       details,
     },
-    timestamp: new Date().toISOString(),
+    timestamp: DatabaseUtils.timestamp(),
   };
 }
 

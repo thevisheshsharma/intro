@@ -1,4 +1,7 @@
-import React, { useMemo } from 'react'
+'use client'
+
+import React, { useState, useMemo } from 'react'
+import { logParsingError } from '@/lib/error-utils'
 import { 
   Building2, 
   Users, 
@@ -34,7 +37,7 @@ function parseGrokResponse(grokResponse?: string): DetailedICPAnalysisResponse |
   try {
     return JSON.parse(grokResponse)
   } catch (error) {
-    console.warn('Failed to parse Grok response:', error)
+    logParsingError(error, 'parsing Grok response', 'JSON')
     return null
   }
 }
@@ -532,7 +535,7 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
               <div>
                 <p className="text-sm font-medium text-gray-300 mb-2">Recent Developments</p>
                 <div className="space-y-2">
-                  {detailedData.ecosystem_analysis.recent_developments.map((development, index) => (
+                  {detailedData.ecosystem_analysis.recent_developments.map((development: string, index: number) => (
                     <div key={index} className="bg-gray-800/50 rounded-lg p-3">
                       <p className="text-white text-sm">{development}</p>
                     </div>
@@ -559,13 +562,17 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
         <div className="space-y-6">
           {/* Core ICP Details */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Target Industry & Role */}
+            {/* Target Industry & Role from structured data */}
             <div className="space-y-4">
               <div className="flex items-start gap-3">
                 <Building2 className="w-5 h-5 text-blue-400 mt-0.5" />
                 <div>
                   <h4 className="text-sm font-medium text-gray-300 mb-1">Target Industry</h4>
-                  <p className="text-white">{icp.target_industry || 'Not specified'}</p>
+                  <p className="text-white">
+                    {icp.basic_identification?.industry_classification || 
+                     icp.basic_identification?.protocol_category || 
+                     'Not specified'}
+                  </p>
                 </div>
               </div>
 
@@ -573,7 +580,11 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
                 <Users className="w-5 h-5 text-green-400 mt-0.5" />
                 <div>
                   <h4 className="text-sm font-medium text-gray-300 mb-1">Target Role</h4>
-                  <p className="text-white">{icp.target_role || 'Not specified'}</p>
+                  <p className="text-white">
+                    {icp.icp_synthesis?.primary_user_archetypes?.join(', ') || 
+                     icp.icp_synthesis?.target_web3_segment || 
+                     'Not specified'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -583,46 +594,33 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
               <div className="flex items-start gap-3">
                 <TrendingUp className="w-5 h-5 text-yellow-400 mt-0.5" />
                 <div>
-                  <h4 className="text-sm font-medium text-gray-300 mb-1">Company Size</h4>
-                  <p className="text-white">{icp.company_size || 'Not specified'}</p>
+                  <h4 className="text-sm font-medium text-gray-300 mb-1">Experience Level</h4>
+                  <p className="text-white">
+                    {icp.icp_synthesis?.demographic_profile?.experience_level || 
+                     icp.icp_synthesis?.demographic_profile?.vibe_range || 
+                     'Not specified'}
+                  </p>
                 </div>
               </div>
 
               <div className="flex items-start gap-3">
                 <MapPin className="w-5 h-5 text-purple-400 mt-0.5" />
                 <div>
-                  <h4 className="text-sm font-medium text-gray-300 mb-1">Geographic Location</h4>
-                  <p className="text-white">{icp.geographic_location || 'Not specified'}</p>
+                  <h4 className="text-sm font-medium text-gray-300 mb-1">Geographic Distribution</h4>
+                  <p className="text-white">
+                    {icp.icp_synthesis?.demographic_profile?.geographic_distribution || 'Not specified'}
+                  </p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Legacy Demographics, Psychographics, etc. */}
-          {icp.demographics && (
-            <DetailedSection title="Demographics" icon={Users} iconColor="text-green-400">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {icp.demographics.age_range && (
-                  <InfoCard label="Age Range" value={icp.demographics.age_range} />
-                )}
-                {icp.demographics.education_level && (
-                  <InfoCard label="Education" value={icp.demographics.education_level} />
-                )}
-                {icp.demographics.income_level && (
-                  <InfoCard label="Income Level" value={icp.demographics.income_level} />
-                )}
-                {icp.demographics.job_seniority && (
-                  <InfoCard label="Job Seniority" value={icp.demographics.job_seniority} />
-                )}
-              </div>
-            </DetailedSection>
-          )}
-
-          {/* Pain Points */}
-          {icp.pain_points && icp.pain_points.length > 0 && (
-            <DetailedSection title="Pain Points" icon={AlertCircle} iconColor="text-red-400">
+          {/* Pain Points from structured data */}
+          {icp.icp_synthesis?.psychographic_drivers?.key_challenges && 
+           icp.icp_synthesis.psychographic_drivers.key_challenges.length > 0 && (
+            <DetailedSection title="Key Challenges" icon={AlertCircle} iconColor="text-red-400">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {icp.pain_points.map((point, index) => (
+                {icp.icp_synthesis.psychographic_drivers.key_challenges.map((point: string, index: number) => (
                   <div key={index} className="bg-gray-800/50 rounded-lg p-3">
                     <p className="text-white text-sm">{point}</p>
                   </div>
@@ -631,10 +629,11 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
             </DetailedSection>
           )}
 
-          {/* Keywords */}
-          {icp.keywords && icp.keywords.length > 0 && (
-            <DetailedSection title="Keywords" icon={Zap} iconColor="text-blue-400">
-              <TagList items={icp.keywords} />
+          {/* Keywords from structured data */}
+          {icp.messaging_strategy?.content_keywords && 
+           icp.messaging_strategy.content_keywords.length > 0 && (
+            <DetailedSection title="Content Keywords" icon={Zap} iconColor="text-blue-400">
+              <TagList items={icp.messaging_strategy.content_keywords} />
             </DetailedSection>
           )}
         </div>

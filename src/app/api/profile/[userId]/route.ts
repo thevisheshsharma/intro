@@ -1,6 +1,8 @@
 import { auth } from '@clerk/nextjs'
 import { NextResponse } from 'next/server'
 import type { Profile } from '@/lib/profile'
+import { DatabaseUtils } from '@/lib/organization'
+import { logAPIError } from '@/lib/error-utils'
 
 export async function GET(
   _request: Request,
@@ -22,12 +24,12 @@ export async function GET(
       full_name: null,
       email: null,
       bio: null,
-      updated_at: new Date().toISOString(),
+      updated_at: DatabaseUtils.timestamp(),
     }
 
     return NextResponse.json(profile)
   } catch (error) {
-    console.error('Error in profile API:', error)
+    logAPIError(error, 'profile GET', `/api/profile/${params.userId}`, currentUserId || undefined)
     return new NextResponse('Internal Server Error', { status: 500 })
   }
 }
@@ -54,12 +56,12 @@ export async function PATCH(
       full_name: updates.full_name || null,
       email: null,
       bio: updates.bio || null,
-      updated_at: new Date().toISOString(),
+      updated_at: DatabaseUtils.timestamp(),
     }
 
     return NextResponse.json(updatedProfile)
   } catch (error) {
-    console.error('Error in profile API:', error)
+    logAPIError(error, 'profile PATCH', `/api/profile/${params.userId}`, currentUserId || undefined)
     return new NextResponse('Internal Server Error', { status: 500 })
   }
 }

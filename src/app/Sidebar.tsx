@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import SidebarMenu from './SidebarMenu'
 
 // Sidebar for navigation and user info
-export interface SidebarProps {
+interface SidebarProps {
   user: any
   profile: any
   twitterUsername: string | null

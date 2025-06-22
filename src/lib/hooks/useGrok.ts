@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 
-export interface GrokResponse {
+interface GrokResponse {
   response: string;
   model: string;
   usage?: any;
@@ -12,7 +12,7 @@ export interface GrokResponse {
   };
 }
 
-export interface GrokAnalysisOptions {
+interface GrokAnalysisOptions {
   context?: string;
   isProfileAnalysis?: boolean;
   useFullModel?: boolean;

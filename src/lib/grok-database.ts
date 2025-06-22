@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { handleDatabaseError } from './error-utils';
 import { type ConfidenceLevel } from './constants';
 import crypto from 'crypto';
 
@@ -41,21 +42,6 @@ export interface TwitterProfile {
 }
 
 /**
- * Generate a hash for profile data to use for cache invalidation
- */
-export function generateProfileHash(profile: TwitterProfile): string {
-  const profileString = JSON.stringify({
-    name: profile.name,
-    description: profile.description,
-    location: profile.location,
-    url: profile.url,
-    verified: profile.verified
-  });
-  
-  return crypto.createHash('sha256').update(profileString).digest('hex');
-}
-
-/**
  * Save Grok analysis results to the database
  */
 export async function saveGrokAnalysis(
@@ -68,43 +54,37 @@ export async function saveGrokAnalysis(
     tokenUsage?: number;
   }
 ): Promise<GrokAnalysisRecord | null> {
-  try {
-    const profileHash = generateProfileHash(profile);
-    
-    const record: Omit<GrokAnalysisRecord, 'id' | 'created_at' | 'updated_at'> = {
-      twitter_username: profile.screen_name,
-      profile_hash: profileHash,
-      role: analysis.role,
-      company: analysis.company,
-      expertise: analysis.expertise,
-      summary: analysis.summary,
-      confidence: analysis.confidence,
-      raw_profile_data: profile,
-      raw_grok_response: metadata.rawResponse,
-      model_used: metadata.modelUsed || 'grok-3-mini-fast',
-      analysis_type: metadata.analysisType || 'profile',
-      token_usage: metadata.tokenUsage
-    };
+  const profileHash = generateProfileHash(profile);
+  
+  const record: Omit<GrokAnalysisRecord, 'id' | 'created_at' | 'updated_at'> = {
+    twitter_username: profile.screen_name,
+    profile_hash: profileHash,
+    role: analysis.role,
+    company: analysis.company,
+    expertise: analysis.expertise,
+    summary: analysis.summary,
+    confidence: analysis.confidence,
+    raw_profile_data: profile,
+    raw_grok_response: metadata.rawResponse,
+    model_used: metadata.modelUsed || 'grok-3-mini-fast',
+    analysis_type: metadata.analysisType || 'profile',
+    token_usage: metadata.tokenUsage
+  };
 
-    const { data, error } = await supabase
-      .from('grok_analysis')
-      .upsert(record, {
-        onConflict: 'twitter_username,profile_hash',
-        ignoreDuplicates: false
-      })
-      .select()
-      .single();
+  const { data, error } = await supabase
+    .from('grok_analysis')
+    .upsert(record, {
+      onConflict: 'twitter_username,profile_hash',
+      ignoreDuplicates: false
+    })
+    .select()
+    .single();
 
-    if (error) {
-      console.error('Error saving Grok analysis:', error);
-      return null;
-    }
-
-    return data as GrokAnalysisRecord;
-  } catch (error) {
-    console.error('Error in saveGrokAnalysis:', error);
-    return null;
+  if (error) {
+    return handleDatabaseError(error, 'saving Grok analysis', 'grok_analysis');
   }
+
+  return data as GrokAnalysisRecord;
 }
 
 /**
@@ -115,42 +95,50 @@ export async function getCachedGrokAnalysis(
   profile: TwitterProfile,
   maxAgeHours: number = 24
 ): Promise<StructuredAnalysis | null> {
-  try {
-    const profileHash = generateProfileHash(profile);
-    const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
-    
-    const { data, error } = await supabase
-      .from('grok_analysis')
-      .select('*')
-      .eq('twitter_username', profile.screen_name)
-      .eq('profile_hash', profileHash)
-      .gte('created_at', cutoffTime)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  const profileHash = generateProfileHash(profile);
+  const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
+  
+  const { data, error } = await supabase
+    .from('grok_analysis')
+    .select('*')
+    .eq('twitter_username', profile.screen_name)
+    .eq('profile_hash', profileHash)
+    .gte('created_at', cutoffTime)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-    if (error) {
-      console.error('Error fetching cached Grok analysis:', error);
-      return null;
-    }
+  if (error) {
+    return handleDatabaseError(error, 'fetching cached Grok analysis', 'grok_analysis');
+  }
 
-    if (!data) {
-      return null;
-    }
-
-    // Using cached analysis for profile
-
-    return {
-      role: data.role || 'Unknown',
-      company: data.company || 'Not specified',
-      expertise: data.expertise || 'Not specified',
-      summary: data.summary || 'No summary available',
-      confidence: data.confidence || 'low'
-    };
-  } catch (error) {
-    console.error('Error in getCachedGrokAnalysis:', error);
+  if (!data) {
     return null;
   }
+
+  return {
+    role: data.role || 'Unknown',
+    company: data.company || 'Not specified',
+    expertise: data.expertise || 'Not specified',
+    summary: data.summary || 'No summary available',
+    confidence: data.confidence || 'low'
+  };
+}
+
+/**
+ * Generate a hash for profile data to use for cache invalidation
+ * @private
+ */
+function generateProfileHash(profile: TwitterProfile): string {
+  const profileString = JSON.stringify({
+    name: profile.name,
+    description: profile.description,
+    location: profile.location,
+    url: profile.url,
+    verified: profile.verified
+  });
+  
+  return crypto.createHash('sha256').update(profileString).digest('hex');
 }
 
 

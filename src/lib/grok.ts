@@ -208,7 +208,7 @@ export const ICPAnalysisSchema = z.object({
   research_sources: z.array(z.string()).describe("List of sources used for the analysis")
 });
 
-export type ICPAnalysisType = z.infer<typeof ICPAnalysisSchema>;
+type ICPAnalysisType = z.infer<typeof ICPAnalysisSchema>;
 
 /**
  * Create a structured ICP analysis using Grok with guaranteed schema compliance
@@ -304,7 +304,7 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
         max_search_results: 30, // Increase for more comprehensive research
         sources: [
           { 
-            "type": "web",
+            "type": "web"
           },
           {
             "type": "x",

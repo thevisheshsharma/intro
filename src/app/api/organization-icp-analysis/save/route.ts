@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
+import { logAPIError } from '@/lib/error-utils'
 import { 
   saveOrganization, 
   getOrganizationByUserId,
@@ -13,8 +14,9 @@ import {
 
 // GET: Retrieve user's organization and ICP
 export async function GET(request: NextRequest) {
+  const { userId } = getAuth(request)
+  
   try {
-    const { userId } = getAuth(request)
     const { searchParams } = new URL(request.url)
     const twitter_username = searchParams.get('twitter_username')
     if (!userId) {
@@ -35,7 +37,7 @@ export async function GET(request: NextRequest) {
       icp
     })
   } catch (error: any) {
-    console.error('Error fetching organization:', error)
+    logAPIError(error, 'fetching organization', '/api/organization-icp-analysis/save', userId || undefined)
     return NextResponse.json({ 
       error: error.message || 'Failed to fetch organization' 
     }, { status: 500 })
@@ -44,8 +46,9 @@ export async function GET(request: NextRequest) {
 
 // POST: Save organization
 export async function POST(request: NextRequest) {
+  const { userId } = getAuth(request)
+  
   try {
-    const { userId } = getAuth(request)
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -91,7 +94,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ organization, icp })
   } catch (error: any) {
-    console.error('Error saving organization:', error)
+    logAPIError(error, 'saving organization', '/api/organization-icp-analysis/save', userId || undefined)
     return NextResponse.json({ 
       error: error.message || 'Failed to save organization' 
     }, { status: 500 })
@@ -132,7 +135,8 @@ export async function PUT(request: NextRequest) {
     }
     return NextResponse.json({ icp: savedICP })
   } catch (error: any) {
-    console.error('Error updating ICP:', error)
+    const { userId } = getAuth(request)
+    logAPIError(error, 'updating ICP', '/api/organization-icp-analysis/save', userId || undefined)
     return NextResponse.json({ 
       error: error.message || 'Failed to update ICP' 
     }, { status: 500 })

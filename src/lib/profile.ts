@@ -1,3 +1,5 @@
+import { logAPIError } from './error-utils';
+
 export interface Profile {
   id: string;
   username: string | null;
@@ -15,7 +17,7 @@ export async function getProfile(userId: string): Promise<Profile | null> {
     }
     return await response.json()
   } catch (error) {
-    console.error('Error fetching profile:', error)
+    logAPIError(error, 'fetching profile', `/api/profile/${userId}`, userId)
     return null
   }
 }
