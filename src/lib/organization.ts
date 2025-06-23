@@ -100,7 +100,8 @@ export const DatabaseUtils = {
       const { data, error } = await dbQuery.single()
 
       if (error) {
-        return handleDatabaseError(error, 'fetching from', table)
+        return handleDatabaseError(error, 'fetching from', table
+        )
       }
       return data as T
     } catch (error) {
@@ -127,7 +128,6 @@ export interface OrganizationICP {
   grok_response?: string
   model_used?: string
   token_usage?: number
-  is_custom?: boolean
   custom_notes?: string
   // Research sources from live search
   research_sources?: {
@@ -150,8 +150,6 @@ export interface OrganizationICP {
   market_position?: any
   technical_links?: any
   community_links?: any
-  full_icp_json?: any
-  enhanced_format_updated_at?: string
   created_at?: string
   updated_at?: string
 }
@@ -263,7 +261,7 @@ export function mapNewOrgJsonToDbFields(grokResponse: DetailedICPAnalysisRespons
   // Extract organization fields - only essential data
   const org: Partial<Organization> = {
     name: grokResponse.basic_identification?.project_name || 'Unknown Project',
-    twitter_username: grokResponse.twitter_username?.replace('@', '') || '',
+    twitter_username: grokResponse.twitter_username?.replace('@', '').toLowerCase() || '',
     website_url: grokResponse.basic_identification?.website_url
   };
 
@@ -277,10 +275,13 @@ export function mapNewOrgJsonToDbFields(grokResponse: DetailedICPAnalysisRespons
     core_metrics: grokResponse.core_metrics,
     ecosystem_analysis: grokResponse.ecosystem_analysis,
     governance_tokenomics: grokResponse.governance_tokenomics,
-    
+    operational_chains: grokResponse.core_metrics?.operational_chains,
+    audit_info: grokResponse.core_metrics?.audit_info,
+    market_position: grokResponse.core_metrics?.market_position,
+    technical_links: grokResponse.basic_identification?.technical_links,
+    community_links: grokResponse.basic_identification?.community_links,
     // Essential metadata
     confidence_score: grokResponse.confidence_score || 0,
-    
     // Consolidated research sources
     research_sources: {
       twitter_analysis: `Followers: ${grokResponse.core_metrics?.market_position?.twitter_followers || 'N/A'}`,
@@ -303,7 +304,7 @@ export async function saveOrganization(
   // Prepare data for upsert
   const orgData = {
     user_id: organization.user_id,
-    twitter_username: organization.twitter_username,
+    twitter_username: organization.twitter_username?.replace('@', '').toLowerCase(),
     name: organization.name || organization.twitter_username || 'Unknown',
     website_url: organization.website_url
   }
@@ -357,7 +358,7 @@ export async function getOrganizationByUserIdAndTwitter(userId: string, twitterU
       .from('organizations')
       .select('*')
       .eq('user_id', userId)
-      .ilike('twitter_username', normalizedUsername)
+      .eq('twitter_username', normalizedUsername)
       .single()
     
     if (error) {
@@ -380,7 +381,6 @@ export async function saveICPAnalysis(
     grokResponse?: string
     modelUsed?: string
     tokenUsage?: number
-    isCustom?: boolean
     customNotes?: string
   }
 ): Promise<OrganizationICP | null> {
@@ -397,12 +397,9 @@ export async function saveICPAnalysis(
         ...mapped.icp,
         // Override/add specific fields
         grok_response: metadata.grokResponse,
-        full_icp_json: detailedResponse,
         model_used: metadata.modelUsed,
         token_usage: metadata.tokenUsage,
-        is_custom: metadata.isCustom || false,
-        custom_notes: metadata.customNotes,
-        enhanced_format_updated_at: DatabaseUtils.timestamp()
+        custom_notes: metadata.customNotes
       }
     } else {
       // Direct OrganizationICP partial object (for custom edits/updates)
@@ -412,9 +409,7 @@ export async function saveICPAnalysis(
         grok_response: metadata.grokResponse,
         model_used: metadata.modelUsed,
         token_usage: metadata.tokenUsage,
-        is_custom: metadata.isCustom || false,
-        custom_notes: metadata.customNotes,
-        enhanced_format_updated_at: DatabaseUtils.timestamp()
+        custom_notes: metadata.customNotes
       }
     }
 

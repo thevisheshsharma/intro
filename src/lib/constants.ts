@@ -4,9 +4,9 @@
 
 // Cache durations (in milliseconds)
 export const CACHE_DURATIONS = {
-  TWITTER_PROFILE: 1000 * 60 * 60 * 24, // 24 hours
-  GROK_ANALYSIS: 1000 * 60 * 60 * 12, // 12 hours
-  ORGANIZATION_DATA: 1000 * 60 * 60 * 6, // 6 hours
+  TWITTER_PROFILE: 1000 * 60 * 60 * 24 * 90, // 3 months
+  GROK_ANALYSIS: 1000 * 60 * 60 * 24 * 90, // 3 months
+  ORGANIZATION_DATA: 1000 * 60 * 60 * 24 * 90, // 3 months
 } as const;
 
 // Analysis confidence levels

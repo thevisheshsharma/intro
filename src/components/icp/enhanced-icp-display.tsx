@@ -115,11 +115,7 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
           <h3 className="text-2xl font-bold text-white">
             Enhanced ICP Analysis
           </h3>
-          {icp.is_custom && (
-            <span className="bg-purple-900/50 text-purple-300 px-2 py-1 rounded text-xs">
-              Custom
-            </span>
-          )}
+          {/* Removed icp.is_custom, which does not exist on OrganizationICP */}
         </div>
         
         <div className="flex items-center gap-3">
@@ -275,6 +271,20 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
                 value={detailedData.core_metrics.market_position.chains_supported}
               />
             )}
+            {/* NEW: Active Addresses 30d */}
+            {detailedData.core_metrics.market_position.active_addresses_30d && (
+              <InfoCard 
+                label="Active Addresses (30d)" 
+                value={detailedData.core_metrics.market_position.active_addresses_30d.toLocaleString()} 
+              />
+            )}
+            {/* NEW: Sentiment Score */}
+            {typeof detailedData.core_metrics.market_position.sentiment_score === 'number' && (
+              <InfoCard 
+                label="Sentiment Score" 
+                value={detailedData.core_metrics.market_position.sentiment_score.toFixed(2)} 
+              />
+            )}
           </div>
           
           {/* Key Features */}
@@ -290,6 +300,40 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
             <div className="mt-4">
               <p className="text-sm font-medium text-gray-300 mb-2">Operational Chains</p>
               <TagList items={detailedData.core_metrics.operational_chains} colorClass="bg-purple-900/50 text-purple-300" />
+            </div>
+          )}
+
+          {/* NEW: Audit Info */}
+          {detailedData.core_metrics.audit_info && (
+            <div className="mt-4">
+              <p className="text-sm font-medium text-gray-300 mb-2">Audit Information</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {detailedData.core_metrics.audit_info.auditor && (
+                  <InfoCard 
+                    label="Auditor" 
+                    value={detailedData.core_metrics.audit_info.auditor} 
+                  />
+                )}
+                {detailedData.core_metrics.audit_info.date && (
+                  <InfoCard 
+                    label="Audit Date" 
+                    value={detailedData.core_metrics.audit_info.date} 
+                  />
+                )}
+                {detailedData.core_metrics.audit_info.report_url && (
+                  <div className="bg-gray-800/50 rounded-lg p-3">
+                    <p className="text-xs text-gray-400 mb-1">Audit Report</p>
+                    <a 
+                      href={detailedData.core_metrics.audit_info.report_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 text-sm underline"
+                    >
+                      View Report
+                    </a>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </DetailedSection>

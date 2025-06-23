@@ -57,7 +57,7 @@ export function ProfileAnalysis({ user }: ProfileAnalysisProps) {
 
       // First, try to get cached analysis
       if (!forceRefresh) {
-        const cachedAnalysis = await getCachedGrokAnalysis(twitterProfile, 24) // 24 hours cache
+        const cachedAnalysis = await getCachedGrokAnalysis(twitterProfile); // Use default (3 months) cache
         if (cachedAnalysis) {
           // Using cached analysis
           setAnalysis(cachedAnalysis)

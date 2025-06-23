@@ -34,7 +34,7 @@ importers:
         version: 13.5.7(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       openai:
         specifier: ^5.3.0
-        version: 5.3.0(ws@8.18.2)
+        version: 5.3.0(ws@8.18.2)(zod@3.25.67)
       react:
         specifier: ^18
         version: 18.3.1
@@ -44,6 +44,9 @@ importers:
       tailwind-merge:
         specifier: ^2.2.1
         version: 2.6.0
+      zod:
+        specifier: ^3.25.67
+        version: 3.25.67
     devDependencies:
       '@tailwindcss/forms':
         specifier: ^0.5.7
@@ -2078,6 +2081,9 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zod@3.25.67:
+    resolution: {integrity: sha512-idA2YXwpCdqUSKRCACDE6ItZD9TZzy3OZMtpfLoh6oPR47lipysRrJfjzMqFxQ3uJuUPyUeWe1r9vLH33xO/Qw==}
+
 snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
@@ -3729,9 +3735,10 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
-  openai@5.3.0(ws@8.18.2):
+  openai@5.3.0(ws@8.18.2)(zod@3.25.67):
     optionalDependencies:
       ws: 8.18.2
+      zod: 3.25.67
 
   optionator@0.9.4:
     dependencies:
@@ -4387,3 +4394,5 @@ snapshots:
   yaml@2.8.0: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@3.25.67: {}
