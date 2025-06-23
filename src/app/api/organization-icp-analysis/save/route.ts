@@ -132,7 +132,6 @@ export async function PUT(request: NextRequest) {
       organization.id!,
       icp,
       {
-        isCustom: true,
         customNotes
       }
     )
