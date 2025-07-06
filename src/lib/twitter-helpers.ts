@@ -11,6 +11,11 @@ interface TwitterUser {
   url: string
   verified: boolean
   id: string
+  account_type?: 'organization' | 'individual'
+  verification_info?: {
+    type?: string
+    reason?: string
+  }
 }
 
 // Extract Twitter username from Clerk user object
@@ -25,6 +30,13 @@ export function extractTwitterUsername(user: any): string | null {
 
 // Transform Twitter user API response to standardized format
 export function transformTwitterUser(user: any): TwitterUser {
+  // Determine account type based on verification_info
+  const isOrganization = user.verification_info?.type === 'Business'
+  const account_type = isOrganization ? 'organization' : 'individual'
+  
+  // Check if verified (legacy or new verification system)
+  const isVerified = Boolean(user.verified || user.verification_info?.reason)
+  
   return {
     name: user.name || '',
     screen_name: user.screen_name || user.username || '',
@@ -34,8 +46,10 @@ export function transformTwitterUser(user: any): TwitterUser {
     friends_count: user.friends_count || 0,
     location: user.location || '',
     url: user.url || '',
-    verified: Boolean(user.verified),
+    verified: isVerified,
     id: user.id_str || user.id || '',
+    account_type,
+    verification_info: user.verification_info || undefined,
   }
 }
 

@@ -10,6 +10,7 @@ import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import Sidebar from './Sidebar'
 import SearchForm from './SearchForm'
 import ManageOrgPanel from '@/components/icp/manage-org-panel'
+import FindFromOrgPanel from '@/components/icp/find-from-org-panel'
 import { 
   extractTwitterUsername, 
   transformTwitterUser, 
@@ -32,7 +33,7 @@ export default function Home() {
   const [contentAtTop, setContentAtTop] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [searchedProfile, setSearchedProfile] = useState<any | null>(null)
-  const [selectedPanel, setSelectedPanel] = useState<'twitter' | 'manage-org'>('twitter')
+  const [selectedPanel, setSelectedPanel] = useState<'twitter' | 'manage-org' | 'find-from-org'>('twitter')
   const rightPanelRef = useRef<HTMLDivElement>(null)
 
   // --- Handlers ---
@@ -189,9 +190,13 @@ export default function Home() {
               </div>
             </div>
           </div>
-        ) : (
+        ) : selectedPanel === 'manage-org' ? (
           <div className="w-full flex flex-col items-center px-4 py-8">
             <ManageOrgPanel />
+          </div>
+        ) : (
+          <div className="w-full flex flex-col items-center px-4 py-8">
+            <FindFromOrgPanel />
           </div>
         )}
       </div>

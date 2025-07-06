@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import { getCachedTwitterUser } from './twitter-cache';
+import { sources } from 'next/dist/compiled/webpack/webpack';
 
 /**
  * Grok API client configuration
@@ -338,6 +339,88 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
 
     return analysis;
   } catch (error) {
+    throw error;
+  }
+}
+
+/**
+ * Find people associated with an organization using Grok with enhanced X search
+ * @param orgUsername - Twitter username of the organization
+ * @returns Promise<string[]> - Array of associated usernames
+ */
+export async function findOrgAffiliatesWithGrok(orgUsername: string): Promise<string[]> {
+  try {
+    console.log('🔍 [DEBUG] Grok function called with orgUsername:', orgUsername);
+
+    const prompt = `
+Find all X accounts associated with ${orgUsername}, including the official accounts, team members accounts, community members accounts, contributor accounts.
+Perform a real-time search for ${orgUsername} on X, web sources, and official documentation to to ensure comprehensive results.
+IMPORTANT: 
+Return only the usernames in a structured JSON array in this exact format:
+["username1", "username2", "username3"]
+Do not assume or build any made-up usernames. Do not include any explanations, just the JSON array.`;
+
+    const searchParams = {
+      mode: "on", // Force live search to be enabled
+      return_citations: true, // Return sources for transparency
+      from_date: "2024-01-01", // Focus on recent data (2024-2025)
+      max_search_results: 30, // Increase for more comprehensive research
+      sources: [
+        {
+          "type": "x",
+          "x_handles": [orgUsername.replace('@', '')] // Search specific Twitter handle
+        }
+      ],
+    };
+
+    const completion = await grokClient.chat.completions.create({
+      ...GROK_CONFIGS.FULL,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      // Enable live search with comprehensive data sources (Grok-specific extension)
+      search_parameters: searchParams
+    } as any);
+
+    console.log('🔍 [DEBUG] Grok API response received');
+
+    const content = completion.choices[0]?.message?.content;
+    if (!content) {
+      console.log('🔍 [DEBUG] No content in Grok response');
+      throw new Error('No content returned from Grok API');
+    }
+
+    // Try to extract JSON array from the response
+    let jsonMatch = content.match(/\[([^\]]*)\]/);
+    if (!jsonMatch) {
+      // Try to find the content within the text
+      const cleanContent = content.trim();
+      if (cleanContent.startsWith('[') && cleanContent.endsWith(']')) {
+        jsonMatch = [cleanContent];
+      }
+    }
+    
+    if (jsonMatch) {
+      const usernames = JSON.parse(jsonMatch[0]);
+      
+      if (Array.isArray(usernames)) {
+        // Filter and clean usernames
+        const cleanedUsernames = usernames
+          .filter((username: any) => typeof username === 'string' && username.trim().length > 0)
+          .map((username: string) => username.trim().replace(/^@/, ''));
+        
+        console.log('🔍 [DEBUG] Cleaned usernames:', cleanedUsernames);
+        return cleanedUsernames;
+      }
+    }
+    
+    console.log('🔍 [DEBUG] No valid JSON array found, returning empty array');
+    return [];
+  } catch (error) {
+    console.error('🔍 [DEBUG] Error in findOrgAffiliatesWithGrok:', error);
     throw error;
   }
 }

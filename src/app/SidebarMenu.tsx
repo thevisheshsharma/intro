@@ -2,8 +2,8 @@
 
 interface SidebarMenuProps {
   collapsed: boolean
-  selectedPanel: 'twitter' | 'manage-org'
-  setSelectedPanel: (panel: 'twitter' | 'manage-org') => void
+  selectedPanel: 'twitter' | 'manage-org' | 'find-from-org'
+  setSelectedPanel: (panel: 'twitter' | 'manage-org' | 'find-from-org') => void
 }
 
 const items = [
@@ -31,10 +31,13 @@ const items = [
     ),
   },
   {
-    key: 'organisation',
-    label: 'Organisation',
+    key: 'find-from-org',
+    label: 'Find from org',
     icon: (
-      <svg className="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 0 0-3-3.87M9 20H4v-2a4 4 0 0 1 3-3.87m9-4V7a4 4 0 1 0-8 0v2m12 4a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" /></svg>
+      <svg className="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM17 8.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 0 0-3-3.87M9 20H4v-2a4 4 0 0 1 3-3.87"/>
+      </svg>
     ),
   },
   {
@@ -49,8 +52,8 @@ const items = [
 // Sidebar menu navigation
 export default function SidebarMenu({ collapsed, selectedPanel, setSelectedPanel }: SidebarMenuProps) {
   const handleClick = (item: typeof items[0]) => {
-    if (item.key === 'twitter' || item.key === 'manage-org') {
-      setSelectedPanel(item.key as 'twitter' | 'manage-org')
+    if (item.key === 'twitter' || item.key === 'manage-org' || item.key === 'find-from-org') {
+      setSelectedPanel(item.key as 'twitter' | 'manage-org' | 'find-from-org')
     }
   }
 

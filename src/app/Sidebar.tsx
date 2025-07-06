@@ -10,8 +10,8 @@ interface SidebarProps {
   twitterUsername: string | null
   collapsed: boolean
   setCollapsed: (c: boolean | ((c: boolean) => boolean)) => void
-  selectedPanel: 'twitter' | 'manage-org'
-  setSelectedPanel: (panel: 'twitter' | 'manage-org') => void
+  selectedPanel: 'twitter' | 'manage-org' | 'find-from-org'
+  setSelectedPanel: (panel: 'twitter' | 'manage-org' | 'find-from-org') => void
 }
 
 const Sidebar = memo(function Sidebar({ 
