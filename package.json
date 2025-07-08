@@ -20,6 +20,7 @@
     "clsx": "^2.1.0",
     "dotenv": "^16.5.0",
     "lucide-react": "^0.341.0",
+    "neo4j-driver": "^5.28.1",
     "next": "13.5.7",
     "openai": "^5.3.0",
     "react": "^18",

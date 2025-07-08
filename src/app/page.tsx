@@ -11,6 +11,7 @@ import Sidebar from './Sidebar'
 import SearchForm from './SearchForm'
 import ManageOrgPanel from '@/components/icp/manage-org-panel'
 import FindFromOrgPanel from '@/components/icp/find-from-org-panel'
+import { useAutoSyncFollowers } from '@/lib/hooks/useAutoSyncFollowers'
 import { 
   extractTwitterUsername, 
   transformTwitterUser, 
@@ -35,6 +36,9 @@ export default function Home() {
   const [searchedProfile, setSearchedProfile] = useState<any | null>(null)
   const [selectedPanel, setSelectedPanel] = useState<'twitter' | 'manage-org' | 'find-from-org'>('twitter')
   const rightPanelRef = useRef<HTMLDivElement>(null)
+
+  // Auto-sync followers on login
+  useAutoSyncFollowers()
 
   // --- Handlers ---
   const loadProfile = useCallback(async () => {
@@ -64,21 +68,42 @@ export default function Home() {
     try {
       const username = searchUsername.replace('@', '')
       
-      // 1. Lookup searched user
+      // 1. Lookup searched user for display
       const userData = await lookupTwitterUser(username)
       setSearchedProfile(transformTwitterUser(userData))
-      const user_id = userData.id_str || userData.id
       
-      // 2. Get followings for searched user and your followers in parallel
-      const [followingsList, followersList] = await Promise.all([
-        fetchFollowings(user_id, username),
-        fetchFollowers(twitterUsername)
-      ])
-      
-      // 3. Filter followings to mutuals
-      const followerIds = new Set(followersList.map((u: any) => u.id_str || u.id))
-      const mutuals = followingsList.filter((u: any) => followerIds.has(u.id_str || u.id))
-      const transformed = mutuals.map(transformTwitterUser)
+      // 2. Use the new find-mutuals API
+      const response = await fetch('/api/find-mutuals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          loggedInUserUsername: twitterUsername,
+          searchUsername: username
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to find mutual connections')
+      }
+
+      // Transform Neo4j users to the format expected by the UI
+      const transformed = data.mutuals.map((user: any) => ({
+        name: user.name,
+        screen_name: user.screenName,
+        profile_image_url_https: user.profileImageUrl || '',
+        description: user.description || '',
+        followers_count: user.followersCount,
+        friends_count: user.followingCount,
+        location: user.location || '',
+        url: user.url || '',
+        verified: user.verified,
+        id: user.userId,
+        account_type: 'individual' // Default for now
+      }))
       
       setFollowings(transformed)
       
@@ -99,8 +124,7 @@ export default function Home() {
       const username = extractTwitterUsername(user)
       if (username) {
         setTwitterUsername(username)
-        // Pre-fetch followers for cache
-        fetchFollowers(username).catch(() => {}) // Silent fail for background cache
+        // No need to manually pre-fetch followers - useAutoSyncFollowers handles it
       }
     }
   }, [isLoaded, user, loadProfile])
