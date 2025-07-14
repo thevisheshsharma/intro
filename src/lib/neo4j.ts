@@ -42,6 +42,40 @@ export async function runQuery<T = any>(
   }
 }
 
+// Enhanced batch query function with automatic chunking for large datasets
+export async function runBatchQuery<T = any>(
+  query: string,
+  parameters: Record<string, any> = {},
+  batchSize: number = 1000
+): Promise<T[]> {
+  // For single parameter that's an array, chunk it
+  const arrayParam = Object.entries(parameters).find(([key, value]) => Array.isArray(value))
+  
+  if (!arrayParam || arrayParam[1].length <= batchSize) {
+    // No array parameter or small enough, run normally
+    return runQuery<T>(query, parameters)
+  }
+  
+  const [arrayKey, arrayValue] = arrayParam
+  const chunks = []
+  
+  // Split array into chunks
+  for (let i = 0; i < arrayValue.length; i += batchSize) {
+    chunks.push(arrayValue.slice(i, i + batchSize))
+  }
+  
+  // Run queries for each chunk and combine results
+  const allResults: T[] = []
+  
+  for (const chunk of chunks) {
+    const chunkParams = { ...parameters, [arrayKey]: chunk }
+    const chunkResults = await runQuery<T>(query, chunkParams)
+    allResults.push(...chunkResults)
+  }
+  
+  return allResults
+}
+
 // Initialize the database schema (constraints and indexes)
 export async function initializeSchema(): Promise<void> {
   const session = await getSession()

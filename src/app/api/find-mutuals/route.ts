@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { 
   createOrUpdateUser, 
   getUserByScreenName,
+  getUsersByScreenNames,
   findMutualConnections,
   transformToNeo4jUser,
   isUserDataStale,
@@ -148,9 +149,10 @@ export async function POST(request: NextRequest) {
     const processingTime = Date.now() - startTime
     console.log(`Parallel processing completed in ${processingTime}ms`)
 
-    // Verify both users exist after processing
-    const loggedInUser = await getUserByScreenName(loggedInUserUsername)
-    const searchUser = await getUserByScreenName(searchUsername)
+    // Verify both users exist after processing - OPTIMIZED with batch query
+    const users = await getUsersByScreenNames([loggedInUserUsername, searchUsername])
+    const loggedInUser = users.find(u => u.screenName.toLowerCase() === loggedInUserUsername.toLowerCase())
+    const searchUser = users.find(u => u.screenName.toLowerCase() === searchUsername.toLowerCase())
     
     console.log(`After processing - Logged in user exists: ${!!loggedInUser}`)
     console.log(`After processing - Search user exists: ${!!searchUser}`)

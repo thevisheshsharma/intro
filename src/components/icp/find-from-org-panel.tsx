@@ -1,8 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Search, Loader, Users, AlertCircle, CheckCircle, Building2, User } from 'lucide-react'
-import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { Search, Loader, Users, AlertCircle, User } from 'lucide-react'
 import { ErrorDisplay } from '@/components/ui/error-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { FollowingsTable } from '@/components/twitter/followings-table'
@@ -14,19 +13,23 @@ interface SearchResults {
   orgProfile: any;
   summary: {
     totalProfilesFound: number;
-    organizationsFound: number;
+    directAffiliatesFound: number;
+    otherIndividualsFound: number;
     individualsFound: number;
     affiliatesFound: number;
     searchResultsFound: number;
     grokSuggestionsFound: number;
     followingAffiliatesFound: number;
     spamProfilesRemoved: number;
+    grokOrganizationsRemoved?: number;
+    rejectedProfilesCount: number;
     errorsEncountered: number;
   };
-  profiles: any[];
-  organizations: any[];
   individuals: any[];
-  spamProfiles: any[];
+  directAffiliates: any[];
+  otherIndividuals: any[];
+  rejectedProfiles: any[];
+  grokAnalysisMetadata?: any[];
   errors?: string[];
 }
 
@@ -168,27 +171,23 @@ export default function FindFromOrgPanel() {
           </div>
 
           {/* Summary Stats */}
-          <div className="mb-8 grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="mb-8 grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="bg-gray-800/50 border border-gray-600 rounded-lg p-4 text-center">
               <Users className="w-6 h-6 text-blue-400 mx-auto mb-2" />
               <div className="text-2xl font-bold text-white">{results.summary.totalProfilesFound}</div>
-              <div className="text-sm text-gray-400">Total Valid</div>
-            </div>
-            <div className="bg-gray-800/50 border border-gray-600 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-purple-400">{results.summary.organizationsFound}</div>
-              <div className="text-sm text-gray-400">Organizations</div>
+              <div className="text-sm text-gray-400">Relevant Found</div>
             </div>
             <div className="bg-gray-800/50 border border-gray-600 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-green-400">{results.summary.individualsFound}</div>
               <div className="text-sm text-gray-400">Individuals</div>
             </div>
             <div className="bg-gray-800/50 border border-gray-600 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-red-400">{results.summary.spamProfilesRemoved || 0}</div>
-              <div className="text-sm text-gray-400">Spam Filtered</div>
+              <div className="text-2xl font-bold text-amber-400">{results.summary.rejectedProfilesCount || 0}</div>
+              <div className="text-sm text-gray-400">Rejected</div>
             </div>
           </div>
 
-          {/* Detailed Stats */}
+          {/* Data Sources Stats */}
           <div className="mb-8 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-3 text-center">
               <div className="text-lg font-bold text-yellow-400">{results.summary.affiliatesFound}</div>
@@ -208,16 +207,21 @@ export default function FindFromOrgPanel() {
             </div>
           </div>
 
-          {/* Spam Filter Info */}
-          {results.summary.spamProfilesRemoved > 0 && (
-            <div className="mb-6 bg-blue-900/30 border border-blue-700 rounded-lg p-4">
+          {/* Grok Analysis Stats */}
+          {results.summary.grokOrganizationsRemoved !== undefined && results.summary.grokOrganizationsRemoved > 0 && (
+            <div className="mb-6 bg-purple-900/20 border border-purple-800 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-2">
-                <CheckCircle className="w-5 h-5 text-blue-400" />
-                <h3 className="text-blue-200 font-semibold">Spam Filtering Applied</h3>
+                <div className="w-4 h-4 bg-purple-400 rounded"></div>
+                <h3 className="text-purple-200 font-semibold">AI Analysis Results</h3>
               </div>
-              <p className="text-blue-100 text-sm">
-                {results.summary.spamProfilesRemoved} account{results.summary.spamProfilesRemoved !== 1 ? 's' : ''} with fewer than 10 followers AND fewer than 10 following were filtered out to improve result quality.
-              </p>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="text-purple-100">
+                  <span className="font-medium text-purple-300">{results.summary.grokOrganizationsRemoved}</span> organization accounts identified and filtered out
+                </div>
+                <div className="text-purple-100">
+                  <span className="font-medium text-purple-300">{results.summary.individualsFound}</span> individuals with role/organization data extracted
+                </div>
+              </div>
             </div>
           )}
 
@@ -226,17 +230,11 @@ export default function FindFromOrgPanel() {
             <div className="mb-6 bg-yellow-900/50 border border-yellow-600 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-2">
                 <AlertCircle className="w-5 h-5 text-yellow-400" />
-                <h3 className="text-yellow-200 font-semibold">
-                  {results.errors.some(e => e.includes('not available')) ? 'Info' : 'Warnings'}
-                </h3>
+                <h3 className="text-yellow-200 font-semibold">Warnings</h3>
               </div>
               <ul className="text-yellow-100 text-sm space-y-1">
                 {results.errors.map((error, idx) => (
-                  <li key={idx}>
-                    • {error.includes('Affiliates API not available') 
-                      ? 'Some data sources were unavailable, but we found results using alternative methods'
-                      : error}
-                  </li>
+                  <li key={idx}>• {error}</li>
                 ))}
               </ul>
             </div>
@@ -256,45 +254,23 @@ export default function FindFromOrgPanel() {
 
             {/* People Results (right, remaining space) */}
             <div className="flex-1 min-w-0">
-              {results.profiles.length > 0 ? (
+              {(results.directAffiliates && results.directAffiliates.length > 0) || (results.otherIndividuals && results.otherIndividuals.length > 0) ? (
                 <div className="space-y-8">
-                  {/* Organizations Section */}
-                  {results.organizations && results.organizations.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-2 mb-4">
-                        <Building2 className="w-5 h-5 text-purple-400" />
-                        <h3 className="text-xl font-semibold text-white">
-                          Organizations ({results.organizations.length})
-                        </h3>
-                        <span className="text-sm text-gray-400">
-                          (Verified business accounts)
-                        </span>
-                      </div>
-                      <div className="bg-purple-900/20 border border-purple-800 rounded-lg p-4">
-                        <FollowingsTable 
-                          followings={results.organizations.map(transformTwitterUser)} 
-                          loading={false} 
-                          compact 
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Individuals Section */}
-                  {results.individuals && results.individuals.length > 0 && (
+                  {/* Direct Affiliates Section */}
+                  {results.directAffiliates && results.directAffiliates.length > 0 && (
                     <div>
                       <div className="flex items-center gap-2 mb-4">
                         <User className="w-5 h-5 text-green-400" />
                         <h3 className="text-xl font-semibold text-white">
-                          Individuals ({results.individuals.length})
+                          Direct Employees ({results.directAffiliates.length})
                         </h3>
                         <span className="text-sm text-gray-400">
-                          (Personal accounts)
+                          (Currently working at @{results.orgUsername})
                         </span>
                       </div>
                       <div className="bg-green-900/20 border border-green-800 rounded-lg p-4">
                         <FollowingsTable 
-                          followings={results.individuals.map(transformTwitterUser)} 
+                          followings={results.directAffiliates.map(transformTwitterUser)} 
                           loading={false} 
                           compact 
                         />
@@ -302,41 +278,54 @@ export default function FindFromOrgPanel() {
                     </div>
                   )}
 
-                  {/* Combined view fallback (if categorization data is missing) */}
-                  {(!results.organizations && !results.individuals) && (
+                  {/* Other Individuals Section */}
+                  {results.otherIndividuals && results.otherIndividuals.length > 0 && (
                     <div>
                       <div className="flex items-center gap-2 mb-4">
-                        <CheckCircle className="w-5 h-5 text-green-400" />
+                        <User className="w-5 h-5 text-blue-400" />
                         <h3 className="text-xl font-semibold text-white">
-                          Associated People ({results.profiles.length})
+                          Related Individuals ({results.otherIndividuals.length})
                         </h3>
+                        <span className="text-sm text-gray-400">
+                          (Associated but not current employees)
+                        </span>
                       </div>
-                      <FollowingsTable 
-                        followings={results.profiles.map(transformTwitterUser)} 
-                        loading={false} 
-                        compact 
-                      />
+                      <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4">
+                        <FollowingsTable 
+                          followings={results.otherIndividuals.map(transformTwitterUser)} 
+                          loading={false} 
+                          compact 
+                        />
+                      </div>
                     </div>
                   )}
 
-                  {/* Spam Filtered Profiles Section */}
-                  {results.spamProfiles && results.spamProfiles.length > 0 && (
+                  {/* Rejected Profiles Section */}
+                  {results.rejectedProfiles && results.rejectedProfiles.length > 0 && (
                     <div>
                       <div className="flex items-center gap-2 mb-4">
-                        <AlertCircle className="w-5 h-5 text-red-400" />
+                        <AlertCircle className="w-5 h-5 text-amber-400" />
                         <h3 className="text-xl font-semibold text-white">
-                          Spam Filtered ({results.spamProfiles.length})
+                          Rejected Profiles ({results.rejectedProfiles.length})
                         </h3>
                         <span className="text-sm text-gray-400">
-                          (Accounts with &lt;10 followers and &lt;10 following)
+                          (Filtered out profiles)
                         </span>
                       </div>
-                      <div className="bg-red-900/20 border border-red-800 rounded-lg p-4">
-                        <p className="text-red-200 text-sm mb-4">
-                          These accounts were automatically filtered out as they appear to be spam or inactive accounts.
+                      <div className="bg-amber-900/20 border border-amber-800 rounded-lg p-4">
+                        <p className="text-amber-200 text-sm mb-4">
+                          These profiles were filtered out for various reasons:
+                        </p>
+                        <ul className="text-amber-200 text-sm mb-4 space-y-1 ml-4">
+                          <li>• <strong>Organization accounts:</strong> Verified business accounts</li>
+                          <li>• <strong>Spam-filtered:</strong> Accounts with &lt;10 followers AND &lt;10 following</li>
+                          <li>• <strong>No name match:</strong> Profiles that don&apos;t contain variations of the organization&apos;s name</li>
+                        </ul>
+                        <p className="text-amber-200 text-sm mb-4">
+                          While filtered out, some of these profiles may still be relevant to your search.
                         </p>
                         <FollowingsTable 
-                          followings={results.spamProfiles.map(transformTwitterUser)} 
+                          followings={results.rejectedProfiles.map(transformTwitterUser)} 
                           loading={false} 
                           compact 
                         />
@@ -349,8 +338,8 @@ export default function FindFromOrgPanel() {
                   <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                   <h3 className="text-lg font-semibold text-white mb-2">No associated people found</h3>
                   <p className="text-gray-400">
-                    We couldn&apos;t find any people associated with this organization.
-                    This could mean the organization is private or has limited public associations.
+                    We couldn&apos;t find any people currently working at or associated with this organization.
+                    This could mean the organization has limited public employee data or uses private profiles.
                   </p>
                 </div>
               )}

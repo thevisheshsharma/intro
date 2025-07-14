@@ -424,3 +424,232 @@ Do not assume or build any made-up usernames. Do not include any explanations, j
     throw error;
   }
 }
+
+/**
+ * Zod schema for profile analysis results
+ */
+const ProfileAnalysisSchema = z.object({
+  profiles: z.array(z.object({
+    screen_name: z.string().describe("Twitter username"),
+    type: z.enum(["individual", "organization"]).describe("Whether this is an individual person or an organization"),
+    current_position: z.object({
+      organizations: z.array(z.string()).describe("Current organizations or companies they work for"),
+      department: z.enum(["engineering", "product", "marketing", "business", "community", "leadership", "other"]).describe("Department classification based on role")
+    }).optional().describe("Current professional position"),
+    employment_history: z.array(z.object({
+      organization: z.string().describe("Previous organization or company")
+    })).describe("Previous employment history")
+  })).describe("Analysis results for each profile")
+});
+
+type ProfileAnalysisType = z.infer<typeof ProfileAnalysisSchema>;
+
+/**
+ * Analyze a batch of profiles to determine if they are individuals or organizations
+ * and extract role/organization information for individuals
+ * @param profiles - Array of profile objects with screen_name, name, and description
+ * @returns Promise<ProfileAnalysisType>
+ */
+export async function analyzeProfileBatch(profiles: Array<{
+  screen_name: string;
+  name: string;
+  description?: string;
+}>): Promise<ProfileAnalysisType> {
+  try {
+    console.log(`🤖 Analyzing batch of ${profiles.length} profiles with Grok...`);
+    
+    const prompt = `Analyze Twitter profiles. For each: determine if individual or organization. For individuals, extract current organizations/dept and employment history. Do NOT include any education details or role information.
+
+For organizations, provide Twitter handles (e.g., @company) not company names.
+
+Departments: engineering, product, marketing, business, community, leadership, other
+
+Profiles:
+${profiles.map(p => `@${p.screen_name}: ${p.name} - ${p.description || 'No bio'}`).join('\n')}
+
+JSON response:
+{
+  "profiles": [
+    {
+      "screen_name": "username",
+      "type": "individual|organization",
+      "current_position": {
+        "organizations": ["@company1", "@company2"], 
+        "department": "engineering"
+      },
+      "employment_history": [
+        {
+          "organization": "@previous_co"
+        }
+      ]
+    }
+  ]
+}`;
+
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: prompt
+      }
+    ];
+
+    const response = await grokClient.chat.completions.create({
+      ...GROK_CONFIGS.MINI_FAST,
+      messages,
+      max_tokens: 3000 // Increase token limit for batch analysis
+    });
+
+    const content = response.choices[0]?.message?.content;
+    const finishReason = response.choices[0]?.finish_reason;
+
+    if (!content) {
+      console.error('🤖 No content received from Grok');
+      throw new Error('No content received from Grok');
+    }
+
+    console.log(`🤖 Grok response finish_reason: ${finishReason}`);
+    console.log(`🤖 Grok response length: ${content.length} chars`);
+    
+    let analysis: ProfileAnalysisType;
+
+    try {
+      // Try to parse the full content first
+      analysis = JSON.parse(content) as ProfileAnalysisType;
+    } catch (parseError) {
+      console.warn('🤖 Failed to parse full response, attempting to extract valid JSON...');
+      
+      // If parsing fails, try to extract a valid JSON object
+      const jsonStart = content.indexOf('{');
+      if (jsonStart === -1) {
+        console.error('🤖 No JSON object found in response:', content);
+        throw new Error(`No valid JSON found in Grok response`);
+      }
+      
+      let jsonContent = content.substring(jsonStart);
+      
+      // If the response was truncated, try to find the last complete profile entry
+      if (finishReason === 'length') {
+        console.warn('🤖 Response was truncated, attempting to recover complete profiles...');
+        
+        // Find the profiles array and try to close it properly
+        const profilesStart = jsonContent.indexOf('"profiles":[');
+        if (profilesStart !== -1) {
+          const arrayStart = jsonContent.indexOf('[', profilesStart);
+          if (arrayStart !== -1) {
+            // Find all complete profile objects
+            const afterArray = jsonContent.substring(arrayStart + 1);
+            const completeProfiles = [];
+            let braceCount = 0;
+            let currentProfile = '';
+            let inProfile = false;
+            
+            for (let i = 0; i < afterArray.length; i++) {
+              const char = afterArray[i];
+              if (char === '{') {
+                if (!inProfile) {
+                  inProfile = true;
+                  currentProfile = '{';
+                } else {
+                  currentProfile += char;
+                }
+                braceCount++;
+              } else if (char === '}') {
+                currentProfile += char;
+                braceCount--;
+                if (braceCount === 0 && inProfile) {
+                  // Complete profile found
+                  try {
+                    const profileObj = JSON.parse(currentProfile);
+                    completeProfiles.push(profileObj);
+                    currentProfile = '';
+                    inProfile = false;
+                  } catch {
+                    // Invalid profile, skip
+                    currentProfile = '';
+                    inProfile = false;
+                  }
+                }
+              } else if (inProfile) {
+                currentProfile += char;
+              }
+            }
+            
+            if (completeProfiles.length > 0) {
+              analysis = { profiles: completeProfiles };
+              console.log(`🤖 Recovered ${completeProfiles.length} complete profiles from truncated response`);
+            } else {
+              throw new Error('Could not recover any complete profiles from truncated response');
+            }
+          } else {
+            throw new Error('Could not find profiles array in response');
+          }
+        } else {
+          throw new Error('Could not find profiles field in response');
+        }
+      } else {
+        console.error('🤖 Failed to parse Grok response:', content.substring(0, 500));
+        throw new Error(`Failed to parse Grok response: ${parseError}`);
+      }
+    }
+
+    // Validate the response structure
+    if (!analysis.profiles || !Array.isArray(analysis.profiles)) {
+      console.error('🤖 Invalid response structure from Grok:', analysis);
+      throw new Error('Invalid response structure from Grok');
+    }
+
+    // Validate and clean up each profile
+    const validProfiles = analysis.profiles.map(profile => {
+      // Ensure required fields exist
+      if (!profile.screen_name || !profile.type) {
+        console.warn(`🤖 Profile missing required fields:`, profile);
+        return null;
+      }
+
+      // Fill in defaults for missing fields
+      const cleanProfile = {
+        screen_name: profile.screen_name,
+        type: profile.type as 'individual' | 'organization',
+        current_position: profile.current_position || {
+          organizations: ['Unknown'],
+          department: 'other' as const
+        },
+        employment_history: profile.employment_history || []
+      };
+
+      // Ensure current_position has all required fields
+      if (cleanProfile.current_position) {
+        cleanProfile.current_position = {
+          organizations: cleanProfile.current_position.organizations || ['Unknown'],
+          department: cleanProfile.current_position.department || 'other' as const
+        };
+      }
+
+      return cleanProfile;
+    }).filter((profile): profile is NonNullable<typeof profile> => profile !== null);
+
+    analysis.profiles = validProfiles;
+
+    console.log(`🤖 Successfully analyzed ${analysis.profiles.length} profiles`);
+    return analysis;
+
+  } catch (error: any) {
+    console.error('🤖 Error in analyzeProfileBatch:', error.message);
+    
+    // Return fallback analysis - treat all as individuals with minimal data
+    const fallbackAnalysis: ProfileAnalysisType = {
+      profiles: profiles.map(profile => ({
+        screen_name: profile.screen_name,
+        type: 'individual' as const,
+        current_position: {
+          organizations: ['Unknown'],
+          department: 'other' as const
+        },
+        employment_history: []
+      }))
+    };
+    
+    console.log(`🤖 Returning fallback analysis for ${profiles.length} profiles`);
+    return fallbackAnalysis;
+  }
+}

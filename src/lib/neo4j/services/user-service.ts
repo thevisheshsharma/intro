@@ -1,4 +1,4 @@
-import { runQuery } from '@/lib/neo4j'
+import { runQuery, runBatchQuery } from '@/lib/neo4j'
 
 export interface Neo4jUser {
   userId: string
@@ -104,6 +104,110 @@ export async function createOrUpdateUser(user: Neo4jUser): Promise<void> {
   `
   
   await runQuery(query, user)
+}
+
+// Check if multiple users exist in Neo4j (returns array of existing user IDs)
+export async function checkUsersExist(userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return []
+  
+  const query = `
+    UNWIND $userIds AS userId
+    MATCH (u:User {userId: userId})
+    RETURN u.userId as existingUserId
+  `
+  
+  const results = await runBatchQuery(query, { userIds })
+  return results.map(record => record.existingUserId)
+}
+
+// Batch lookup users by screen names (case-insensitive)
+export async function getUsersByScreenNames(screenNames: string[]): Promise<Neo4jUser[]> {
+  if (screenNames.length === 0) return []
+  
+  const query = `
+    UNWIND $screenNames AS screenName
+    MATCH (u:User)
+    WHERE toLower(u.screenName) = toLower(screenName)
+    RETURN u, screenName
+  `
+  
+  const results = await runBatchQuery(query, { screenNames })
+  return results.map(record => record.u.properties)
+}
+
+// Batch lookup users by user IDs
+export async function getUsersByUserIds(userIds: string[]): Promise<Neo4jUser[]> {
+  if (userIds.length === 0) return []
+  
+  const query = `
+    UNWIND $userIds AS userId
+    MATCH (u:User {userId: userId})
+    RETURN u
+  `
+  
+  const results = await runBatchQuery(query, { userIds })
+  return results.map(record => record.u.properties)
+}
+
+// Batch get follower counts for multiple users
+export async function getUserFollowerCounts(userIds: string[]): Promise<Array<{userId: string, followerCount: number}>> {
+  if (userIds.length === 0) return []
+  
+  const query = `
+    UNWIND $userIds AS userId
+    MATCH (u:User {userId: userId})
+    OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
+    RETURN userId, count(follower) as followerCount
+  `
+  
+  const results = await runQuery(query, { userIds })
+  return results.map(record => ({
+    userId: record.userId,
+    followerCount: record.followerCount?.low || 0
+  }))
+}
+
+// Batch get following counts for multiple users
+export async function getUserFollowingCounts(userIds: string[]): Promise<Array<{userId: string, followingCount: number}>> {
+  if (userIds.length === 0) return []
+  
+  const query = `
+    UNWIND $userIds AS userId
+    MATCH (u:User {userId: userId})
+    OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
+    RETURN userId, count(following) as followingCount
+  `
+  
+  const results = await runQuery(query, { userIds })
+  return results.map(record => ({
+    userId: record.userId,
+    followingCount: record.followingCount?.low || 0
+  }))
+}
+
+// Batch check if users have specific data types (affiliate, following)
+export async function batchCheckUserDataTypes(userIds: string[]): Promise<Array<{
+  userId: string,
+  hasAffiliateData: boolean,
+  hasFollowingData: boolean
+}>> {
+  if (userIds.length === 0) return []
+  
+  const query = `
+    UNWIND $userIds AS userId
+    MATCH (u:User {userId: userId})
+    OPTIONAL MATCH (u)-[:AFFILIATED_WITH]->(:User)
+    WITH u, userId, count(*) > 0 as hasAffiliates
+    OPTIONAL MATCH (u)-[:FOLLOWS]->(:User)
+    RETURN userId, hasAffiliates as hasAffiliateData, count(*) > 0 as hasFollowingData
+  `
+  
+  const results = await runQuery(query, { userIds })
+  return results.map(record => ({
+    userId: record.userId,
+    hasAffiliateData: record.hasAffiliateData || false,
+    hasFollowingData: record.hasFollowingData || false
+  }))
 }
 
 // Create or update multiple users in batch with improved batching
@@ -449,4 +553,213 @@ export async function incrementalUpdateFollowings(userId: string, newFollowingUs
   
   console.log(`Incremental following update complete: +${toAdd.length}, -${toRemove.length}`)
   return { added: toAdd.length, removed: toRemove.length }
+}
+
+// Affiliate relationship functions
+export async function createAffiliateRelationship(orgUserId: string, affiliateUserId: string): Promise<void> {
+  const query = `
+    MATCH (org:User {userId: $orgUserId})
+    MATCH (affiliate:User {userId: $affiliateUserId})
+    MERGE (org)-[:AFFILIATED_WITH]->(affiliate)
+  `
+  
+  await runQuery(query, { orgUserId, affiliateUserId })
+}
+
+// Check if organization has affiliate data
+export async function hasAffiliateData(orgUserId: string): Promise<boolean> {
+  console.log(`🔍 [Neo4j] Checking affiliate data for user: ${orgUserId}`)
+  const query = `
+    MATCH (org:User {userId: $orgUserId})-[:AFFILIATED_WITH]->(:User)
+    RETURN count(*) > 0 as hasAffiliates
+  `
+  
+  const results = await runQuery(query, { orgUserId })
+  const hasAffiliates = results[0]?.hasAffiliates || false
+  console.log(`🔍 [Neo4j] User ${orgUserId} has affiliates: ${hasAffiliates}`)
+  return hasAffiliates
+}
+
+// Check if organization has following data
+export async function hasFollowingData(orgUserId: string): Promise<boolean> {
+  console.log(`🔍 [Neo4j] Checking following data for user: ${orgUserId}`)
+  const query = `
+    MATCH (org:User {userId: $orgUserId})-[:FOLLOWS]->(:User)
+    RETURN count(*) > 0 as hasFollowings
+  `
+  
+  const results = await runQuery(query, { orgUserId })
+  const hasFollowings = results[0]?.hasFollowings || false
+  console.log(`🔍 [Neo4j] User ${orgUserId} has followings: ${hasFollowings}`)
+  return hasFollowings
+}
+
+// Get organization's affiliates
+export async function getOrganizationAffiliates(orgUserId: string): Promise<Neo4jUser[]> {
+  console.log(`🔍 [Neo4j] Fetching affiliates for organization: ${orgUserId}`)
+  const query = `
+    MATCH (org:User {userId: $orgUserId})-[:AFFILIATED_WITH]->(affiliate:User)
+    RETURN affiliate
+    ORDER BY affiliate.followersCount DESC
+  `
+  
+  const results = await runQuery(query, { orgUserId })
+  const affiliates = results.map(record => record.affiliate.properties)
+  console.log(`✅ [Neo4j] Retrieved ${affiliates.length} affiliates for organization ${orgUserId}`)
+  return affiliates
+}
+
+// Get organization's following users (filtered for potential affiliates)
+export async function getOrganizationFollowingUsers(orgUserId: string): Promise<Neo4jUser[]> {
+  console.log(`🔍 [Neo4j] Fetching following users for organization: ${orgUserId}`)
+  const query = `
+    MATCH (org:User {userId: $orgUserId})-[:FOLLOWS]->(following:User)
+    RETURN following
+    ORDER BY following.followersCount DESC
+  `
+  
+  const results = await runQuery(query, { orgUserId })
+  const followingUsers = results.map(record => record.following.properties)
+  console.log(`✅ [Neo4j] Retrieved ${followingUsers.length} following users for organization ${orgUserId}`)
+  return followingUsers
+}
+
+// Create multiple AFFILIATED_WITH relationships in batch
+export async function addAffiliateRelationships(relationships: Array<{orgUserId: string, affiliateUserId: string}>): Promise<void> {
+  if (relationships.length === 0) {
+    console.log('No new affiliate relationships to add')
+    return
+  }
+  
+  console.log(`Adding ${relationships.length} new AFFILIATED_WITH relationships`)
+  
+  // Process in batches of 500 to avoid large transaction issues
+  const batchSize = 500
+  for (let i = 0; i < relationships.length; i += batchSize) {
+    const batch = relationships.slice(i, i + batchSize)
+    
+    const query = `
+      UNWIND $relationships AS rel
+      MATCH (org:User {userId: rel.orgUserId})
+      MATCH (affiliate:User {userId: rel.affiliateUserId})
+      MERGE (org)-[:AFFILIATED_WITH]->(affiliate)
+    `
+    
+    await runQuery(query, { relationships: batch })
+    console.log(`Added affiliate batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(relationships.length/batchSize)} (${batch.length} relationships)`)
+  }
+}
+
+// Check if AFFILIATED_WITH relationships already exist
+export async function checkExistingAffiliateRelationships(relationships: Array<{orgUserId: string, affiliateUserId: string}>): Promise<Array<{orgUserId: string, affiliateUserId: string}>> {
+  if (relationships.length === 0) return []
+  
+  const query = `
+    UNWIND $relationships AS rel
+    MATCH (org:User {userId: rel.orgUserId})-[:AFFILIATED_WITH]->(affiliate:User {userId: rel.affiliateUserId})
+    RETURN rel.orgUserId as orgUserId, rel.affiliateUserId as affiliateUserId
+  `
+  
+  const results = await runQuery(query, { relationships })
+  return results.map(record => ({
+    orgUserId: record.orgUserId,
+    affiliateUserId: record.affiliateUserId
+  }))
+}
+
+// Check if FOLLOWS relationships already exist
+export async function checkExistingFollowsRelationships(relationships: Array<{followerUserId: string, followingUserId: string}>): Promise<Array<{followerUserId: string, followingUserId: string}>> {
+  if (relationships.length === 0) return []
+  
+  const query = `
+    UNWIND $relationships AS rel
+    MATCH (follower:User {userId: rel.followerUserId})-[:FOLLOWS]->(following:User {userId: rel.followingUserId})
+    RETURN rel.followerUserId as followerUserId, rel.followingUserId as followingUserId
+  `
+  
+  const results = await runQuery(query, { relationships })
+  return results.map(record => ({
+    followerUserId: record.followerUserId,
+    followingUserId: record.followingUserId
+  }))
+}
+
+// Filter out existing relationships from a list
+export function filterOutExistingRelationships<T extends {[key: string]: string}>(
+  allRelationships: T[],
+  existingRelationships: T[],
+  keyFields: string[]
+): T[] {
+  const existingSet = new Set(
+    existingRelationships.map(rel => 
+      keyFields.map(field => rel[field]).join('|')
+    )
+  )
+  
+  return allRelationships.filter(rel => 
+    !existingSet.has(keyFields.map(field => rel[field]).join('|'))
+  )
+}
+
+// Batch lookup users by screen names (case-insensitive) with detailed result mapping
+export async function getUsersByScreenNamesWithMapping(screenNames: string[]): Promise<{
+  found: Array<{screenName: string, user: Neo4jUser}>,
+  notFound: string[]
+}> {
+  if (screenNames.length === 0) return { found: [], notFound: [] }
+  
+  const query = `
+    UNWIND $screenNames AS screenName
+    OPTIONAL MATCH (u:User)
+    WHERE toLower(u.screenName) = toLower(screenName)
+    RETURN screenName, u
+  `
+  
+  const results = await runQuery(query, { screenNames })
+  const found: Array<{screenName: string, user: Neo4jUser}> = []
+  const notFound: string[] = []
+  
+  results.forEach(record => {
+    if (record.u?.properties) {
+      found.push({
+        screenName: record.screenName,
+        user: record.u.properties
+      })
+    } else {
+      notFound.push(record.screenName)
+    }
+  })
+  
+  return { found, notFound }
+}
+
+// Optimized batch user existence and count retrieval
+export async function batchUserStatsLookup(userIds: string[]): Promise<Array<{
+  userId: string,
+  exists: boolean,
+  followerCount: number,
+  followingCount: number,
+  user?: Neo4jUser
+}>> {
+  if (userIds.length === 0) return []
+  
+  const query = `
+    UNWIND $userIds AS userId
+    OPTIONAL MATCH (u:User {userId: userId})
+    OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
+    OPTIONAL MATCH (u)-[:FOLLOWS]->(following:User)
+    RETURN userId, 
+           u,
+           count(DISTINCT follower) as followerCount,
+           count(DISTINCT following) as followingCount
+  `
+  
+  const results = await runQuery(query, { userIds })
+  return results.map(record => ({
+    userId: record.userId,
+    exists: !!record.u?.properties,
+    followerCount: record.followerCount?.low || 0,
+    followingCount: record.followingCount?.low || 0,
+    user: record.u?.properties || undefined
+  }))
 }
