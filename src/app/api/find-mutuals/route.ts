@@ -53,69 +53,48 @@ async function fetchUserFromSocialAPI(username: string): Promise<TwitterApiUser>
 
 // Process user and their followers/followings with intelligent caching
 async function processUserConnections(username: string, fetchFollowers: boolean = false): Promise<string> {
-  // Step 1: Get or fetch user data from both SocialAPI and Neo4j
-  let user = await getUserByScreenName(username)
-  let userData: TwitterApiUser
-
-  // Always fetch user profile from SocialAPI to get current counts
-  userData = await fetchUserFromSocialAPI(username)
+  // Step 1: Run Neo4j lookup and SocialAPI fetch in parallel
+  const [user, userData] = await Promise.all([
+    getUserByScreenName(username),
+    fetchUserFromSocialAPI(username)
+  ])
+  
   const userId = userData.id_str || userData.id
 
-  // Create or update user in Neo4j
+  // Step 2: Run user upsert and count check in parallel
   const neo4jUser = transformToNeo4jUser(userData)
-  await createOrUpdateUser(neo4jUser)
-
-  // Step 2: Check if we need to fetch connections based on count differences
-  let shouldFetchConnections = false
   
-  if (fetchFollowers) {
-    // Check followers
-    const cachedFollowerCount = await getUserFollowerCount(userId)
-    const apiFollowerCount = userData.followers_count || 0
-    
-    console.log(`${username}: Cached followers: ${cachedFollowerCount}, API followers: ${apiFollowerCount}`)
-    
-    if (hasSignificantCountDifference(cachedFollowerCount, apiFollowerCount) || 
-        !user || isUserDataStale(user, 1080)) { // 45 days = 1080 hours
-      shouldFetchConnections = true
-      console.log(`Fetching fresh followers for ${username} (significant difference or stale data)`)
-    } else {
-      console.log(`Using cached followers for ${username} (difference within threshold)`)
-    }
-  } else {
-    // Check followings
-    const cachedFollowingCount = await getUserFollowingCount(userId)
-    const apiFollowingCount = userData.friends_count || 0
-    
-    console.log(`${username}: Cached followings: ${cachedFollowingCount}, API followings: ${apiFollowingCount}`)
-    
-    if (hasSignificantCountDifference(cachedFollowingCount, apiFollowingCount) || 
-        !user || isUserDataStale(user, 1080)) { // 45 days = 1080 hours
-      shouldFetchConnections = true
-      console.log(`Fetching fresh followings for ${username} (significant difference or stale data)`)
-    } else {
-      console.log(`Using cached followings for ${username} (difference within threshold)`)
-    }
-  }
+  const [, cachedCount] = await Promise.all([
+    createOrUpdateUser(neo4jUser),
+    fetchFollowers ? getUserFollowerCount(userId) : getUserFollowingCount(userId)
+  ])
 
-  // Step 3: Fetch connections only if needed
+  // Step 3: Check if we need to fetch connections based on count differences
+  const apiCount = fetchFollowers ? (userData.followers_count || 0) : (userData.friends_count || 0)
+  const connectionType = fetchFollowers ? 'followers' : 'followings'
+  
+  console.log(`${username}: Cached ${connectionType}: ${cachedCount}, API ${connectionType}: ${apiCount}`)
+  
+  const shouldFetchConnections = hasSignificantCountDifference(cachedCount, apiCount) || 
+                                !user || isUserDataStale(user, 1080) // 45 days = 1080 hours
+  
   if (shouldFetchConnections) {
+    console.log(`Fetching fresh ${connectionType} for ${username} (significant difference or stale data)`)
+    
     let connections: TwitterApiUser[]
     let updateResult: { added: number, removed: number }
     
     if (fetchFollowers) {
       connections = await fetchFollowersFromSocialAPI(username)
-      // Use incremental update instead of clearing all relationships
       updateResult = await incrementalUpdateFollowers(userId, connections)
       console.log(`Follower update: +${updateResult.added}, -${updateResult.removed}`)
     } else {
       connections = await fetchFollowingsFromSocialAPI(userId)
-      // Use incremental update instead of clearing all relationships
       updateResult = await incrementalUpdateFollowings(userId, connections)
       console.log(`Following update: +${updateResult.added}, -${updateResult.removed}`)
     }
   } else {
-    console.log(`Using cached data for ${username}, no API fetch needed`)
+    console.log(`Using cached ${connectionType} for ${username} (difference within threshold)`)
   }
 
   return userId
@@ -149,27 +128,31 @@ export async function POST(request: NextRequest) {
     const processingTime = Date.now() - startTime
     console.log(`Parallel processing completed in ${processingTime}ms`)
 
-    // Verify both users exist after processing - OPTIMIZED with batch query
-    const users = await getUsersByScreenNames([loggedInUserUsername, searchUsername])
+    // Run user verification, count fetching, and mutual finding in parallel
+    console.log(`Starting parallel verification and mutual finding...`)
+    const verificationStartTime = Date.now()
+    
+    const [users, loggedInUserFollowerCount, searchUserFollowingCount, mutuals] = await Promise.all([
+      // Verify both users exist after processing - OPTIMIZED with batch query
+      getUsersByScreenNames([loggedInUserUsername, searchUsername]),
+      // Get follower count for logged in user
+      getUserFollowerCount(loggedInUserId),
+      // Get following count for search user  
+      getUserFollowingCount(searchUserId),
+      // Find mutual connections (this is the most expensive operation)
+      findMutualConnections(loggedInUserUsername, searchUsername)
+    ])
+    
+    const verificationTime = Date.now() - verificationStartTime
+    console.log(`Parallel verification and mutual finding completed in ${verificationTime}ms`)
+    
     const loggedInUser = users.find(u => u.screenName.toLowerCase() === loggedInUserUsername.toLowerCase())
     const searchUser = users.find(u => u.screenName.toLowerCase() === searchUsername.toLowerCase())
     
     console.log(`After processing - Logged in user exists: ${!!loggedInUser}`)
     console.log(`After processing - Search user exists: ${!!searchUser}`)
-    
-    if (loggedInUser) {
-      const followerCount = await getUserFollowerCount(loggedInUserId)
-      console.log(`${loggedInUserUsername} has ${followerCount} followers in Neo4j`)
-    }
-    
-    if (searchUser) {
-      const followingCount = await getUserFollowingCount(searchUserId)
-      console.log(`${searchUsername} follows ${followingCount} users in Neo4j`)
-    }
-
-    // Find mutual connections
-    console.log(`Finding mutual connections between ${loggedInUserUsername} and ${searchUsername}...`)
-    const mutuals = await findMutualConnections(loggedInUserUsername, searchUsername)
+    console.log(`${loggedInUserUsername} has ${loggedInUserFollowerCount} followers in Neo4j`)
+    console.log(`${searchUsername} follows ${searchUserFollowingCount} users in Neo4j`)
 
     console.log(`=== RESULT: Found ${mutuals.length} mutuals ===`)
 
@@ -182,8 +165,8 @@ export async function POST(request: NextRequest) {
       debug: {
         loggedInUserExists: !!loggedInUser,
         searchUserExists: !!searchUser,
-        loggedInUserFollowers: loggedInUser ? await getUserFollowerCount(loggedInUserId) : 0,
-        searchUserFollowings: searchUser ? await getUserFollowingCount(searchUserId) : 0
+        loggedInUserFollowers: loggedInUserFollowerCount,
+        searchUserFollowings: searchUserFollowingCount
       }
     })
 

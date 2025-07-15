@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOrgAffiliatesWithGrok, analyzeProfileBatch } from '@/lib/grok'
+import { runQuery } from '@/lib/neo4j'
 import { 
   createOrUpdateUser, 
   createOrUpdateUsers,
+  createOrUpdateUsersOptimized,
   getUserByScreenName,
   getUsersByScreenNames,
   getUserFollowingCount,
@@ -16,7 +18,8 @@ import {
   checkUsersExist,
   checkExistingAffiliateRelationships,
   checkExistingFollowsRelationships,
-  filterOutExistingRelationships
+  filterOutExistingRelationships,
+  getUsersWithExistingEmploymentRelationships
 } from '@/lib/neo4j/services/user-service'
 
 export async function POST(request: NextRequest) {
@@ -67,59 +70,184 @@ export async function POST(request: NextRequest) {
       errors: []
     }
 
-    // Step 1: Parallel lookup of organization profile (Neo4j + SocialAPI)
-    console.log('Step 1: Parallel organization profile lookup...')
+    // Step 1: Massively Parallel Data Fetching Optimization
+    console.log('Step 1: Parallel data source execution (optimized)...')
     
     let existingOrgUser: any = null
     let freshOrgProfile: any = null
     let shouldFetchFollowingsFromAPI = true
     
-    try {
-      // Start both lookups in parallel
-      console.log('→ Looking up org in Neo4j and SocialAPI...')
-      const [neo4jResult, socialApiResult] = await Promise.allSettled([
-        // Neo4j lookup
-        (async () => {
-          return await getUserByScreenName(orgUsername)
-        })(),
-        // SocialAPI lookup
-        (async () => {
-          const response = await fetch(`https://api.socialapi.me/twitter/user/${orgUsername}`, {
+    // Execute ALL initial operations in parallel for maximum efficiency
+    console.log('→ Starting all data sources in parallel...')
+    const [
+      neo4jOrgResult,
+      socialApiOrgResult,
+      grokResult,
+      affiliatesResult,
+      searchResult
+    ] = await Promise.allSettled([
+      // 1a: Neo4j org lookup
+      (async () => {
+        console.log('   → Starting Neo4j org lookup...')
+        const result = await getUserByScreenName(orgUsername)
+        console.log(`   → ✅ Neo4j org: ${result ? 'Found' : 'Not found'}`)
+        return result
+      })(),
+      
+      // 1b: SocialAPI org profile lookup
+      (async () => {
+        console.log('   → Starting SocialAPI org lookup...')
+        const response = await fetch(`https://api.socialapi.me/twitter/user/${orgUsername}`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
+            'Accept': 'application/json',
+          }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          console.log(`   → ✅ SocialAPI org: Found @${data.screen_name}`)
+          return data
+        } else {
+          throw new Error(`SocialAPI returned ${response.status}: ${await response.text()}`)
+        }
+      })(),
+      
+      // 1c: Grok AI analysis (moved to parallel)
+      (async () => {
+        console.log('   → Starting Grok analysis...')
+        const grokUsernames = await findOrgAffiliatesWithGrok(orgUsername)
+        console.log(`   → ✅ Grok: Found ${grokUsernames.length} usernames`)
+        return grokUsernames
+      })(),
+      
+      // 1d: Official affiliates (requires orgProfile, but we'll handle this conditionally)
+      (async () => {
+        console.log('   → Starting affiliates fetch (will retry with ID if needed)...')
+        console.log(`   → Affiliates URL: https://api.socialapi.me/twitter/user/${orgUsername}/affiliates`)
+        // We'll try with username first, then retry with ID later if needed
+        try {
+          const affiliatesResponse = await fetch(`https://api.socialapi.me/twitter/user/${orgUsername}/affiliates`, {
             headers: {
               'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
-              'Accept': 'application/json',
+              'Accept': 'application/json'
             }
           })
-          if (response.ok) {
-            const data = await response.json()
-            return data
+          
+          if (affiliatesResponse.ok) {
+            const affiliatesData = await affiliatesResponse.json()
+            const affiliates = affiliatesData.users || affiliatesData.data || []
+            console.log(`   → ✅ Affiliates: Found ${affiliates.length} official affiliates`)
+            return { success: true, data: affiliates, needsRetry: false }
+          } else if (affiliatesResponse.status === 404) {
+            console.log('   → ✅ Affiliates: No official affiliates available for this organization (404)')
+            return { success: true, data: [], needsRetry: false }
+          } else if (affiliatesResponse.status === 401) {
+            console.warn('   → ⚠️  Affiliates: Authentication error (401)')
+            return { success: false, data: [], needsRetry: false, authError: true }
+          } else if (affiliatesResponse.status === 403) {
+            console.warn('   → ⚠️  Affiliates: Access forbidden (403) - may require user ID')
+            return { success: false, data: [], needsRetry: true }
+          } else if (affiliatesResponse.status >= 400 && affiliatesResponse.status < 500) {
+            console.warn(`   → ⚠️  Affiliates: Client error ${affiliatesResponse.status} - will retry with user ID`)
+            return { success: false, data: [], needsRetry: true }
           } else {
-            throw new Error(`SocialAPI returned ${response.status}: ${await response.text()}`)
+            console.warn(`   → ⚠️  Affiliates: Server error ${affiliatesResponse.status} - will retry with user ID`)
+            return { success: false, data: [], needsRetry: true }
           }
-        })()
-      ])
+        } catch (error: any) {
+          console.warn(`   → ⚠️  Affiliates error: ${error.message} - will retry with user ID`)
+          return { success: false, data: [], needsRetry: true, error: error.message }
+        }
+      })(),
       
+      // 1e: User search
+      (async () => {
+        console.log('   → Starting user search...')
+        const searchResponse = await fetch(`https://api.socialapi.me/twitter/search-users?query=${encodeURIComponent(orgUsername)}`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
+            'Accept': 'application/json'
+          }
+        })
+        if (searchResponse.ok) {
+          const searchData = await searchResponse.json()
+          const searchUsers = searchData.users || searchData || []
+          console.log(`   → ✅ Search: Found ${searchUsers.length} users`)
+          return searchUsers
+        } else {
+          console.warn(`   → ⚠️  Search: API returned ${searchResponse.status}`)
+          return []
+        }
+      })()
+    ])
+    
+    // Process all parallel results
+    try {
       // Process Neo4j result
-      if (neo4jResult.status === 'fulfilled' && neo4jResult.value) {
-        existingOrgUser = neo4jResult.value
+      if (neo4jOrgResult.status === 'fulfilled' && neo4jOrgResult.value) {
+        existingOrgUser = neo4jOrgResult.value
         console.log(`   → Found org in Neo4j: @${existingOrgUser.screenName}`)
       } else {
         console.log('   → Org not found in Neo4j')
-        if (neo4jResult.status === 'rejected') {
-          console.debug('   → Neo4j lookup error:', neo4jResult.reason?.message)
+        if (neo4jOrgResult.status === 'rejected') {
+          console.debug('   → Neo4j lookup error:', neo4jOrgResult.reason?.message)
         }
       }
       
       // Process SocialAPI result
-      if (socialApiResult.status === 'fulfilled' && socialApiResult.value) {
-        freshOrgProfile = socialApiResult.value
+      if (socialApiOrgResult.status === 'fulfilled' && socialApiOrgResult.value) {
+        freshOrgProfile = socialApiOrgResult.value
         console.log(`   → Fetched org profile from SocialAPI: @${freshOrgProfile.screen_name}`)
       } else {
         console.warn('   → Failed to fetch org profile from SocialAPI')
-        if (socialApiResult.status === 'rejected') {
-          console.debug('   → SocialAPI lookup error:', socialApiResult.reason?.message)
-          results.errors.push(`Failed to fetch org profile: ${socialApiResult.reason?.message}`)
+        if (socialApiOrgResult.status === 'rejected') {
+          console.debug('   → SocialAPI lookup error:', socialApiOrgResult.reason?.message)
+          results.errors.push(`Failed to fetch org profile: ${socialApiOrgResult.reason?.message}`)
         }
+      }
+
+      // Process Grok result
+      if (grokResult.status === 'fulfilled') {
+        results.grokUsers = grokResult.value
+        console.log(`   → ✅ Grok: Found ${results.grokUsers.length} usernames`)
+      } else {
+        console.error(`   → ❌ Grok error: ${grokResult.reason?.message}`)
+        results.errors.push(`Grok analysis error: ${grokResult.reason?.message}`)
+        results.grokUsers = []
+      }
+
+      // Process Search result
+      if (searchResult.status === 'fulfilled') {
+        results.searchedUsers = searchResult.value
+        console.log(`   → ✅ Search: Found ${results.searchedUsers.length} users`)
+      } else {
+        console.error(`   → ❌ Search error: ${searchResult.reason?.message}`)
+        results.errors.push(`Search error: ${searchResult.reason?.message}`)
+        results.searchedUsers = []
+      }
+
+      // Process Affiliates result (may need retry with user ID)
+      if (affiliatesResult.status === 'fulfilled') {
+        const affiliateData = affiliatesResult.value
+        if (affiliateData.success) {
+          results.affiliatedUsers = affiliateData.data
+          console.log(`   → ✅ Affiliates: Found ${results.affiliatedUsers.length} official affiliates`)
+        } else if (affiliateData.authError) {
+          console.error('   → ❌ Affiliates: Authentication failed - check SOCIALAPI_BEARER_TOKEN')
+          results.errors.push('Affiliates authentication error - check API token')
+          results.affiliatedUsers = []
+        } else if (affiliateData.needsRetry) {
+          // Will retry later with user ID
+          console.log('   → ⚠️  Affiliates: Will retry with user ID later')
+          results.affiliatedUsers = []
+        } else {
+          console.log('   → ℹ️  Affiliates: No retry needed, using empty result')
+          results.affiliatedUsers = []
+        }
+      } else {
+        console.error(`   → ❌ Affiliates error: ${affiliatesResult.reason?.message}`)
+        results.errors.push(`Affiliates error: ${affiliatesResult.reason?.message}`)
+        results.affiliatedUsers = []
       }
       
       // Decision logic: Use Neo4j data or fetch fresh data
@@ -225,10 +353,50 @@ export async function POST(request: NextRequest) {
         console.error('   → No organization data available from either source')
         results.errors.push('Organization not found in Neo4j or SocialAPI')
       }
+
+      // Retry affiliates with user ID if needed
+      if (results.affiliatedUsers.length === 0 && affiliatesResult.status === 'fulfilled' && 
+          affiliatesResult.value.needsRetry && results.orgProfile?.id_str) {
+        try {
+          console.log('   → Retrying affiliates fetch with user ID...')
+          console.log(`   → Retry URL: https://api.socialapi.me/twitter/user/${results.orgProfile.id_str}/affiliates`)
+          const retryResponse = await fetch(`https://api.socialapi.me/twitter/user/${results.orgProfile.id_str}/affiliates`, {
+            headers: {
+              'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
+              'Accept': 'application/json'
+            }
+          })
+          
+          if (retryResponse.ok) {
+            const retryData = await retryResponse.json()
+            results.affiliatedUsers = retryData.users || retryData.data || []
+            console.log(`   → ✅ Affiliates retry: Found ${results.affiliatedUsers.length} official affiliates`)
+          } else if (retryResponse.status === 404) {
+            console.log('   → ✅ Affiliates retry: No official affiliates available for this organization (404)')
+            results.affiliatedUsers = []
+          } else if (retryResponse.status === 401) {
+            console.error('   → ❌ Affiliates retry: Authentication failed (401)')
+            results.errors.push('Affiliates retry authentication error')
+          } else if (retryResponse.status === 403) {
+            console.warn('   → ⚠️  Affiliates retry: Access forbidden (403)')
+            results.errors.push('Affiliates retry access forbidden')
+          } else {
+            console.warn(`   → ⚠️  Affiliates retry failed: ${retryResponse.status}`)
+            const responseText = await retryResponse.text().catch(() => 'Unknown error')
+            results.errors.push(`Affiliates retry failed: ${retryResponse.status} - ${responseText}`)
+          }
+        } catch (retryError: any) {
+          console.error(`   → ❌ Affiliates retry error: ${retryError.message}`)
+          results.errors.push(`Affiliates retry error: ${retryError.message}`)
+        }
+      } else if (results.affiliatedUsers.length === 0 && affiliatesResult.status === 'fulfilled' && 
+                 !affiliatesResult.value.needsRetry) {
+        console.log('   → ✅ Affiliates: No official affiliates available for this organization')
+      }
       
     } catch (error: any) {
-      console.error('   → Error during parallel org profile lookup:', error.message)
-      results.errors.push(`Organization profile lookup error: ${error.message}`)
+      console.error('   → Error during parallel data source processing:', error.message)
+      results.errors.push(`Data source processing error: ${error.message}`)
     }
 
     // Create organization name variations once for reuse throughout the process
@@ -333,123 +501,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Step 2: Run all independent data sources in parallel for maximum efficiency
-    console.log(' Step 2: Parallel data source execution...')
-    
-    // Prepare user ID for affiliates lookup
-    let userId = null
-    if (results.orgProfile && results.orgProfile.id_str) {
-      userId = results.orgProfile.id_str
-    }
+    console.log(`   → ✅ All parallel data sources complete: ${results.affiliatedUsers.length} affiliates, ${results.searchedUsers.length} search results, ${results.grokUsers.length} Grok suggestions`)
 
-    // Execute all independent data sources in parallel
-    const dataSourcePromises = [
-      // 2a: Official affiliates from SocialAPI
-      (async () => {
-        try {
-          if (userId) {
-            console.log('   → Starting affiliates fetch...')
-            const affiliatesResponse = await fetch(`https://api.socialapi.me/twitter/user/${userId}/affiliates`, {
-              headers: {
-                'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
-                'Accept': 'application/json'
-              }
-            })
-            if (affiliatesResponse.ok) {
-              const affiliatesData = await affiliatesResponse.json()
-              const affiliates = affiliatesData.users || []
-              console.log(`   → ✅ Affiliates: Found ${affiliates.length} official affiliates`)
-              return { type: 'affiliates', data: affiliates, error: null }
-            } else if (affiliatesResponse.status === 404) {
-              console.log('   → ✅ Affiliates: No affiliates found (404)')
-              return { type: 'affiliates', data: [], error: null }
-            } else {
-              const error = `Failed to fetch affiliates: ${affiliatesResponse.status}`
-              console.warn(`   → ⚠️  Affiliates: ${error}`)
-              return { type: 'affiliates', data: [], error }
-            }
-          } else {
-            const error = 'Could not obtain user ID for affiliates lookup'
-            console.warn(`   → ⚠️  Affiliates: ${error}`)
-            return { type: 'affiliates', data: [], error }
-          }
-        } catch (error: any) {
-          console.error(`   → ❌ Affiliates error: ${error.message}`)
-          return { type: 'affiliates', data: [], error: `Error fetching affiliates: ${error.message}` }
-        }
-      })(),
-
-      // 2b: User search from SocialAPI
-      (async () => {
-        try {
-          console.log('   → Starting user search...')
-          const searchResponse = await fetch(`https://api.socialapi.me/twitter/search-users?query=${encodeURIComponent(orgUsername)}`, {
-            headers: {
-              'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
-              'Accept': 'application/json'
-            }
-          })
-          if (searchResponse.ok) {
-            const searchData = await searchResponse.json()
-            const searchUsers = searchData.users || searchData || []
-            console.log(`   → ✅ Search: Found ${searchUsers.length} users`)
-            return { type: 'search', data: searchUsers, error: null }
-          } else {
-            const error = `Search API returned ${searchResponse.status} (search functionality limited)`
-            console.warn(`   → ⚠️  Search: ${error}`)
-            return { type: 'search', data: [], error }
-          }
-        } catch (error: any) {
-          console.error(`   → ❌ Search error: ${error.message}`)
-          return { type: 'search', data: [], error: `Error searching users: ${error.message}` }
-        }
-      })(),
-
-      // 2c: Grok AI analysis
-      (async () => {
-        try {
-          console.log('   → Starting Grok analysis...')
-          const grokUsernames = await findOrgAffiliatesWithGrok(orgUsername)
-          console.log(`   → ✅ Grok: Found ${grokUsernames.length} usernames`)
-          return { type: 'grok', data: grokUsernames, error: null }
-        } catch (error: any) {
-          console.error(`   → ❌ Grok error: ${error.message}`)
-          return { type: 'grok', data: [], error: `Error with Grok analysis: ${error.message}` }
-        }
-      })()
-    ]
-
-    // Wait for all parallel data sources to complete
-    console.log('   → Waiting for all data sources to complete...')
-    const dataSourceResults = await Promise.allSettled(dataSourcePromises)
-    
-    // Process results from all data sources
-    dataSourceResults.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        const { type, data, error } = result.value
-        switch (type) {
-          case 'affiliates':
-            results.affiliatedUsers = data
-            if (error) results.errors.push(error)
-            break
-          case 'search':
-            results.searchedUsers = data
-            if (error) results.errors.push(error)
-            break
-          case 'grok':
-            results.grokUsers = data
-            if (error) results.errors.push(error)
-            break
-        }
-      } else {
-        console.error(`   → ❌ Data source ${index} failed:`, result.reason)
-        results.errors.push(`Data source failed: ${result.reason?.message || 'Unknown error'}`)
-      }
-    })
-
-    console.log(`   → ✅ Parallel execution complete: ${results.affiliatedUsers.length} affiliates, ${results.searchedUsers.length} search results, ${results.grokUsers.length} Grok suggestions`)
-
-    // Step 3: Check organization's following list for potential affiliates (if needed)
+    // Step 2: Check organization's following list for potential affiliates (if needed)
     if (shouldFetchFollowingsFromAPI) {
       try {
         if (results.orgProfile && results.orgProfile.id_str) {
@@ -522,8 +576,8 @@ export async function POST(request: NextRequest) {
                 console.log(`   → Found ${existingFollowingIds.length} existing following users, ${newFollowingUsers.length} new users to upsert`)
                 
                 if (newFollowingUsers.length > 0) {
-                  await createOrUpdateUsers(newFollowingUsers)
-                  console.log(`   → Upserted ${newFollowingUsers.length} new following users`)
+                  const result = await createOrUpdateUsersOptimized(newFollowingUsers, 1080) // 45 day staleness
+                  console.log(`   → Following users: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped`)
                 }
                 
                 // Check and create FOLLOWS relationships
@@ -573,7 +627,7 @@ export async function POST(request: NextRequest) {
       console.log('   → Using cached following data from Neo4j - skipping API fetch and Neo4j upsert')
     }
 
-    // Step 4: Collect all unique usernames and profiles
+    // Step 3: Collect all unique usernames and profiles
     const allUsernames = new Set<string>()
     const allProfiles: any[] = []
     
@@ -704,52 +758,75 @@ export async function POST(request: NextRequest) {
     console.log(`📝 Total unique usernames found: ${allUsernames.size}`)
     console.log(`🤖 Grok usernames needing profile fetch: ${grokUsernamesNeedingProfiles.length}`)
 
-    // Step 5: Fetch and upsert profiles for Grok usernames
+    // Step 4: Fetch and upsert profiles for Grok usernames (optimized)
     if (grokUsernamesNeedingProfiles.length > 0) {
       try {
         console.log('👥 Fetching profiles for Grok-discovered users...')
         
-        // Process usernames in batches of 100 (API limit)
+        // Optimized batch processing with increased concurrency
         const batchSize = 100
+        const maxConcurrentBatches = 3 // Process multiple batches in parallel
         let fetchedProfilesCount = 0
         let failedUsernames: string[] = []
         const fetchedGrokProfiles: any[] = []
         
-        for (let i = 0; i < grokUsernamesNeedingProfiles.length; i += batchSize) {
-          const batch = grokUsernamesNeedingProfiles.slice(i, i + batchSize)
+        // Process batches with optimal concurrency
+        for (let i = 0; i < grokUsernamesNeedingProfiles.length; i += batchSize * maxConcurrentBatches) {
+          const batchGroup = []
           
-          try {
-            const profileResponse = await fetch('https://api.socialapi.me/twitter/users-by-usernames', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-              body: JSON.stringify({ usernames: batch })
-            })
-
-            if (profileResponse.ok) {
-              const profileData = await profileResponse.json()
-              const fetchedProfiles = profileData.users || []
-              allProfiles.push(...fetchedProfiles)
-              fetchedGrokProfiles.push(...fetchedProfiles)
-              fetchedProfilesCount += fetchedProfiles.length
-              
-              // If we got fewer profiles than requested, track the missing ones for fallback
-              if (fetchedProfiles.length < batch.length) {
-                const fetchedUsernames = new Set(fetchedProfiles.map((p: any) => p.screen_name?.toLowerCase()))
-                const missingInBatch = batch.filter(username => !fetchedUsernames.has(username.toLowerCase()))
-                failedUsernames.push(...missingInBatch)
-              }
-            } else {
-              // Add all usernames in this batch to failed list for individual retry
-              failedUsernames.push(...batch)
-            }
-          } catch (error: any) {
-            // Add all usernames in this batch to failed list for individual retry
-            failedUsernames.push(...batch)
+          // Create batch group
+          for (let j = 0; j < maxConcurrentBatches && (i + j * batchSize) < grokUsernamesNeedingProfiles.length; j++) {
+            const startIdx = i + j * batchSize
+            const endIdx = Math.min(startIdx + batchSize, grokUsernamesNeedingProfiles.length)
+            const batch = grokUsernamesNeedingProfiles.slice(startIdx, endIdx)
+            batchGroup.push(batch)
           }
+          
+          // Process batch group in parallel
+          const batchPromises = batchGroup.map(async (batch) => {
+            try {
+              const profileResponse = await fetch('https://api.socialapi.me/twitter/users-by-usernames', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json',
+                },
+                body: JSON.stringify({ usernames: batch })
+              })
+
+              if (profileResponse.ok) {
+                const profileData = await profileResponse.json()
+                const fetchedProfiles = profileData.users || []
+                
+                // Track missing profiles for fallback
+                if (fetchedProfiles.length < batch.length) {
+                  const fetchedUsernames = new Set(fetchedProfiles.map((p: any) => p.screen_name?.toLowerCase()))
+                  const missingInBatch = batch.filter(username => !fetchedUsernames.has(username.toLowerCase()))
+                  return { success: true, profiles: fetchedProfiles, failed: missingInBatch }
+                }
+                
+                return { success: true, profiles: fetchedProfiles, failed: [] }
+              } else {
+                return { success: false, profiles: [], failed: batch }
+              }
+            } catch (error: any) {
+              return { success: false, profiles: [], failed: batch }
+            }
+          })
+          
+          const batchResults = await Promise.allSettled(batchPromises)
+          
+          // Process batch results
+          batchResults.forEach((result) => {
+            if (result.status === 'fulfilled') {
+              const { profiles, failed } = result.value
+              allProfiles.push(...profiles)
+              fetchedGrokProfiles.push(...profiles)
+              fetchedProfilesCount += profiles.length
+              failedUsernames.push(...failed)
+            }
+          })
         }
 
         // Fallback: Try individual requests for failed usernames
@@ -795,7 +872,7 @@ export async function POST(request: NextRequest) {
 
         console.log(`✅ Total fetched: ${fetchedProfilesCount} profiles from ${grokUsernamesNeedingProfiles.length} Grok usernames`)
         
-        // Step 5.5: Upsert fetched Grok profiles to Neo4j (without relationships)
+        // Step 4.5: Upsert fetched Grok profiles to Neo4j (without relationships)
         if (fetchedGrokProfiles.length > 0) {
           try {
             console.log(`💾 Upserting ${fetchedGrokProfiles.length} Grok profiles to Neo4j...`)
@@ -810,8 +887,8 @@ export async function POST(request: NextRequest) {
             
             if (validGrokProfiles.length > 0) {
               const grokUsersToUpsert = validGrokProfiles.map(profile => transformToNeo4jUser(profile))
-              await createOrUpdateUsers(grokUsersToUpsert)
-              console.log(`   → Upserted ${grokUsersToUpsert.length} Grok profiles to Neo4j (no relationships created)`)
+              const result = await createOrUpdateUsersOptimized(grokUsersToUpsert, 1080) // 45 day staleness
+              console.log(`   → Grok profiles: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped`)
             }
           } catch (grokUpsertError: any) {
             console.warn(`   → Error upserting Grok profiles to Neo4j: ${grokUpsertError.message}`)
@@ -825,48 +902,111 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Step 6: Categorize profiles and apply filters
-    console.log('🏢 Categorizing and filtering profiles...')
+    // Step 5: Combined profile filtering and categorization (optimized single pass)
+    console.log('🏢 Filtering and categorizing profiles in single pass...')
+    console.log(`   📝 Organization name variations: ${globalOrgVariations.join(', ')}`)
     
-    const spamFilter = (profile: any) => {
+    // Define generic words that should require more specific matching
+    const genericWords = new Set([
+      'foundation', 'labs', 'technologies', 'crypto', 'blockchain', 
+      'onchain', 'protocol', 'network', 'solutions', 'systems', 'platform',
+      'company', 'corp', 'corporation', 'inc', 'llc', 'ltd',
+      'global', 'international', 'ventures', 'capital', 'fund',
+      'studio', 'agency', 'consulting', 'services', 'partners',
+      'project', 'ecosystem', 'community', 'dao', 'defi', 'nft', 'web3',
+      'innovation', 'research', 'development', 'security', 'finance',
+      'exchange', 'wallet', 'token', 'coin', 'chain', 'verse', 'world'
+    ])
+
+    // Regional/country indicators
+    const regionalIndicators = [
+      // Countries
+      'india', 'china', 'japan', 'korea', 'singapore', 'thailand', 'vietnam', 'indonesia', 'malaysia', 'philippines',
+      'america', 'canada', 'mexico', 'brazil', 'argentina', 'chile', 'colombia', 'peru',
+      'france', 'germany', 'italy', 'spain', 'netherlands', 'poland', 'russia', 'turkey', 'israel',
+      'australia', 'newzealand', 'southafrica', 'nigeria', 'kenya', 'egypt',
+      
+      // Regions
+      'apac', 'emea', 'sea', 'latam', 'americas', 'europe', 'asia', 'africa', 'oceania',
+      'northamerica', 'southamerica', 'middleeast', 'southeastasia', 'eastasia',
+      'pacific', 'mena', 'dach', 'benelux', 'nordics', 'baltics'
+    ]
+    
+    // Functional department indicators
+    const functionalIndicators = [
+      'support', 'help', 'care', 'service', 'customer', 'assistance',
+      'news', 'updates', 'announcements',
+      'status', 'careers', 'hiring', 'recruitment', 'hr', 'talent',
+      'developer', 'engineering', 'docs', 'documentation',
+      'marketing', 'sales', 'business', 'partnerships', 'partner',
+      'security', 'compliance', 'legal', 'policy',
+      'community', 'social', 'events', 'meetup'
+    ]
+
+    // Helper function to check for additional context when generic words are found
+    const checkForAdditionalContext = (searchableText: string, genericVariation: string, allVariations: string[]): boolean => {
+      // Check if multiple organization variations appear together
+      const otherVariations = allVariations.filter(v => v !== genericVariation && !genericWords.has(v.toLowerCase()))
+      
+      for (const otherVariation of otherVariations) {
+        const otherWordBoundaryRegex = new RegExp(`\\b${otherVariation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+        const otherSeparatorRegex = new RegExp(`(^|[\\s\\-_@\\.])${otherVariation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s\\-_@\\.])`,'i')
+        
+        if (otherWordBoundaryRegex.test(searchableText) || otherSeparatorRegex.test(searchableText)) {
+          return true // Found another non-generic variation in the same profile
+        }
+      }
+      
+      // Check for proximity - generic word should be close to other specific terms
+      const genericWordRegex = new RegExp(`\\b${genericVariation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+      const match = genericWordRegex.exec(searchableText)
+      
+      if (match) {
+        const matchPosition = match.index
+        const contextWindow = 50 // characters before and after
+        const contextStart = Math.max(0, matchPosition - contextWindow)
+        const contextEnd = Math.min(searchableText.length, matchPosition + match[0].length + contextWindow)
+        const context = searchableText.substring(contextStart, contextEnd)
+        
+        // Look for organization username or other specific identifiers in close proximity
+        const orgUsernameInContext = orgUsername.toLowerCase()
+        if (context.includes(orgUsernameInContext)) {
+          return true
+        }
+        
+        // Check for exact phrase matches that include the generic word
+        const orgName = results.orgProfile?.name?.toLowerCase() || ''
+        if (orgName && context.includes(orgName)) {
+          return true
+        }
+      }
+      
+      return false
+    }
+
+    // Combined comprehensive profile filter
+    const analyzeProfile = (profile: any): { 
+      accepted: boolean, 
+      rejectionReason?: string, 
+      relevanceReason?: string 
+    } => {
+      // 1. Spam filter check
       const followers = profile.followers_count || 0
       const following = profile.friends_count || 0
-      return followers >= 10 || following >= 10
-    }
+      const isValidProfile = followers >= 10 || following >= 10
+      
+      if (!isValidProfile) {
+        return { accepted: false, rejectionReason: 'spam_filtered' }
+      }
 
-    const isOrganization = (profile: any) => {
-      return profile.verification_info?.type === 'Business'
-    }
+      // 2. Organization account detection
+      if (profile.verification_info?.type === 'Business') {
+        return { accepted: false, rejectionReason: 'organization_account' }
+      }
 
-    const isRegionalOrFunctionalAccount = (profile: any) => {
+      // 3. Regional/functional account detection
       const name = (profile.name || '').toLowerCase()
       const screenName = (profile.screen_name || '').toLowerCase()
-      // Only check name and username, not bio/description
-      
-      // Regional/country indicators
-      const regionalIndicators = [
-        // Countries
-        'india', 'china', 'japan', 'korea', 'singapore', 'thailand', 'vietnam', 'indonesia', 'malaysia', 'philippines',
-        'america', 'canada', 'mexico', 'brazil', 'argentina', 'chile', 'colombia', 'peru',
-        'france', 'germany', 'italy', 'spain', 'netherlands', 'poland', 'russia', 'turkey', 'israel',
-        'australia', 'newzealand', 'southafrica', 'nigeria', 'kenya', 'egypt',
-        
-        // Regions
-        'apac', 'emea', 'sea', 'latam', 'americas', 'europe', 'asia', 'africa', 'oceania',
-        'northamerica', 'southamerica', 'middleeast', 'southeastasia', 'eastasia',
-        'pacific', 'mena', 'dach', 'benelux', 'nordics', 'baltics'
-      ]
-      
-      // Functional department indicators
-      const functionalIndicators = [
-        'support', 'help', 'care', 'service', 'customer', 'assistance',
-        'news', 'updates', 'announcements',
-        'status', 'careers', 'hiring', 'recruitment', 'hr', 'talent',
-        'developer', 'engineering', 'docs', 'documentation',
-        'marketing', 'sales', 'business', 'partnerships', 'partner',
-        'security', 'compliance', 'legal', 'policy',
-        'community', 'social', 'events', 'meetup'
-      ]
       
       // More precise regional checking - avoid false positives like "scindia"
       const hasRegionalIndicator = regionalIndicators.some(indicator => {
@@ -909,107 +1049,17 @@ export async function POST(request: NextRequest) {
       
       if (hasRegionalIndicator || hasFunctionalIndicator || hasOrganizationalPattern) {
         console.log(`     🏢 @${profile.screen_name} - ORGANIZATIONAL ACCOUNT (regional/functional)`)
-        return true
+        return { accepted: false, rejectionReason: 'regional_or_functional_account' }
       }
-      
-      return false
-    }
 
-    // Separate profiles into categories
-    const validIndividuals: any[] = []
-    const rejectedProfiles: any[] = []
-
-    allProfiles.forEach((profile) => {
-      const isValidProfile = spamFilter(profile)
-      const isOrgAccount = isOrganization(profile)
-      const isRegionalOrFunctional = isRegionalOrFunctionalAccount(profile)
-      
-      if (!isValidProfile) {
-        profile._rejection_reason = 'spam_filtered'
-        rejectedProfiles.push(profile)
-      } else if (isOrgAccount) {
-        profile._rejection_reason = 'organization_account'
-        rejectedProfiles.push(profile)
-      } else if (isRegionalOrFunctional) {
-        profile._rejection_reason = 'regional_or_functional_account'
-        rejectedProfiles.push(profile)
-      } else {
-        validIndividuals.push(profile)
-      }
-    })
-
-    console.log(`✅ Profile categorization complete:`)
-    console.log(`   👤 Valid individuals: ${validIndividuals.length}`)
-    console.log(`   🗑️ Rejected profiles: ${rejectedProfiles.length}`)
-    console.log(`     - Spam filtered: ${rejectedProfiles.filter(p => p._rejection_reason === 'spam_filtered').length}`)
-    console.log(`     - Organization accounts: ${rejectedProfiles.filter(p => p._rejection_reason === 'organization_account').length}`)
-    console.log(`     - Regional/functional accounts: ${rejectedProfiles.filter(p => p._rejection_reason === 'regional_or_functional_account').length}`)
-
-    // Step 6.5: Apply organization name relevance filter to individuals
-    console.log('🔍 Applying organization name relevance filter...')
-    console.log(`   📝 Organization name variations: ${globalOrgVariations.join(', ')}`)
-    
-    // Define generic words that should require more specific matching
-    const genericWords = new Set([
-      'foundation', 'labs', 'technologies', 'crypto', 'blockchain', 
-      'onchain', 'protocol', 'network', 'solutions', 'systems', 'platform',
-      'company', 'corp', 'corporation', 'inc', 'llc', 'ltd',
-      'global', 'international', 'ventures', 'capital', 'fund',
-      'studio', 'agency', 'consulting', 'services', 'partners',
-      'project', 'ecosystem', 'community', 'dao', 'defi', 'nft', 'web3',
-      'innovation', 'research', 'development', 'security', 'finance',
-      'exchange', 'wallet', 'token', 'coin', 'chain', 'verse', 'world'
-    ])
-
-    // Helper function to check for additional context when generic words are found
-    const checkForAdditionalContext = (searchableText: string, genericVariation: string, allVariations: string[]): boolean => {
-      // Check if multiple organization variations appear together
-      const otherVariations = allVariations.filter(v => v !== genericVariation && !genericWords.has(v.toLowerCase()))
-      
-      for (const otherVariation of otherVariations) {
-        const otherWordBoundaryRegex = new RegExp(`\\b${otherVariation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
-        const otherSeparatorRegex = new RegExp(`(^|[\\s\\-_@\\.])${otherVariation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s\\-_@\\.])`,'i')
-        
-        if (otherWordBoundaryRegex.test(searchableText) || otherSeparatorRegex.test(searchableText)) {
-          return true // Found another non-generic variation in the same profile
-        }
-      }
-      
-      // Check for proximity - generic word should be close to other specific terms
-      const genericWordRegex = new RegExp(`\\b${genericVariation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
-      const match = genericWordRegex.exec(searchableText)
-      
-      if (match) {
-        const matchPosition = match.index
-        const contextWindow = 50 // characters before and after
-        const contextStart = Math.max(0, matchPosition - contextWindow)
-        const contextEnd = Math.min(searchableText.length, matchPosition + match[0].length + contextWindow)
-        const context = searchableText.substring(contextStart, contextEnd)
-        
-        // Look for organization username or other specific identifiers in close proximity
-        const orgUsernameInContext = orgUsername.toLowerCase()
-        if (context.includes(orgUsernameInContext)) {
-          return true
-        }
-        
-        // Check for exact phrase matches that include the generic word
-        const orgName = results.orgProfile?.name?.toLowerCase() || ''
-        if (orgName && context.includes(orgName)) {
-          return true
-        }
-      }
-      
-      return false
-    }
-    
-    const checkOrgRelevance = (profile: any) => {
+      // 4. Organization relevance check (combined with filtering)
       // Always accept official affiliates (they were fetched from the org's official affiliates list)
       const isOfficialAffiliate = results.affiliatedUsers.some(affiliate => 
         affiliate.screen_name?.toLowerCase() === profile.screen_name?.toLowerCase()
       )
       
       if (isOfficialAffiliate) {
-        return { relevant: true, reason: 'official_affiliate' }
+        return { accepted: true, relevanceReason: 'official_affiliate' }
       }
       
       // Check for organization name variations in user's profile
@@ -1035,46 +1085,148 @@ export async function POST(request: NextRequest) {
             const hasAdditionalContext = checkForAdditionalContext(searchableText, variation, globalOrgVariations)
             
             if (hasAdditionalContext) {
-              return { relevant: true, reason: `name_match_${variation}_with_context` }
+              return { accepted: true, relevanceReason: `name_match_${variation}_with_context` }
             } else {
               // Continue checking other variations instead of rejecting immediately
               continue
             }
           } else {
-            return { relevant: true, reason: `name_match_${variation}` }
+            return { accepted: true, relevanceReason: `name_match_${variation}` }
           }
         }
       }
       
-      return { relevant: false, reason: 'no_org_name_match' }
+      return { accepted: false, rejectionReason: 'no_org_name_match' }
     }
-    
-    // Apply the organization relevance filter to valid individuals
+
+    // Apply combined filter in single pass
     const relevantIndividuals: any[] = []
-    
-    validIndividuals.forEach((profile) => {
-      const relevanceCheck = checkOrgRelevance(profile)
+    const rejectedProfiles: any[] = []
+
+    allProfiles.forEach((profile) => {
+      const analysis = analyzeProfile(profile)
       
-      if (relevanceCheck.relevant) {
-        profile._relevance_reason = relevanceCheck.reason
+      if (analysis.accepted) {
+        profile._relevance_reason = analysis.relevanceReason
         relevantIndividuals.push(profile)
       } else {
-        profile._rejection_reason = relevanceCheck.reason
+        profile._rejection_reason = analysis.rejectionReason
         rejectedProfiles.push(profile)
       }
     })
-    
-    console.log(`✅ Organization relevance filter complete:`)
+
+    console.log(`✅ Combined profile filtering complete:`)
     console.log(`   ✅ Relevant individuals: ${relevantIndividuals.length}`)
     console.log(`   ❌ Total rejected profiles: ${rejectedProfiles.length}`)
+    console.log(`     - Spam filtered: ${rejectedProfiles.filter(p => p._rejection_reason === 'spam_filtered').length}`)
+    console.log(`     - Organization accounts: ${rejectedProfiles.filter(p => p._rejection_reason === 'organization_account').length}`)
+    console.log(`     - Regional/functional accounts: ${rejectedProfiles.filter(p => p._rejection_reason === 'regional_or_functional_account').length}`)
+    console.log(`     - Not organization relevant: ${rejectedProfiles.filter(p => p._rejection_reason === 'no_org_name_match').length}`)
 
-    // Step 6.75: Grok analysis for final individual vs organization classification
-    console.log('🤖 Starting Grok analysis for individual vs organization classification...')
+    // Initialize counters for Grok analysis
+    let totalOrgsFound = 0
+    let totalAnalyzed = 0
+
+    // Step 5.5: Check existing employment relationships and organization vibes before Grok analysis
+    console.log('🔍 Step 5.5: Checking for existing employment relationships and organization vibes in Neo4j...')
     
     let finalIndividuals: any[] = []
     let grokAnalysisMetadata: any[] = []
-    
-    if (relevantIndividuals.length > 0) {
+    let usersNeedingGrokAnalysis: any[] = []
+    let usersWithExistingRelationships: any[] = []
+    let usersIdentifiedAsOrganizations: any[] = []
+    let grokIdentifiedOrganizations: Array<{screenName: string, profile: any}> = []
+
+    if (relevantIndividuals.length > 0 && results.orgProfile?.id_str) {
+      try {
+        // Get user IDs from relevant individuals
+        const userIds = relevantIndividuals
+          .filter(profile => profile.id_str || profile.id)
+          .map(profile => profile.id_str || profile.id)
+        
+        if (userIds.length > 0) {
+          // Check for existing employment relationships
+          const existingEmploymentData = await getUsersWithExistingEmploymentRelationships(
+            userIds, 
+            results.orgProfile.id_str
+          )
+          
+          // Create a map for quick lookup
+          const existingEmploymentMap = new Map()
+          existingEmploymentData.forEach(data => {
+            existingEmploymentMap.set(data.userId, data)
+          })
+          
+          // Get user vibes to check for organizations
+          const userVibeQuery = `
+            UNWIND $userIds AS userId
+            MATCH (u:User {userId: userId})
+            RETURN u.userId as userId, u.vibe as vibe, u.screenName as screenName
+          `
+          const userVibeResults = await runQuery(userVibeQuery, { userIds })
+          const userVibeMap = new Map()
+          userVibeResults.forEach(record => {
+            userVibeMap.set(record.userId, { vibe: record.vibe, screenName: record.screenName })
+          })
+          
+          // Separate users based on existing relationships and vibes
+          relevantIndividuals.forEach(profile => {
+            const userId = profile.id_str || profile.id
+            const existingData = existingEmploymentMap.get(userId)
+            const userVibeData = userVibeMap.get(userId)
+            
+            if (userVibeData?.vibe === 'organization') {
+              // User is already identified as an organization - reject as organization
+              profile._rejection_reason = 'already_identified_as_organization'
+              usersIdentifiedAsOrganizations.push(profile)
+              rejectedProfiles.push(profile)
+              totalOrgsFound++
+              console.log(`     🏢 @${profile.screen_name} - ALREADY IDENTIFIED AS ORGANIZATION (skipping Grok)`)
+            } else if (existingData) {
+              // User has existing employment relationship - add to final list directly
+              profile._grok_analysis = {
+                current_position: existingData.currentPosition || null,
+                employment_history: existingData.employmentHistory || []
+              }
+              usersWithExistingRelationships.push(profile)
+              finalIndividuals.push(profile)
+              
+              console.log(`     ✅ @${profile.screen_name} - HAS EXISTING EMPLOYMENT DATA (skipping Grok)`)
+              if (existingData.hasWorksAt) {
+                console.log(`        Current: ${existingData.currentPosition?.organizations?.join(', ')} (${existingData.currentPosition?.department || 'Unknown'})`)
+              }
+              if (existingData.hasWorkedAt) {
+                console.log(`        Previous: ${existingData.employmentHistory?.map((h: any) => h.organization).join(', ')}`)
+              }
+            } else {
+              // User needs Grok analysis
+              usersNeedingGrokAnalysis.push(profile)
+            }
+          })
+          
+          console.log(`📊 Employment relationship and vibe check complete:`)
+          console.log(`   🏢 Users already identified as organizations: ${usersIdentifiedAsOrganizations.length}`)
+          console.log(`   ✅ Users with existing relationships: ${usersWithExistingRelationships.length}`)
+          console.log(`   🤖 Users needing Grok analysis: ${usersNeedingGrokAnalysis.length}`)
+        } else {
+          console.log('   → No valid user IDs found for employment relationship check')
+          usersNeedingGrokAnalysis = relevantIndividuals
+        }
+      } catch (employmentCheckError: any) {
+        console.warn(`⚠️ Error checking existing employment relationships:`, employmentCheckError.message)
+        results.errors.push(`Employment relationship check error: ${employmentCheckError.message}`)
+        // Fallback: send all users to Grok analysis
+        usersNeedingGrokAnalysis = relevantIndividuals
+      }
+    } else {
+      console.log('   → No relevant individuals or org profile for employment check')
+      usersNeedingGrokAnalysis = relevantIndividuals
+    }
+
+    // Step 5.6: Grok analysis for remaining users only
+    console.log('🤖 Step 5.6: Starting Grok analysis for users without existing employment data...')
+
+    if (usersNeedingGrokAnalysis.length > 0) {
       try {
         const batchSize = 5 // Further reduced batch size to avoid token limits
         
@@ -1084,8 +1236,8 @@ export async function POST(request: NextRequest) {
           batchNumber: number,
           size: number
         }> = []
-        for (let i = 0; i < relevantIndividuals.length; i += batchSize) {
-          const batch = relevantIndividuals.slice(i, i + batchSize)
+        for (let i = 0; i < usersNeedingGrokAnalysis.length; i += batchSize) {
+          const batch = usersNeedingGrokAnalysis.slice(i, i + batchSize)
           const batchNumber = Math.floor(i / batchSize) + 1
           batches.push({
             profiles: batch,
@@ -1095,9 +1247,9 @@ export async function POST(request: NextRequest) {
         }
         
         const totalBatches = batches.length
-        console.log(`   → Processing ${totalBatches} batches in parallel (${relevantIndividuals.length} total profiles)`)
+        console.log(`   → Processing ${totalBatches} batches in parallel (${usersNeedingGrokAnalysis.length} total profiles)`)
         
-        // Process all batches in parallel
+        // Process all batches in parallel (same as before)
         const batchPromises = batches.map(async (batchInfo) => {
           try {
             console.log(`   → Starting batch ${batchInfo.batchNumber}/${totalBatches} (${batchInfo.size} profiles)`)
@@ -1137,10 +1289,7 @@ export async function POST(request: NextRequest) {
         // Wait for all batches to complete
         const batchResults = await Promise.allSettled(batchPromises)
         
-        let totalAnalyzed = 0
-        let totalOrgsFound = 0
-        
-        // Process all results
+        // Process all results (same logic as before)
         batchResults.forEach((result, index) => {
           if (result.status === 'fulfilled') {
             const batchResult = result.value
@@ -1153,11 +1302,20 @@ export async function POST(request: NextRequest) {
                 if (!originalProfile || !analyzed) return
                 
                 if (analyzed.type === 'organization') {
-                  // Move to rejected profiles
+                  // Grok identified this as an organization - handle appropriately
                   originalProfile._rejection_reason = 'grok_identified_organization'
                   rejectedProfiles.push(originalProfile)
                   totalOrgsFound++
-                  console.log(`     🏢 @${analyzed.screen_name || originalProfile.screen_name} - ORGANIZATION`)
+                  console.log(`     🏢 @${analyzed.screen_name || originalProfile.screen_name} - ORGANIZATION (will check/update in Neo4j)`)
+                  
+                  // Collect organization for Neo4j processing
+                  if (!grokIdentifiedOrganizations) {
+                    grokIdentifiedOrganizations = []
+                  }
+                  grokIdentifiedOrganizations.push({
+                    screenName: analyzed.screen_name || originalProfile.screen_name,
+                    profile: originalProfile
+                  })
                 } else {
                   // Keep as individual and enrich with role/org data
                   originalProfile._grok_analysis = {
@@ -1241,38 +1399,175 @@ export async function POST(request: NextRequest) {
         
         console.log(`✅ Grok analysis complete:`)
         console.log(`   📊 Total analyzed: ${totalAnalyzed} profiles`)
-        console.log(`   👤 Final individuals: ${finalIndividuals.length}`)
+        console.log(`   👤 New individuals from Grok: ${totalAnalyzed}`)
         console.log(`   🏢 Organizations found and rejected: ${totalOrgsFound}`)
-        console.log(`   📈 Updated total rejected: ${rejectedProfiles.length}`)
         
       } catch (grokError: any) {
         console.error('❌ Grok analysis failed completely:', grokError.message)
         results.errors.push(`Grok analysis error: ${grokError.message}`)
-        // Fallback: use all relevant individuals without enrichment
-        finalIndividuals = relevantIndividuals.map(profile => {
+        // Fallback: use all users without enrichment
+        usersNeedingGrokAnalysis.forEach(profile => {
           if (profile && typeof profile === 'object') {
-            return {
-              ...profile,
-              _grok_analysis: {
-                current_position: null,
-                employment_history: []
-              }
+            profile._grok_analysis = {
+              current_position: null,
+              employment_history: []
             }
+            finalIndividuals.push(profile)
           }
-          return profile
-        }).filter(Boolean)
+        })
       }
     } else {
-      console.log('   → No profiles to analyze with Grok')
-      finalIndividuals = relevantIndividuals
+      console.log('   → No profiles need Grok analysis - all have existing employment data!')
     }
+
+    // Step 5.7: Process Grok-identified organizations
+    if (grokIdentifiedOrganizations.length > 0) {
+      console.log(`🏢 Step 5.7: Processing ${grokIdentifiedOrganizations.length} organizations identified by Grok...`)
+      
+      try {
+        // Extract screen names for batch checking
+        const orgScreenNames = grokIdentifiedOrganizations.map(org => org.screenName)
+        
+        // Check which organizations already exist in Neo4j
+        const existingOrgs = await getUsersByScreenNames(orgScreenNames)
+        const existingOrgMap = new Map()
+        existingOrgs.forEach(org => {
+          existingOrgMap.set(org.screenName.toLowerCase(), org)
+        })
+        
+        // Separate existing and new organizations
+        const orgsToUpdate: Array<{screenName: string, userId: string}> = []
+        const orgsToFetch: Array<{screenName: string, profile: any}> = []
+        
+        grokIdentifiedOrganizations.forEach(({ screenName, profile }) => {
+          const existingOrg = existingOrgMap.get(screenName.toLowerCase())
+          
+          if (existingOrg) {
+            // Organization exists - update vibe if needed
+            if (existingOrg.vibe !== 'organization') {
+              orgsToUpdate.push({
+                screenName: existingOrg.screenName,
+                userId: existingOrg.userId
+              })
+              console.log(`     🔄 @${screenName} - EXISTS, will update vibe to 'organization'`)
+            } else {
+              console.log(`     ✅ @${screenName} - EXISTS, already has 'organization' vibe`)
+            }
+          } else {
+            // Organization doesn't exist - fetch and store
+            orgsToFetch.push({ screenName, profile })
+            console.log(`     🆕 @${screenName} - NEW, will fetch and store`)
+          }
+        })
+        
+        // Update vibes for existing organizations
+        if (orgsToUpdate.length > 0) {
+          console.log(`   → Updating vibe for ${orgsToUpdate.length} existing organizations...`)
+          
+          const updateVibeQuery = `
+            UNWIND $orgs AS org
+            MATCH (u:User {userId: org.userId})
+            SET u.vibe = 'organization'
+            RETURN u.screenName as screenName, u.vibe as vibe
+          `
+          
+          const updateResults = await runQuery(updateVibeQuery, { orgs: orgsToUpdate })
+          console.log(`   → Updated vibe for ${updateResults.length} organizations`)
+        }
+        
+        // Fetch and store new organizations
+        if (orgsToFetch.length > 0) {
+          console.log(`   → Fetching ${orgsToFetch.length} new organizations from SocialAPI...`)
+          
+          const fetchPromises = orgsToFetch.map(async ({ screenName, profile }) => {
+            try {
+              // Try to fetch fresh profile data
+              const response = await fetch(`https://api.socialapi.me/twitter/user/${screenName}`, {
+                headers: {
+                  'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
+                  'Accept': 'application/json',
+                }
+              })
+              
+              if (response.ok) {
+                const freshOrgProfile = await response.json()
+                return { success: true, profile: freshOrgProfile, fallbackProfile: profile }
+              } else {
+                console.warn(`   → Failed to fetch @${screenName}: ${response.status}, using existing profile data`)
+                return { success: false, profile: null, fallbackProfile: profile }
+              }
+            } catch (error: any) {
+              console.warn(`   → Error fetching @${screenName}:`, error.message)
+              return { success: false, profile: null, fallbackProfile: profile }
+            }
+          })
+          
+          const fetchResults = await Promise.allSettled(fetchPromises)
+          const organizationsToStore: any[] = []
+          
+          fetchResults.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+              const { success, profile, fallbackProfile } = result.value
+              const profileToUse = success ? profile : fallbackProfile
+              
+              if (profileToUse && (profileToUse.id_str || profileToUse.id)) {
+                organizationsToStore.push(profileToUse)
+                const source = success ? 'fresh API data' : 'existing profile data'
+                console.log(`     ✅ @${profileToUse.screen_name} - prepared for storage (${source})`)
+              } else {
+                console.warn(`     ❌ @${orgsToFetch[index].screenName} - no valid profile data available`)
+              }
+            } else {
+              console.warn(`     ❌ @${orgsToFetch[index].screenName} - fetch promise failed`)
+            }
+          })
+          
+          // Store organizations with vibe='organization'
+          if (organizationsToStore.length > 0) {
+            const orgUsersToUpsert = organizationsToStore.map(profile => {
+              const orgUser = transformToNeo4jUser(profile)
+              orgUser.vibe = 'organization' // Set vibe to organization
+              return orgUser
+            })
+            
+            const result = await createOrUpdateUsersOptimized(orgUsersToUpsert, 1080) // 45 day staleness
+            console.log(`   → Organizations: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped`)
+          }
+        }
+        
+        console.log(`✅ Grok-identified organization processing complete`)
+        
+      } catch (orgProcessingError: any) {
+        console.error('❌ Error processing Grok-identified organizations:', orgProcessingError.message)
+        results.errors.push(`Organization processing error: ${orgProcessingError.message}`)
+      }
+    }
+
+    console.log(`📊 Final analysis summary:`)
+    console.log(`   🏢 Users pre-identified as organizations: ${usersIdentifiedAsOrganizations.length}`)
+    console.log(`   🏢 Organizations identified by Grok: ${grokIdentifiedOrganizations.length}`)
+    console.log(`   ✅ Users with existing employment data: ${usersWithExistingRelationships.length}`)
+    console.log(`   🤖 Users processed by Grok: ${usersNeedingGrokAnalysis.length}`)
+    console.log(`   👤 Total final individuals: ${finalIndividuals.length}`)
+    console.log(`   📈 Updated total rejected: ${rejectedProfiles.length}`)
 
     // Update results with the Grok-analyzed profile collection
     results.allProfiles = finalIndividuals
 
+    // Step 5.8: Process employment data from Grok analysis (OPTIMIZED)
+    console.log('🏢 Step 5.7: Processing employment data...')
+    try {
+      const { processEmploymentData } = await import('@/lib/neo4j/services/user-service')
+      await processEmploymentData(finalIndividuals)
+      console.log('✅ Employment data processing completed')
+    } catch (employmentError: any) {
+      console.error('❌ Employment data processing failed:', employmentError.message)
+      results.errors.push(`Employment data processing error: ${employmentError.message}`)
+    }
+
     // Store organization and affiliates to Neo4j
     try {
-      console.log('Step 7: Neo4j data storage...')
+      console.log('Step 6: Neo4j data storage...')
       
       // First, check and create/update users in Neo4j (excluding search results to avoid storing too much data)
       const allUsersData = [...results.affiliatedUsers, ...results.followingUsers]
@@ -1294,14 +1589,14 @@ export async function POST(request: NextRequest) {
       // Only transform and upsert users that don't exist
       const newUsersToUpsert = validUsersData
         .filter(user => !existingUserIdsSet.has(user.id_str || user.id))
-        .map(transformToNeo4jUser)
+        .map(user => transformToNeo4jUser(user))
       
       console.log(`   → Found ${existingUserIds.length} existing users, ${newUsersToUpsert.length} new users to upsert`)
       
       if (newUsersToUpsert.length > 0) {
-        console.log(`   → Upserting ${newUsersToUpsert.length} new users to Neo4j...`)
-        await createOrUpdateUsers(newUsersToUpsert)
-        console.log(`   → Upserted ${newUsersToUpsert.length} new users to Neo4j`)
+        console.log(`   → Checking ${newUsersToUpsert.length} users for staleness...`)
+        const result = await createOrUpdateUsersOptimized(newUsersToUpsert, 1080) // 45 day staleness
+        console.log(`   → Users: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped`)
       } else {
         console.log('   → No new users to upsert to Neo4j')
       }
@@ -1363,7 +1658,7 @@ export async function POST(request: NextRequest) {
       results.errors.push(`Neo4j storage error: ${error.message}`)
     }
 
-    // Step 8: Filter individuals by organization affiliation
+    // Step 7: Filter individuals by organization affiliation
     console.log('🔍 Filtering individuals by organization affiliation...')
     
     const orgScreenName = `@${orgUsername.toLowerCase()}`
@@ -1419,7 +1714,9 @@ export async function POST(request: NextRequest) {
         grokSuggestionsFound: results.grokUsers.length,
         followingAffiliatesFound: results.followingUsers.length,
         spamProfilesRemoved: rejectedProfiles.filter(p => p._rejection_reason === 'spam_filtered').length,
+        preIdentifiedOrganizationsRemoved: rejectedProfiles.filter(p => p._rejection_reason === 'already_identified_as_organization').length,
         grokOrganizationsRemoved: rejectedProfiles.filter(p => p._rejection_reason === 'grok_identified_organization').length,
+        grokOrganizationsProcessed: grokIdentifiedOrganizations.length,
         rejectedProfilesCount: rejectedProfiles.length,
         errorsEncountered: results.errors.length
       },
