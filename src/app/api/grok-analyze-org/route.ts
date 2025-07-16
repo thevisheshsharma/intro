@@ -7,6 +7,8 @@ import {
   saveICPAnalysis,
   updateOrganizationSocialInsights,
   getICPAnalysis,
+  getOrganizationByTwitter,
+  trackUserOrganizationAccess,
   DatabaseUtils,
   type DetailedICPAnalysisResponse 
 } from '@/lib/organization'
@@ -55,6 +57,7 @@ export async function POST(request: NextRequest) {
   try {
     // Check if API key is available
     if (!process.env.GROK_API_KEY) {
+      console.log('❌ Grok API key not configured')
       return NextResponse.json({ 
         error: 'Grok API key not configured. Please set the GROK_API_KEY environment variable.' 
       }, { status: 500 })
@@ -63,48 +66,97 @@ export async function POST(request: NextRequest) {
     const { userId } = getAuth(request)
     
     if (!userId) {
+      console.log('❌ Unauthorized grok-analyze-org request')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const body = await request.json()
     const { twitterUsername }: { twitterUsername: string } = body
 
+    console.log('🤖 Grok analysis request - twitterUsername:', twitterUsername, 'userId:', userId)
+
     if (!twitterUsername) {
+      console.log('❌ No twitterUsername provided')
       return NextResponse.json({ 
         error: 'Twitter username is required' 
       }, { status: 400 })
     }
 
     // Sanitize username once
-    const sanitizedUsername = twitterUsername.replace('@', '')
+    const sanitizedUsername = twitterUsername.replace('@', '').toLowerCase()
+    console.log('🤖 Sanitized username:', sanitizedUsername)
 
-    // Save the organization
-    const organization = await saveOrganization({
-      user_id: userId,
-      twitter_username: sanitizedUsername
-    })
+    // Check if organization already exists with ICP
+    console.log('🔍 Checking for existing organization and ICP...')
+    let organization = await getOrganizationByTwitter(sanitizedUsername)
+    
+    if (organization?.id) {
+      console.log('✅ Organization found:', organization)
+      const existingICP = await getICPAnalysis(organization.id)
+      
+      if (existingICP) {
+        console.log('✅ Existing ICP found, returning from cache')
+        // Track user access
+        await trackUserOrganizationAccess(userId, organization.id)
+        
+        // Return existing ICP analysis
+        return NextResponse.json({
+          success: true,
+          organization,
+          icp: existingICP,
+          fromCache: true
+        })
+      } else {
+        console.log('ℹ️ Organization exists but no ICP found')
+      }
+    } else {
+      console.log('ℹ️ No organization found')
+    }
 
+    // No existing ICP, create new analysis
     if (!organization) {
-      return NextResponse.json({ 
-        error: 'Failed to save organization' 
-      }, { status: 500 })
+      console.log('🆕 Creating new organization...')
+      // Save the organization with created_by tracking
+      organization = await saveOrganization({
+        created_by_user_id: userId,
+        twitter_username: sanitizedUsername
+      })
+
+      if (!organization) {
+        console.log('❌ Failed to save organization')
+        return NextResponse.json({ 
+          error: 'Failed to save organization' 
+        }, { status: 500 })
+      }
+      console.log('✅ New organization created:', organization)
+    }
+
+    // Track user access
+    if (organization.id) {
+      console.log('👤 Tracking user access...')
+      await trackUserOrganizationAccess(userId, organization.id)
     }
 
     // Create comprehensive ICP analysis
+    console.log('🤖 Starting Grok ICP analysis...')
     const icpAnalysis = await createStructuredICPAnalysis(
       sanitizedUsername,
       GROK_CONFIGS.FULL
     )
+    console.log('✅ Grok analysis completed')
 
     // Update organization with social insights
     if (organization.id) {
+      console.log('🔄 Updating organization with social insights...')
       const socialInsights = extractSocialInsights(icpAnalysis)
       if (Object.keys(socialInsights).length > 0) {
         await updateOrganizationSocialInsights(organization.id, socialInsights)
+        console.log('✅ Social insights updated')
       }
     }
 
     // Convert to expected format and save
+    console.log('💾 Saving ICP analysis...')
     const detailedResponse = createDetailedResponse(icpAnalysis)
     
     const savedICP = await saveICPAnalysis(
@@ -118,24 +170,31 @@ export async function POST(request: NextRequest) {
     )
 
     if (!savedICP) {
+      console.log('❌ Failed to save ICP analysis')
       return NextResponse.json({ 
         error: 'Failed to save ICP analysis - database operation returned null' 
       }, { status: 500 })
     }
 
+    console.log('✅ ICP analysis saved')
+
     // Fetch canonical ICP from DB to ensure consistency
+    console.log('📊 Fetching canonical ICP from database...')
     const canonicalICP = await getICPAnalysis(organization.id!)
 
+    console.log('✅ Grok analysis complete - returning response')
     return NextResponse.json({
       success: true,
       organization,
       icp: canonicalICP,
-      usage: undefined
+      usage: undefined,
+      fromCache: false
     })
 
   } catch (error: any) {
     const { userId } = getAuth(request)
     
+    console.error('❌ Grok analysis error:', error)
     // Log the error for monitoring
     logAPIError(error, 'Organization ICP Analysis', '/api/grok-analyze-org', userId || undefined)
 
