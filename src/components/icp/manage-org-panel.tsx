@@ -6,8 +6,7 @@ import { useUser } from '@clerk/nextjs'
 import { 
   Bot, 
   Loader,
-  CheckCircle,
-  RefreshCw
+  CheckCircle
 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { ErrorDisplay } from '@/components/ui/error-display'
@@ -223,52 +222,6 @@ export default function ManageOrgPanel() {
     }
   }
 
-  // Function to refresh current organization data
-  const refreshCurrentOrganization = async () => {
-    if (!searchValue.trim()) return
-    
-    console.log('🔄 Refreshing current organization data for:', searchValue)
-    setError(null)
-    
-    try {
-      const normalizedUsername = searchValue.replace(/^@/, '').toLowerCase()
-      
-      // Check for duplicates first
-      await checkForDuplicates()
-      
-      // Fetch fresh data from database
-      const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${normalizedUsername}&t=${Date.now()}`)
-      const data = await response.json()
-      
-      console.log('📊 Refresh organization response:', { status: response.status, data })
-      
-      if (response.ok) {
-        if (data.organization) {
-          setOrganization(data.organization)
-          console.log('✅ Organization refreshed:', data.organization)
-          if (data.icp) {
-            setIcp(data.icp)
-            console.log('✅ ICP refreshed:', data.icp)
-            setSuccess('Data refreshed - ICP found')
-          } else {
-            console.log('ℹ️ No ICP data after refresh')
-            setSuccess('Data refreshed - no ICP yet')
-          }
-        } else {
-          console.log('ℹ️ No organization found after refresh')
-          setOrganization(null)
-          setIcp(null)
-          setSuccess('No organization found in database')
-        }
-      } else {
-        throw new Error(data.error || 'Failed to refresh data')
-      }
-    } catch (error: any) {
-      console.error('❌ Refresh error:', error)
-      setError(`Refresh failed: ${error.message}`)
-    }
-  }
-
   // Debug function to check for duplicates
   const checkForDuplicates = async () => {
     if (!searchValue.trim()) return
@@ -313,24 +266,13 @@ export default function ManageOrgPanel() {
       </p>
       {/* Search Form */}
       <div className="w-full max-w-xl mb-0"> {/* Remove margin below search bar */}
-        <div className="flex gap-2 items-center">
-          <div className="flex-1">
-            <SearchForm
-              value={searchValue}
-              onChange={setSearchValue}
-              onSubmit={handleSearchSubmit}
-              loading={searching}
-            />
-          </div>
-          {searchValue && (
-            <button
-              onClick={refreshCurrentOrganization}
-              className="bg-gray-600 hover:bg-gray-700 text-white p-2 rounded-lg transition-colors"
-              title="Refresh current organization data"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          )}
+        <div className="w-full">
+          <SearchForm
+            value={searchValue}
+            onChange={setSearchValue}
+            onSubmit={handleSearchSubmit}
+            loading={searching}
+          />
         </div>
         {/* Org Profile Card directly below search bar, no gap, same width */}
         {orgTwitterProfile && (
@@ -388,25 +330,8 @@ export default function ManageOrgPanel() {
               {/* Existing ICP */}
               {icp && (
                 <div>
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="mb-4">
                     <h2 className="text-2xl font-semibold text-white">ICP Analysis</h2>
-                    <button
-                      onClick={handleAnalyzeICP}
-                      disabled={analyzing}
-                      className="bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm"
-                    >
-                      {analyzing ? (
-                        <>
-                          <Loader className="w-4 h-4 animate-spin" />
-                          Re-analyzing...
-                        </>
-                      ) : (
-                        <>
-                          <Bot className="w-4 h-4" />
-                          Re-analyze with Grok
-                        </>
-                      )}
-                    </button>
                   </div>
                   <EnhancedICPDisplay icp={icp} editable={false} />
                 </div>

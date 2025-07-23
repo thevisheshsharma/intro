@@ -77,13 +77,12 @@ export async function POST(request: NextRequest) {
     let freshOrgProfile: any = null
     let shouldFetchFollowingsFromAPI = true
     
-    // Execute ALL initial operations in parallel for maximum efficiency
-    console.log('→ Starting all data sources in parallel...')
+    // Execute initial operations in parallel (org profile sources + independent operations)
+    console.log('→ Starting org profile sources and independent operations in parallel...')
     const [
       neo4jOrgResult,
       socialApiOrgResult,
       grokResult,
-      affiliatesResult,
       searchResult
     ] = await Promise.allSettled([
       // 1a: Neo4j org lookup
@@ -112,7 +111,7 @@ export async function POST(request: NextRequest) {
         }
       })(),
       
-      // 1c: Grok AI analysis (moved to parallel)
+      // 1c: Grok AI analysis
       (async () => {
         console.log('   → Starting Grok analysis...')
         const grokUsernames = await findOrgAffiliatesWithGrok(orgUsername)
@@ -120,47 +119,7 @@ export async function POST(request: NextRequest) {
         return grokUsernames
       })(),
       
-      // 1d: Official affiliates (requires orgProfile, but we'll handle this conditionally)
-      (async () => {
-        console.log('   → Starting affiliates fetch (will retry with ID if needed)...')
-        console.log(`   → Affiliates URL: https://api.socialapi.me/twitter/user/${orgUsername}/affiliates`)
-        // We'll try with username first, then retry with ID later if needed
-        try {
-          const affiliatesResponse = await fetch(`https://api.socialapi.me/twitter/user/${orgUsername}/affiliates`, {
-            headers: {
-              'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
-              'Accept': 'application/json'
-            }
-          })
-          
-          if (affiliatesResponse.ok) {
-            const affiliatesData = await affiliatesResponse.json()
-            const affiliates = affiliatesData.users || affiliatesData.data || []
-            console.log(`   → ✅ Affiliates: Found ${affiliates.length} official affiliates`)
-            return { success: true, data: affiliates, needsRetry: false }
-          } else if (affiliatesResponse.status === 404) {
-            console.log('   → ✅ Affiliates: No official affiliates available for this organization (404)')
-            return { success: true, data: [], needsRetry: false }
-          } else if (affiliatesResponse.status === 401) {
-            console.warn('   → ⚠️  Affiliates: Authentication error (401)')
-            return { success: false, data: [], needsRetry: false, authError: true }
-          } else if (affiliatesResponse.status === 403) {
-            console.warn('   → ⚠️  Affiliates: Access forbidden (403) - may require user ID')
-            return { success: false, data: [], needsRetry: true }
-          } else if (affiliatesResponse.status >= 400 && affiliatesResponse.status < 500) {
-            console.warn(`   → ⚠️  Affiliates: Client error ${affiliatesResponse.status} - will retry with user ID`)
-            return { success: false, data: [], needsRetry: true }
-          } else {
-            console.warn(`   → ⚠️  Affiliates: Server error ${affiliatesResponse.status} - will retry with user ID`)
-            return { success: false, data: [], needsRetry: true }
-          }
-        } catch (error: any) {
-          console.warn(`   → ⚠️  Affiliates error: ${error.message} - will retry with user ID`)
-          return { success: false, data: [], needsRetry: true, error: error.message }
-        }
-      })(),
-      
-      // 1e: User search
+      // 1d: User search
       (async () => {
         console.log('   → Starting user search...')
         const searchResponse = await fetch(`https://api.socialapi.me/twitter/search-users?query=${encodeURIComponent(orgUsername)}`, {
@@ -226,29 +185,7 @@ export async function POST(request: NextRequest) {
         results.searchedUsers = []
       }
 
-      // Process Affiliates result (may need retry with user ID)
-      if (affiliatesResult.status === 'fulfilled') {
-        const affiliateData = affiliatesResult.value
-        if (affiliateData.success) {
-          results.affiliatedUsers = affiliateData.data
-          console.log(`   → ✅ Affiliates: Found ${results.affiliatedUsers.length} official affiliates`)
-        } else if (affiliateData.authError) {
-          console.error('   → ❌ Affiliates: Authentication failed - check SOCIALAPI_BEARER_TOKEN')
-          results.errors.push('Affiliates authentication error - check API token')
-          results.affiliatedUsers = []
-        } else if (affiliateData.needsRetry) {
-          // Will retry later with user ID
-          console.log('   → ⚠️  Affiliates: Will retry with user ID later')
-          results.affiliatedUsers = []
-        } else {
-          console.log('   → ℹ️  Affiliates: No retry needed, using empty result')
-          results.affiliatedUsers = []
-        }
-      } else {
-        console.error(`   → ❌ Affiliates error: ${affiliatesResult.reason?.message}`)
-        results.errors.push(`Affiliates error: ${affiliatesResult.reason?.message}`)
-        results.affiliatedUsers = []
-      }
+      // Affiliates will be fetched after org profile is determined
       
       // Decision logic: Use Neo4j data or fetch fresh data
       if (existingOrgUser && freshOrgProfile) {
@@ -354,44 +291,47 @@ export async function POST(request: NextRequest) {
         results.errors.push('Organization not found in Neo4j or SocialAPI')
       }
 
-      // Retry affiliates with user ID if needed
-      if (results.affiliatedUsers.length === 0 && affiliatesResult.status === 'fulfilled' && 
-          affiliatesResult.value.needsRetry && results.orgProfile?.id_str) {
+      // Fetch affiliates with user ID now that we have org profile
+      if (results.orgProfile?.id_str) {
         try {
-          console.log('   → Retrying affiliates fetch with user ID...')
-          console.log(`   → Retry URL: https://api.socialapi.me/twitter/user/${results.orgProfile.id_str}/affiliates`)
-          const retryResponse = await fetch(`https://api.socialapi.me/twitter/user/${results.orgProfile.id_str}/affiliates`, {
+          console.log('   → Fetching affiliates with user ID...')
+          console.log(`   → Affiliates URL: https://api.socialapi.me/twitter/user/${results.orgProfile.id_str}/affiliates`)
+          const affiliatesResponse = await fetch(`https://api.socialapi.me/twitter/user/${results.orgProfile.id_str}/affiliates`, {
             headers: {
               'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
               'Accept': 'application/json'
             }
           })
           
-          if (retryResponse.ok) {
-            const retryData = await retryResponse.json()
-            results.affiliatedUsers = retryData.users || retryData.data || []
-            console.log(`   → ✅ Affiliates retry: Found ${results.affiliatedUsers.length} official affiliates`)
-          } else if (retryResponse.status === 404) {
-            console.log('   → ✅ Affiliates retry: No official affiliates available for this organization (404)')
+          if (affiliatesResponse.ok) {
+            const affiliatesData = await affiliatesResponse.json()
+            results.affiliatedUsers = affiliatesData.users || affiliatesData.data || []
+            console.log(`   → ✅ Affiliates: Found ${results.affiliatedUsers.length} official affiliates`)
+          } else if (affiliatesResponse.status === 404) {
+            console.log('   → ✅ Affiliates: No official affiliates available for this organization (404)')
             results.affiliatedUsers = []
-          } else if (retryResponse.status === 401) {
-            console.error('   → ❌ Affiliates retry: Authentication failed (401)')
-            results.errors.push('Affiliates retry authentication error')
-          } else if (retryResponse.status === 403) {
-            console.warn('   → ⚠️  Affiliates retry: Access forbidden (403)')
-            results.errors.push('Affiliates retry access forbidden')
+          } else if (affiliatesResponse.status === 401) {
+            console.error('   → ❌ Affiliates: Authentication failed (401)')
+            results.errors.push('Affiliates authentication error')
+            results.affiliatedUsers = []
+          } else if (affiliatesResponse.status === 403) {
+            console.warn('   → ⚠️  Affiliates: Access forbidden (403)')
+            results.errors.push('Affiliates access forbidden')
+            results.affiliatedUsers = []
           } else {
-            console.warn(`   → ⚠️  Affiliates retry failed: ${retryResponse.status}`)
-            const responseText = await retryResponse.text().catch(() => 'Unknown error')
-            results.errors.push(`Affiliates retry failed: ${retryResponse.status} - ${responseText}`)
+            console.warn(`   → ⚠️  Affiliates failed: ${affiliatesResponse.status}`)
+            const responseText = await affiliatesResponse.text().catch(() => 'Unknown error')
+            results.errors.push(`Affiliates failed: ${affiliatesResponse.status} - ${responseText}`)
+            results.affiliatedUsers = []
           }
-        } catch (retryError: any) {
-          console.error(`   → ❌ Affiliates retry error: ${retryError.message}`)
-          results.errors.push(`Affiliates retry error: ${retryError.message}`)
+        } catch (affiliatesError: any) {
+          console.error(`   → ❌ Affiliates error: ${affiliatesError.message}`)
+          results.errors.push(`Affiliates error: ${affiliatesError.message}`)
+          results.affiliatedUsers = []
         }
-      } else if (results.affiliatedUsers.length === 0 && affiliatesResult.status === 'fulfilled' && 
-                 !affiliatesResult.value.needsRetry) {
-        console.log('   → ✅ Affiliates: No official affiliates available for this organization')
+      } else {
+        console.log('   → ⚠️  No user ID available for affiliates fetch')
+        results.affiliatedUsers = []
       }
       
     } catch (error: any) {
@@ -501,7 +441,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`   → ✅ All parallel data sources complete: ${results.affiliatedUsers.length} affiliates, ${results.searchedUsers.length} search results, ${results.grokUsers.length} Grok suggestions`)
+    console.log(`   → ✅ All data sources complete: ${results.affiliatedUsers.length} affiliates, ${results.searchedUsers.length} search results, ${results.grokUsers.length} Grok suggestions`)
+
+    // Global variable to store batch existence check results
+    let globalExistingUserIds: Set<string> = new Set()
 
     // Step 2: Check organization's following list for potential affiliates (if needed)
     if (shouldFetchFollowingsFromAPI) {
@@ -564,16 +507,33 @@ export async function POST(request: NextRequest) {
               }
               
               if (validFollowings.length > 0) {
-                // Check which users already exist to avoid redundant upserts
+                // For API-fetched following users, we need to check existence since they weren't part of global batch
                 const followingUserIds = validFollowings.map(user => user.id_str || user.id)
-                const existingFollowingIds = await checkUsersExist(followingUserIds)
-                const existingFollowingIdsSet = new Set(existingFollowingIds)
+                let existingFollowingIds: Set<string>
+                
+                // If global check hasn't run yet, do individual check for following users
+                if (globalExistingUserIds.size === 0) {
+                  console.log(`   → Checking ${followingUserIds.length} following users existence in Neo4j...`)
+                  try {
+                    const existingIds = await checkUsersExist(followingUserIds)
+                    existingFollowingIds = new Set(existingIds)
+                    // Update global set with these results for later use
+                    existingIds.forEach(id => globalExistingUserIds.add(id))
+                  } catch (error: any) {
+                    console.warn(`   → Error checking following users existence:`, error.message)
+                    existingFollowingIds = new Set()
+                  }
+                } else {
+                  // Use global existence check results
+                  existingFollowingIds = globalExistingUserIds
+                }
                 
                 const newFollowingUsers = validFollowings
-                  .filter(user => !existingFollowingIdsSet.has(user.id_str || user.id))
+                  .filter(user => !existingFollowingIds.has(user.id_str || user.id))
                   .map(user => transformToNeo4jUser(user))
                 
-                console.log(`   → Found ${existingFollowingIds.length} existing following users, ${newFollowingUsers.length} new users to upsert`)
+                const existingCount = followingUserIds.length - newFollowingUsers.length
+                console.log(`   → Found ${existingCount} existing following users, ${newFollowingUsers.length} new users to upsert`)
                 
                 if (newFollowingUsers.length > 0) {
                   const result = await createOrUpdateUsersOptimized(newFollowingUsers, 1080) // 45 day staleness
@@ -627,15 +587,27 @@ export async function POST(request: NextRequest) {
       console.log('   → Using cached following data from Neo4j - skipping API fetch and Neo4j upsert')
     }
 
-    // Step 3: Collect all unique usernames and profiles
+    // Step 3: Batch Profile Existence Check and Collection
+    // OPTIMIZATION: This step consolidates all profile existence checks into a single batch operation
+    // instead of multiple separate checks throughout the code. This significantly reduces Neo4j queries.
+    console.log('🔍 Step 3: Collecting profiles and batch checking existence in Neo4j...')
+    
     const allUsernames = new Set<string>()
     const allProfiles: any[] = []
+    
+    // Collect all profiles and user IDs for batch processing
+    const profileSources = {
+      affiliates: results.affiliatedUsers,
+      search: results.searchedUsers,
+      following: results.followingUsers,
+      grok: []  // Will be populated after checking existing Grok users
+    }
     
     // Add FULL PROFILES from affiliates (already have complete data)
     results.affiliatedUsers.forEach((user: any) => {
       if (user.screen_name) {
         allUsernames.add(user.screen_name.toLowerCase())
-        allProfiles.push(user) // Use existing profile data
+        allProfiles.push(user)
       }
     })
     
@@ -645,7 +617,7 @@ export async function POST(request: NextRequest) {
         const username = user.screen_name.toLowerCase()
         if (!allUsernames.has(username)) { // Avoid duplicates
           allUsernames.add(username)
-          allProfiles.push(user) // Use existing profile data
+          allProfiles.push(user)
         }
       }
     })
@@ -656,40 +628,36 @@ export async function POST(request: NextRequest) {
         const username = user.screen_name.toLowerCase()
         if (!allUsernames.has(username)) { // Avoid duplicates
           allUsernames.add(username)
-          allProfiles.push(user) // Use existing profile data
+          allProfiles.push(user)
         }
       }
     })
     
-    // Only collect USERNAMES from Grok (need to check which exist in Neo4j and fetch missing profiles)
+    // Handle Grok usernames - check which exist in Neo4j and which need fetching
     const grokUsernamesNeedingProfiles: string[] = []
     
     if (results.grokUsers.length > 0) {
-      console.log(`🔍 Checking ${results.grokUsers.length} Grok usernames against Neo4j...`)
+      console.log(`   → Processing ${results.grokUsers.length} Grok usernames...`)
       
-      // Check which Grok usernames already exist in Neo4j by screen name
+      // Filter out Grok usernames already found in other sources
       const grokUsernamesNotYetAdded = results.grokUsers.filter((username: string) => {
         if (username) {
           const cleanUsername = username.toLowerCase()
-          return !allUsernames.has(cleanUsername) // Only if not already found in other sources
+          return !allUsernames.has(cleanUsername)
         }
         return false
       })
       
       if (grokUsernamesNotYetAdded.length > 0) {
-        // Use batch query to check existing users in Neo4j - OPTIMIZED
-        console.log(`   → Batch checking ${grokUsernamesNotYetAdded.length} Grok usernames in Neo4j...`)
-        
-        let existingGrokUsers: any[] = []
-        let nonExistingGrokUsernames: string[] = []
+        console.log(`   → Checking ${grokUsernamesNotYetAdded.length} new Grok usernames in Neo4j...`)
         
         try {
-          const existingUsers = await getUsersByScreenNames(grokUsernamesNotYetAdded)
-          const existingUsernamesSet = new Set(existingUsers.map(user => user.screenName.toLowerCase()))
+          const existingGrokUsers = await getUsersByScreenNames(grokUsernamesNotYetAdded)
+          const existingUsernamesSet = new Set(existingGrokUsers.map(user => user.screenName.toLowerCase()))
           
-          // Convert existing users to API format
-          existingUsers.forEach(existingUser => {
-            existingGrokUsers.push({
+          // Add existing Grok users to profiles
+          existingGrokUsers.forEach(existingUser => {
+            const apiFormatUser = {
               id: existingUser.userId,
               id_str: existingUser.userId,
               screen_name: existingUser.screenName,
@@ -712,32 +680,42 @@ export async function POST(request: NextRequest) {
                 type: existingUser.verificationType,
                 reason: existingUser.verificationReason
               }
-            })
+            }
+            allProfiles.push(apiFormatUser)
             allUsernames.add(existingUser.screenName.toLowerCase())
           })
           
-          // Identify usernames that don't exist in Neo4j
+          // Identify usernames that need fetching from API
           grokUsernamesNotYetAdded.forEach(username => {
             if (!existingUsernamesSet.has(username.toLowerCase())) {
-              nonExistingGrokUsernames.push(username.toLowerCase())
-              allUsernames.add(username.toLowerCase())
+              grokUsernamesNeedingProfiles.push(username.toLowerCase())
             }
           })
+          
+          console.log(`   → Found ${existingGrokUsers.length} existing Grok users in Neo4j`)
+          console.log(`   → Need to fetch ${grokUsernamesNeedingProfiles.length} new Grok users from API`)
         } catch (error: any) {
-          console.warn(`   → Error in batch user lookup:`, error.message)
-          // Fallback to treating all as non-existing
-          nonExistingGrokUsernames = grokUsernamesNotYetAdded.map(u => u.toLowerCase())
-          existingGrokUsers = []
+          console.warn(`   → Error checking Grok users in Neo4j:`, error.message)
+          grokUsernamesNeedingProfiles.push(...grokUsernamesNotYetAdded.map(u => u.toLowerCase()))
         }
-        
-        // Add existing users from Neo4j to profiles
-        allProfiles.push(...existingGrokUsers)
-        
-        console.log(`   → Found ${existingGrokUsers.length} existing Grok users in Neo4j`)
-        console.log(`   → Need to fetch ${nonExistingGrokUsernames.length} new Grok users from API`)
-        
-        // Only these usernames need profile fetching
-        grokUsernamesNeedingProfiles.push(...nonExistingGrokUsernames)
+      }
+    }
+    
+    // Batch existence check for all profiles with IDs
+    const allProfileUserIds = allProfiles
+      .filter(profile => profile.id_str || profile.id)
+      .map(profile => profile.id_str || profile.id)
+    
+    if (allProfileUserIds.length > 0) {
+      console.log(`   → Batch checking existence of ${allProfileUserIds.length} users in Neo4j...`)
+      try {
+        const existingUserIds = await checkUsersExist(allProfileUserIds)
+        globalExistingUserIds = new Set(existingUserIds)
+        console.log(`   → Found ${existingUserIds.length} existing users in Neo4j`)
+      } catch (error: any) {
+        console.warn(`   → Error in batch existence check:`, error.message)
+        // Fallback to treating all as non-existing
+        globalExistingUserIds = new Set()
       }
     }
 
@@ -755,7 +733,7 @@ export async function POST(request: NextRequest) {
       console.log(`🔄 Removed organization profile from results (${profilesBeforeFilter} → ${allProfiles.length} profiles)`)
     }
 
-    console.log(`📝 Total unique usernames found: ${allUsernames.size}`)
+    console.log(`📝 Total unique usernames collected: ${allUsernames.size}`)
     console.log(`🤖 Grok usernames needing profile fetch: ${grokUsernamesNeedingProfiles.length}`)
 
     // Step 4: Fetch and upsert profiles for Grok usernames (optimized)
@@ -1127,8 +1105,8 @@ export async function POST(request: NextRequest) {
     let totalOrgsFound = 0
     let totalAnalyzed = 0
 
-    // Step 5.5: Check existing employment relationships and organization vibes before Grok analysis
-    console.log('🔍 Step 5.5: Checking for existing employment relationships and organization vibes in Neo4j...')
+    // Step 5.5: Early filtering and comprehensive user data check (OPTIMIZED)
+    console.log('🔍 Step 5.5: Early filtering and comprehensive user data collection...')
     
     let finalIndividuals: any[] = []
     let grokAnalysisMetadata: any[] = []
@@ -1145,88 +1123,117 @@ export async function POST(request: NextRequest) {
           .map(profile => profile.id_str || profile.id)
         
         if (userIds.length > 0) {
-          // Check for existing employment relationships
-          const existingEmploymentData = await getUsersWithExistingEmploymentRelationships(
-            userIds, 
-            results.orgProfile.id_str
-          )
+          console.log(`   → Comprehensive data check for ${userIds.length} relevant individuals...`)
           
-          // Create a map for quick lookup
-          const existingEmploymentMap = new Map()
-          existingEmploymentData.forEach(data => {
-            existingEmploymentMap.set(data.userId, data)
-          })
-          
-          // Get user vibes to check for organizations
-          const userVibeQuery = `
+          // OPTIMIZATION: Single comprehensive query to get all user data at once
+          const comprehensiveUserDataQuery = `
             UNWIND $userIds AS userId
-            MATCH (u:User {userId: userId})
-            RETURN u.userId as userId, u.vibe as vibe, u.screenName as screenName
+            OPTIONAL MATCH (u:User {userId: userId})
+            OPTIONAL MATCH (u)-[works:WORKS_AT]->(org:User {userId: $orgId})
+            OPTIONAL MATCH (u)-[worked:WORKED_AT]->(org2:User {userId: $orgId})
+            RETURN 
+              userId,
+              u.screenName as screenName,
+              u.vibe as vibe,
+              u IS NOT NULL as exists,
+              works IS NOT NULL as hasCurrentEmployment,
+              worked IS NOT NULL as hasEmploymentHistory,
+              works.position as currentPosition,
+              collect(DISTINCT worked.position) as pastPositions,
+              works.startDate as currentStartDate,
+              works.endDate as currentEndDate
           `
-          const userVibeResults = await runQuery(userVibeQuery, { userIds })
-          const userVibeMap = new Map()
-          userVibeResults.forEach(record => {
-            userVibeMap.set(record.userId, { vibe: record.vibe, screenName: record.screenName })
+          
+          const comprehensiveUserData = await runQuery(comprehensiveUserDataQuery, { 
+            userIds, 
+            orgId: results.orgProfile.id_str 
           })
           
-          // Separate users based on existing relationships and vibes
+          // Create lookup maps for efficient processing
+          const userDataMap = new Map()
+          comprehensiveUserData.forEach(record => {
+            userDataMap.set(record.userId, {
+              exists: record.exists,
+              vibe: record.vibe,
+              screenName: record.screenName,
+              hasEmploymentData: record.hasCurrentEmployment || record.hasEmploymentHistory,
+              employmentData: {
+                current_position: record.hasCurrentEmployment ? {
+                  position: record.currentPosition,
+                  organizations: [orgUsername], // They have a relationship with this org
+                  startDate: record.currentStartDate,
+                  endDate: record.currentEndDate
+                } : null,
+                employment_history: record.pastPositions.filter((p: any) => p).map((position: any) => ({
+                  position,
+                  organizations: [orgUsername]
+                }))
+              }
+            })
+          })
+          
+          console.log(`   → Processed comprehensive data for ${comprehensiveUserData.length} users`)
+          
+          // EARLY FILTERING: Classify users based on existing data
+          const classificationResults = {
+            skipGrok: 0,
+            needsGrok: 0,
+            organizations: 0
+          }
+          
           relevantIndividuals.forEach(profile => {
             const userId = profile.id_str || profile.id
-            const existingData = existingEmploymentMap.get(userId)
-            const userVibeData = userVibeMap.get(userId)
+            const userData = userDataMap.get(userId)
             
-            if (userVibeData?.vibe === 'organization') {
-              // User is already identified as an organization - reject as organization
+            if (userData?.vibe === 'organization') {
+              // User is already identified as an organization - reject
               profile._rejection_reason = 'already_identified_as_organization'
               usersIdentifiedAsOrganizations.push(profile)
               rejectedProfiles.push(profile)
               totalOrgsFound++
-              console.log(`     🏢 @${profile.screen_name} - ALREADY IDENTIFIED AS ORGANIZATION (skipping Grok)`)
-            } else if (existingData) {
-              // User has existing employment relationship - add to final list directly
-              profile._grok_analysis = {
-                current_position: existingData.currentPosition || null,
-                employment_history: existingData.employmentHistory || []
-              }
+              classificationResults.organizations++
+              
+            } else if (userData?.hasEmploymentData) {
+              // User has existing employment relationship - skip Grok analysis
+              profile._grok_analysis = userData.employmentData
               usersWithExistingRelationships.push(profile)
               finalIndividuals.push(profile)
+              classificationResults.skipGrok++
               
-              console.log(`     ✅ @${profile.screen_name} - HAS EXISTING EMPLOYMENT DATA (skipping Grok)`)
-              if (existingData.hasWorksAt) {
-                console.log(`        Current: ${existingData.currentPosition?.organizations?.join(', ')} (${existingData.currentPosition?.department || 'Unknown'})`)
-              }
-              if (existingData.hasWorkedAt) {
-                console.log(`        Previous: ${existingData.employmentHistory?.map((h: any) => h.organization).join(', ')}`)
-              }
             } else {
               // User needs Grok analysis
               usersNeedingGrokAnalysis.push(profile)
+              classificationResults.needsGrok++
             }
           })
           
-          console.log(`📊 Employment relationship and vibe check complete:`)
-          console.log(`   🏢 Users already identified as organizations: ${usersIdentifiedAsOrganizations.length}`)
-          console.log(`   ✅ Users with existing relationships: ${usersWithExistingRelationships.length}`)
-          console.log(`   🤖 Users needing Grok analysis: ${usersNeedingGrokAnalysis.length}`)
+          console.log(`📊 Early filtering results:`)
+          console.log(`   🏢 Organizations (pre-identified): ${classificationResults.organizations}`)
+          console.log(`   ⚡ Skip Grok (has employment data): ${classificationResults.skipGrok}`)
+          console.log(`   🤖 Needs Grok analysis: ${classificationResults.needsGrok}`)
+          console.log(`   📈 Grok analysis reduction: ${Math.round((classificationResults.skipGrok / relevantIndividuals.length) * 100)}%`)
+          
         } else {
-          console.log('   → No valid user IDs found for employment relationship check')
+          console.log('   → No valid user IDs found for comprehensive data check')
           usersNeedingGrokAnalysis = relevantIndividuals
         }
-      } catch (employmentCheckError: any) {
-        console.warn(`⚠️ Error checking existing employment relationships:`, employmentCheckError.message)
-        results.errors.push(`Employment relationship check error: ${employmentCheckError.message}`)
+      } catch (comprehensiveCheckError: any) {
+        console.warn(`⚠️ Error in comprehensive user data check:`, comprehensiveCheckError.message)
+        results.errors.push(`Comprehensive data check error: ${comprehensiveCheckError.message}`)
         // Fallback: send all users to Grok analysis
         usersNeedingGrokAnalysis = relevantIndividuals
       }
     } else {
-      console.log('   → No relevant individuals or org profile for employment check')
+      console.log('   → No relevant individuals or org profile for comprehensive check')
       usersNeedingGrokAnalysis = relevantIndividuals
     }
 
-    // Step 5.6: Grok analysis for remaining users only
-    console.log('🤖 Step 5.6: Starting Grok analysis for users without existing employment data...')
+    // Step 5.6: Grok analysis for remaining users only (OPTIMIZED)
+    console.log('🤖 Step 5.6: Grok analysis for users without existing employment data...')
 
     if (usersNeedingGrokAnalysis.length > 0) {
+      console.log(`   → Only ${usersNeedingGrokAnalysis.length} users need Grok analysis (saved ${usersWithExistingRelationships.length + usersIdentifiedAsOrganizations.length} expensive AI calls)`)
+      
       try {
         const batchSize = 5 // Further reduced batch size to avoid token limits
         
@@ -1324,18 +1331,6 @@ export async function POST(request: NextRequest) {
                   }
                   finalIndividuals.push(originalProfile)
                   console.log(`     👤 @${analyzed.screen_name || originalProfile.screen_name} - INDIVIDUAL`)
-                  
-                  // Log current position details
-                  if (analyzed.current_position) {
-                    const pos = analyzed.current_position
-                    const orgs = pos.organizations && pos.organizations.length > 0 ? pos.organizations.join(', ') : 'Unknown'
-                    console.log(`        Current: ${orgs} (${pos.department})`)
-                  }
-                  
-                  // Log employment history
-                  if (analyzed.employment_history && analyzed.employment_history.length > 0) {
-                    console.log(`        Previous: ${analyzed.employment_history.map((h: any) => h.organization).join(', ')}`)
-                  }
                 }
               })
               
@@ -1401,6 +1396,7 @@ export async function POST(request: NextRequest) {
         console.log(`   📊 Total analyzed: ${totalAnalyzed} profiles`)
         console.log(`   👤 New individuals from Grok: ${totalAnalyzed}`)
         console.log(`   🏢 Organizations found and rejected: ${totalOrgsFound}`)
+        console.log(`   ⚡ Total AI calls saved: ${usersWithExistingRelationships.length + usersIdentifiedAsOrganizations.length}`)
         
       } catch (grokError: any) {
         console.error('❌ Grok analysis failed completely:', grokError.message)
@@ -1554,65 +1550,142 @@ export async function POST(request: NextRequest) {
     // Update results with the Grok-analyzed profile collection
     results.allProfiles = finalIndividuals
 
-    // Step 5.8: Process employment data from Grok analysis (OPTIMIZED)
-    console.log('🏢 Step 5.7: Processing employment data...')
+    // Step 5.8: Unified Batch Storage Operation (OPTIMIZED)
+    console.log('💾 Step 5.8: Unified batch storage operation...')
+    
     try {
-      const { processEmploymentData } = await import('@/lib/neo4j/services/user-service')
-      await processEmploymentData(finalIndividuals)
-      console.log('✅ Employment data processing completed')
-    } catch (employmentError: any) {
-      console.error('❌ Employment data processing failed:', employmentError.message)
-      results.errors.push(`Employment data processing error: ${employmentError.message}`)
-    }
-
-    // Store organization and affiliates to Neo4j
-    try {
-      console.log('Step 6: Neo4j data storage...')
+      // ===== PREPARE ALL DATA FOR BATCH STORAGE =====
       
-      // First, check and create/update users in Neo4j (excluding search results to avoid storing too much data)
-      const allUsersData = [...results.affiliatedUsers, ...results.followingUsers]
-      console.log(`   → Preparing to store ${allUsersData.length} users to Neo4j (excluding search results)`)
-      
-      // Filter out users with missing IDs before transformation
-      const validUsersData = allUsersData.filter(user => user.id_str || user.id)
-      const invalidUsersCount = allUsersData.length - validUsersData.length
-      
-      if (invalidUsersCount > 0) {
-        console.warn(`   → Filtered out ${invalidUsersCount} users with missing IDs`)
+      // 1. Prepare rejected profiles with appropriate vibes
+      const rejectedByReason = {
+        spam_filtered: rejectedProfiles.filter(p => p._rejection_reason === 'spam_filtered'),
+        organization_account: rejectedProfiles.filter(p => p._rejection_reason === 'organization_account'),
+        regional_or_functional_account: rejectedProfiles.filter(p => p._rejection_reason === 'regional_or_functional_account'),
+        grok_identified_organization: rejectedProfiles.filter(p => p._rejection_reason === 'grok_identified_organization'),
+        already_identified_as_organization: rejectedProfiles.filter(p => p._rejection_reason === 'already_identified_as_organization'),
+        no_org_name_match: rejectedProfiles.filter(p => p._rejection_reason === 'no_org_name_match')
       }
       
-      // Check which users already exist in Neo4j in batch (more efficient than individual lookups)
-      const userIds = validUsersData.map(user => user.id_str || user.id)
-      const existingUserIds = await checkUsersExist(userIds)
-      const existingUserIdsSet = new Set(existingUserIds)
+      console.log(`   → Preparing rejected profiles by category:`)
+      console.log(`     - Spam filtered: ${rejectedByReason.spam_filtered.length}`)
+      console.log(`     - Business verification: ${rejectedByReason.organization_account.length}`)
+      console.log(`     - Regional/functional: ${rejectedByReason.regional_or_functional_account.length}`)
+      console.log(`     - Grok-identified orgs: ${rejectedByReason.grok_identified_organization.length}`)
+      console.log(`     - Pre-identified orgs: ${rejectedByReason.already_identified_as_organization.length}`)
+      console.log(`     - No org match: ${rejectedByReason.no_org_name_match.length}`)
       
-      // Only transform and upsert users that don't exist
-      const newUsersToUpsert = validUsersData
-        .filter(user => !existingUserIdsSet.has(user.id_str || user.id))
+      const rejectedUsersToStore: any[] = []
+      
+      // Process spam users - set vibe to 'spam'
+      rejectedByReason.spam_filtered.forEach(profile => {
+        if (profile.id_str || profile.id) {
+          const neo4jUser = transformToNeo4jUser(profile)
+          neo4jUser.vibe = 'spam'
+          rejectedUsersToStore.push(neo4jUser)
+        }
+      })
+      
+      // Process business verification users - set vibe to 'organization'
+      rejectedByReason.organization_account.forEach(profile => {
+        if (profile.id_str || profile.id) {
+          const neo4jUser = transformToNeo4jUser(profile)
+          neo4jUser.vibe = 'organization'
+          rejectedUsersToStore.push(neo4jUser)
+        }
+      })
+      
+      // Process regional/functional accounts - set vibe to 'organization'
+      rejectedByReason.regional_or_functional_account.forEach(profile => {
+        if (profile.id_str || profile.id) {
+          const neo4jUser = transformToNeo4jUser(profile)
+          neo4jUser.vibe = 'organization'
+          rejectedUsersToStore.push(neo4jUser)
+        }
+      })
+      
+      // Process Grok-identified organizations - set vibe to 'organization'
+      rejectedByReason.grok_identified_organization.forEach(profile => {
+        if (profile.id_str || profile.id) {
+          const neo4jUser = transformToNeo4jUser(profile)
+          neo4jUser.vibe = 'organization'
+          rejectedUsersToStore.push(neo4jUser)
+        }
+      })
+      
+      // Process users with no org name match - store without special vibe
+      rejectedByReason.no_org_name_match.forEach(profile => {
+        if (profile.id_str || profile.id) {
+          const neo4jUser = transformToNeo4jUser(profile)
+          rejectedUsersToStore.push(neo4jUser)
+        }
+      })
+      
+      // 2. Prepare final individuals (accepted users)
+      const finalIndividualsToStore = finalIndividuals
+        .filter(profile => profile.id_str || profile.id)
+        .map(profile => transformToNeo4jUser(profile))
+      
+      // 3. Prepare affiliated users and following users
+      const affiliatedUsersToStore = results.affiliatedUsers
+        .filter(user => (user.id_str || user.id) && !globalExistingUserIds.has(user.id_str || user.id))
         .map(user => transformToNeo4jUser(user))
       
-      console.log(`   → Found ${existingUserIds.length} existing users, ${newUsersToUpsert.length} new users to upsert`)
+      const followingUsersToStore = results.followingUsers
+        .filter(user => (user.id_str || user.id) && !globalExistingUserIds.has(user.id_str || user.id))
+        .map(user => transformToNeo4jUser(user))
       
-      if (newUsersToUpsert.length > 0) {
-        console.log(`   → Checking ${newUsersToUpsert.length} users for staleness...`)
-        const result = await createOrUpdateUsersOptimized(newUsersToUpsert, 1080) // 45 day staleness
-        console.log(`   → Users: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped`)
+      // 4. Prepare organization profile
+      const orgUserToStore = results.orgProfile && (results.orgProfile.id_str || results.orgProfile.id) 
+        ? [transformToNeo4jUser(results.orgProfile)]
+        : []
+      
+      // 5. Combine all users for batch storage
+      const allUsersToStore = [
+        ...rejectedUsersToStore,
+        ...finalIndividualsToStore,
+        ...affiliatedUsersToStore,
+        ...followingUsersToStore,
+        ...orgUserToStore
+      ]
+      
+      console.log(`   → Prepared ${allUsersToStore.length} total users for batch storage:`)
+      console.log(`     - Rejected profiles: ${rejectedUsersToStore.length}`)
+      console.log(`     - Final individuals: ${finalIndividualsToStore.length}`)
+      console.log(`     - Affiliated users: ${affiliatedUsersToStore.length}`)
+      console.log(`     - Following users: ${followingUsersToStore.length}`)
+      console.log(`     - Organization: ${orgUserToStore.length}`)
+      
+      // ===== EXECUTE BATCH STORAGE =====
+      
+      // Store all users in single batch operation
+      if (allUsersToStore.length > 0) {
+        console.log(`   → Executing batch storage for ${allUsersToStore.length} users...`)
+        const userStorageResult = await createOrUpdateUsersOptimized(allUsersToStore, 1080)
+        console.log(`   → Batch user storage: ${userStorageResult.created} created, ${userStorageResult.updated} updated, ${userStorageResult.skipped} skipped`)
+        
+        // Log breakdown by type
+        const vibeBreakdown = {
+          spam: allUsersToStore.filter(u => u.vibe === 'spam').length,
+          organization: allUsersToStore.filter(u => u.vibe === 'organization').length,
+          regular: allUsersToStore.filter(u => !u.vibe || (u.vibe !== 'spam' && u.vibe !== 'organization')).length
+        }
+        console.log(`     - Spam vibe: ${vibeBreakdown.spam}`)
+        console.log(`     - Organization vibe: ${vibeBreakdown.organization}`)
+        console.log(`     - Regular/Individual: ${vibeBreakdown.regular}`)
       } else {
-        console.log('   → No new users to upsert to Neo4j')
+        console.log(`   → No users to store in batch operation`)
       }
       
-      // Create or update the organization user (always update org data as it might be fresh)
-      if (results.orgProfile && (results.orgProfile.id_str || results.orgProfile.id)) {
-        console.log('   → Upserting organization profile to Neo4j...')
-        const orgUser = transformToNeo4jUser(results.orgProfile)
-        await createOrUpdateUser(orgUser)
-        console.log('   → Upserted organization to Neo4j')
-      } else {
-        console.warn('   → No valid organization profile to upsert to Neo4j (missing ID)')
-      }
+      // ===== PROCESS EMPLOYMENT DATA =====
       
-      // Check and create AFFILIATED_WITH relationships (only for official affiliates)
-      console.log('   → Checking and creating AFFILIATED_WITH relationships for official affiliates...')
+      console.log(`   → Processing employment data for ${finalIndividuals.length} individuals...`)
+      const { processEmploymentData } = await import('@/lib/neo4j/services/user-service')
+      await processEmploymentData(finalIndividuals)
+      console.log(`   → Employment data processing completed`)
+      
+      // ===== CREATE RELATIONSHIPS =====
+      
+      // Prepare affiliate relationships
       const allAffiliateRelationships: Array<{orgUserId: string, affiliateUserId: string}> = []
       
       if (results.orgProfile?.id_str) {
@@ -1629,6 +1702,8 @@ export async function POST(request: NextRequest) {
         })
         
         if (allAffiliateRelationships.length > 0) {
+          console.log(`   → Processing ${allAffiliateRelationships.length} affiliate relationships...`)
+          
           // Check which relationships already exist
           const existingAffiliateRelationships = await checkExistingAffiliateRelationships(allAffiliateRelationships)
           const newAffiliateRelationships = filterOutExistingRelationships(
@@ -1640,26 +1715,25 @@ export async function POST(request: NextRequest) {
           console.log(`   → Found ${existingAffiliateRelationships.length} existing, ${newAffiliateRelationships.length} new AFFILIATED_WITH relationships`)
           
           if (newAffiliateRelationships.length > 0) {
-            console.log(`   → Creating ${newAffiliateRelationships.length} new AFFILIATED_WITH relationships in Neo4j...`)
             await addAffiliateRelationships(newAffiliateRelationships)
             console.log(`   → Created ${newAffiliateRelationships.length} new AFFILIATED_WITH relationships`)
-          } else {
-            console.log('   → All affiliate relationships already exist')
           }
         } else {
-          console.log('   → No official affiliate relationships to create')
+          console.log(`   → No affiliate relationships to create`)
         }
       } else {
-        console.warn('   → No organization profile ID available for relationship creation')
+        console.warn(`   → No organization profile ID available for relationship creation`)
       }
       
-    } catch (error: any) {
-      console.error('   → Error storing data to Neo4j:', error.message)
-      results.errors.push(`Neo4j storage error: ${error.message}`)
+      console.log(`✅ Unified batch storage operation completed successfully`)
+      
+    } catch (batchStorageError: any) {
+      console.error('❌ Unified batch storage failed:', batchStorageError.message)
+      results.errors.push(`Unified batch storage error: ${batchStorageError.message}`)
     }
 
-    // Step 7: Filter individuals by organization affiliation
-    console.log('🔍 Filtering individuals by organization affiliation...')
+    // Step 5.9: Filter individuals by organization affiliation
+    console.log('🔍 Step 5.9: Filtering individuals by organization affiliation...')
     
     const orgScreenName = `@${orgUsername.toLowerCase()}`
     const orgScreenNameWithoutAt = orgUsername.toLowerCase()
@@ -1684,10 +1758,8 @@ export async function POST(request: NextRequest) {
       
       if (hasOrgAffiliation) {
         directAffiliates.push(profile)
-        console.log(`     ✅ @${profile.screen_name} - DIRECT AFFILIATE (has org in current position)`)
       } else {
         otherIndividuals.push(profile)
-        console.log(`     ➡️  @${profile.screen_name} - OTHER INDIVIDUAL (no org in current position)`)
       }
     })
     

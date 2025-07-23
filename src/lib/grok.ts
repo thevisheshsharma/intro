@@ -92,7 +92,7 @@ export async function createGrokChatCompletion(
 const BasicIdentificationSchema = z.object({
   project_name: z.string().describe("The official name of the project/organization"),
   website_url: z.string().nullable().describe("Official website URL"),
-  industry_classification: z.string().describe("Primary industry or sector classification"),
+  industry_classification: z.string().describe("Primary industry sector classification"),
   protocol_category: z.string().nullable().describe("Specific protocol category (e.g., DeFi, Gaming, Infrastructure)"),
   technical_links: z.object({
     github_url: z.string().nullable().describe("GitHub repository URL"),
@@ -108,28 +108,28 @@ const BasicIdentificationSchema = z.object({
 });
 
 const MarketPositionSchema = z.object({
-  total_value_locked_usd: z.number().nullable().describe("Total Value Locked in USD for DeFi protocols"),
+  total_value_locked_usd: z.number().nullable().describe("Total Value Locked in USD"),
   twitter_followers: z.number().nullable().describe("Number of Twitter followers"),
-  discord_members_est: z.number().nullable().describe("Estimated Discord member count"),
+  discord_members_est: z.number().nullable().describe("Discord member count"),
   active_addresses_30d: z.number().nullable().describe("Active addresses in the last 30 days"),
   chains_supported: z.number().nullable().describe("Number of blockchain networks supported"),
   sentiment_score: z.number().min(0).max(1).nullable().describe("Overall sentiment score (0-1)")
 });
 
 const CoreMetricsSchema = z.object({
-  key_features: z.array(z.string()).describe("List of key features or capabilities"),
+  key_features: z.array(z.string()).describe("List of key features and capabilities"),
   market_position: MarketPositionSchema.describe("Quantitative market metrics"),
   audit_info: z.object({
     auditor: z.string().nullable().describe("Security audit firm name"),
     date: z.string().nullable().describe("Date of latest audit"),
     report_url: z.string().nullable().describe("Audit report URL")
   }).describe("Security audit information"),
-  operational_chains: z.array(z.string()).describe("List of blockchain networks where the protocol operates")
+  operational_chains: z.array(z.string()).describe("List of all blockchain networks where the protocol operates."),
 });
 
 const EcosystemAnalysisSchema = z.object({
-  market_narratives: z.array(z.string()).describe("Current market narratives or themes associated with the project"),
-  notable_partnerships: z.array(z.string()).describe("List of key partnerships or integrations"),
+  market_narratives: z.array(z.string()).describe("Current market narratives and themes associated with the project"),
+  notable_partnerships: z.array(z.string()).describe("Only usernames of notable partners"),
   recent_developments: z.array(z.string()).describe("Recent major developments or milestones")
 });
 
@@ -168,7 +168,7 @@ const DemographicProfileSchema = z.object({
   vibe_range: z.string().describe("Age ranges or generational cohorts that engage with the project"),
   experience_level: z.string().describe("Typical Web3/crypto experience level of users"),
   roles: z.array(z.string()).describe("Common roles or archetypes of users"),
-  geographic_distribution: z.string().describe("Geographic distribution of the user base")
+  geographic_distribution: z.string().describe("Geographic distribution of users")
 });
 
 const PsychographicDriversSchema = z.object({
@@ -236,7 +236,7 @@ CRITICAL: Live search is ENABLED. You have access to current web data, X posts, 
 LIVE SEARCH STRATEGY:
 1. Search "@${twitterUsername.replace('@', '')}" on X for recent posts, engagement metrics, and community insights
 2. Search for the organization's official presence (website, X profile, GitHub, Documentation)
-3. Search Web3 data platforms (DeFiLlama, Dune, Messari, CoinGecko) for metrics
+3. Search Web3 data platforms (DeFiLlama, Dune, Messari, CoinGecko) for latest metrics
 4. Search recent news and developments from 2024-2025
 5. Search for governance proposals, tokenomics, partnerships, integrations and ecosystem positioning
 6. Cross-reference information across multiple sources for accuracy
@@ -253,7 +253,6 @@ RESEARCH REQUIREMENTS:
 - Use live search results as your PRIMARY data source
 - Cross-validate information across multiple platforms
 - Focus on data from 2024-2025 for recent developments
-- Include actual URLs and specific data points found
 - If contradictory information is found, note the discrepancies and prioritize the official sources
 
 ANALYSIS DEPTH:
@@ -277,20 +276,20 @@ SEARCH EXECUTION PLAN:
 5. 🔍 Search "${twitterUsername.replace('@', '')} dune analytics" for on-chain metrics
 6. 🔍 Search "${twitterUsername.replace('@', '')} news 2024 2025" for recent developments
 7. 🔍 Search "${twitterUsername.replace('@', '')} messari" for detailed protocol analysis
-8. 🔍 Search governance and tokenomics information
+8. 🔍 Search "${twitterUsername.replace('@', '')} governance and tokenomics information
+9. 🔍 Search "${twitterUsername.replace('@', '')} for other sources
 
 REQUIRED LIVE DATA EXTRACTION:
 ✅ Current TVL, user metrics, and transaction volumes
 ✅ Recent partnerships, integrations, and protocol updates  
-✅ Community size across platforms (X, Discord, Telegram)
+✅ Community size across platforms (X, Discord, Farcaster)
 ✅ Development activity and GitHub statistics
 ✅ News mentions and market sentiment from 2024-2025
 ✅ Competitive positioning and market narratives
 ✅ Governance structure and token utility details
 
 OUTPUT REQUIREMENTS:
-- Include specific numbers, dates, and URLs from live search
-- Reference actual data sources found during search
+- Include specific numbers from live search
 - Note if information is conflicting across sources
 - Distinguish between verified data and estimates
 - Focus on 2024-2025 timeframe for recent developments

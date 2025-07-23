@@ -199,8 +199,8 @@ export async function batchCheckUserDataTypes(userIds: string[]): Promise<Array<
   const query = `
     UNWIND $userIds AS userId
     MATCH (u:User {userId: userId})
-    OPTIONAL MATCH (u)-[:AFFILIATED_WITH]->(:User)
-    WITH u, userId, count(*) > 0 as hasAffiliates
+    OPTIONAL MATCH (affiliate:User)-[:AFFILIATED_WITH]->(u)
+    WITH u, userId, count(affiliate) > 0 as hasAffiliates
     OPTIONAL MATCH (u)-[:FOLLOWS]->(:User)
     RETURN userId, hasAffiliates as hasAffiliateData, count(*) > 0 as hasFollowingData
   `
@@ -564,7 +564,7 @@ export async function createAffiliateRelationship(orgUserId: string, affiliateUs
   const query = `
     MATCH (org:User {userId: $orgUserId})
     MATCH (affiliate:User {userId: $affiliateUserId})
-    MERGE (org)-[:AFFILIATED_WITH]->(affiliate)
+    MERGE (affiliate)-[:AFFILIATED_WITH]->(org)
   `
   
   await runQuery(query, { orgUserId, affiliateUserId })
@@ -574,7 +574,7 @@ export async function createAffiliateRelationship(orgUserId: string, affiliateUs
 export async function hasAffiliateData(orgUserId: string): Promise<boolean> {
   console.log(`🔍 [Neo4j] Checking affiliate data for user: ${orgUserId}`)
   const query = `
-    MATCH (org:User {userId: $orgUserId})-[:AFFILIATED_WITH]->(:User)
+    MATCH (affiliate:User)-[:AFFILIATED_WITH]->(org:User {userId: $orgUserId})
     RETURN count(*) > 0 as hasAffiliates
   `
   
@@ -602,7 +602,7 @@ export async function hasFollowingData(orgUserId: string): Promise<boolean> {
 export async function getOrganizationAffiliates(orgUserId: string): Promise<Neo4jUser[]> {
   console.log(`🔍 [Neo4j] Fetching affiliates for organization: ${orgUserId}`)
   const query = `
-    MATCH (org:User {userId: $orgUserId})-[:AFFILIATED_WITH]->(affiliate:User)
+    MATCH (affiliate:User)-[:AFFILIATED_WITH]->(org:User {userId: $orgUserId})
     RETURN affiliate
     ORDER BY affiliate.followersCount DESC
   `
@@ -809,7 +809,7 @@ export async function addAffiliateRelationships(relationships: Array<{orgUserId:
       UNWIND $relationships AS rel
       MATCH (org:User {userId: rel.orgUserId})
       MATCH (affiliate:User {userId: rel.affiliateUserId})
-      MERGE (org)-[:AFFILIATED_WITH]->(affiliate)
+      MERGE (affiliate)-[:AFFILIATED_WITH]->(org)
     `
     
     await runQuery(query, { relationships: batch })
@@ -823,7 +823,7 @@ export async function checkExistingAffiliateRelationships(relationships: Array<{
   
   const query = `
     UNWIND $relationships AS rel
-    MATCH (org:User {userId: rel.orgUserId})-[:AFFILIATED_WITH]->(affiliate:User {userId: rel.affiliateUserId})
+    MATCH (affiliate:User {userId: rel.affiliateUserId})-[:AFFILIATED_WITH]->(org:User {userId: rel.orgUserId})
     RETURN rel.orgUserId as orgUserId, rel.affiliateUserId as affiliateUserId
   `
   

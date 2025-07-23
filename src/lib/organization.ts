@@ -334,24 +334,16 @@ export async function saveOrganization(
   console.log('💾 Prepared orgData:', orgData)
 
   try {
-    // Use Supabase's native upsert with the unique constraint
-    console.log('💾 Performing native upsert operation...')
-    const { data, error } = await supabase
-      .from('organizations')
-      .upsert(orgData, {
-        onConflict: 'twitter_username',
-        ignoreDuplicates: false
-      })
-      .select()
-      .single()
-
-    if (error) {
-      console.log('❌ Native upsert error:', error)
-      return handleDatabaseError(error, 'upserting organization', 'organizations')
-    }
+    // Use custom DatabaseUtils.upsert since the table doesn't have a unique constraint
+    console.log('💾 Performing custom upsert operation...')
+    const result = await DatabaseUtils.upsert<Organization>(
+      'organizations',
+      orgData,
+      [{ column: 'twitter_username', value: orgData.twitter_username }]
+    )
     
-    console.log('✅ saveOrganization result:', data)
-    return data
+    console.log('✅ saveOrganization result:', result)
+    return result
   } catch (error) {
     console.error('❌ saveOrganization catch error:', error)
     return handleDatabaseError(error, 'saving organization', 'organizations')
@@ -440,6 +432,7 @@ export async function getOrganizationByTwitter(
 
 /**
  * Track user access to organization
+ * Note: Currently disabled as user_organization_access table doesn't exist
  */
 export async function trackUserOrganizationAccess(
   userId: string,
@@ -448,6 +441,22 @@ export async function trackUserOrganizationAccess(
   try {
     console.log('👤 trackUserOrganizationAccess - userId:', userId, 'organizationId:', organizationId)
     
+    // Check if the table exists first
+    const { error: checkError } = await supabase
+      .from('user_organization_access')
+      .select('count', { count: 'exact', head: true })
+      .limit(0)
+    
+    if (checkError) {
+      if (checkError.code === '42P01') {
+        console.log('ℹ️ user_organization_access table does not exist, skipping tracking')
+        return
+      }
+      console.warn('⚠️ Could not check user_organization_access table:', checkError)
+      return
+    }
+    
+    // Table exists, proceed with upsert
     const { error } = await supabase
       .from('user_organization_access')
       .upsert({
@@ -474,7 +483,11 @@ export async function trackUserOrganizationAccess(
     })
     
     if (rpcError) {
-      console.error('❌ increment_access_count RPC error:', rpcError)
+      if (rpcError.code === '42P01') {
+        console.log('ℹ️ increment_access_count RPC function or related table does not exist, skipping')
+      } else {
+        console.error('❌ increment_access_count RPC error:', rpcError)
+      }
     } else {
       console.log('✅ Access count incremented')
     }
