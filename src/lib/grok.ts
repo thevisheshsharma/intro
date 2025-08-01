@@ -2,7 +2,6 @@ import OpenAI from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import { getCachedTwitterUser } from './twitter-cache';
-import { sources } from 'next/dist/compiled/webpack/webpack';
 
 /**
  * Grok API client configuration
@@ -50,6 +49,18 @@ export const GROK_CONFIGS = {
 } as const;
 
 /**
+ * Configuration options for ICP analysis depth and focus
+ */
+export enum ICPAnalysisConfig {
+  /** Quick analysis with basic metrics */
+  MINI_FAST = 'MINI_FAST',
+  /** Standard analysis with balanced detail */
+  MINI = 'MINI', 
+  /** Comprehensive analysis with full research */
+  FULL = 'FULL'
+}
+
+/**
  * Create a chat completion with Grok
  * @param messages - Array of chat messages
  * @param config - Configuration object (defaults to FULL)
@@ -87,221 +98,772 @@ export async function createGrokChatCompletion(
 
 
 /**
- * Comprehensive Zod schema for ICP (Ideal Customer Profile) analysis
+ * COMPREHENSIVE ICP ANALYSIS SYSTEM - MODULAR BASE + EXTENSION SCHEMAS
+ * Architecture: Universal base schemas + category-specific extensions for optimal flexibility
  */
-const BasicIdentificationSchema = z.object({
+
+// ================================================================================================
+// UNIVERSAL BASE SCHEMAS - Applied to all organization types
+// ================================================================================================
+
+/**
+ * Universal base schema for basic organizational identification
+ * Applied to all organizations regardless of type/category
+ */
+const UniversalBaseIdentificationSchema = z.object({
   project_name: z.string().describe("The official name of the project/organization"),
   website_url: z.string().nullable().describe("Official website URL"),
   industry_classification: z.string().describe("Primary industry sector classification"),
-  protocol_category: z.string().nullable().describe("Specific protocol category (e.g., DeFi, Gaming, Infrastructure)"),
+  tge_status: z.enum(['pre-tge', 'post-tge']).nullable().describe("Token Generation Event (TGE) status: Pre-TGE or Post-TGE"),
   technical_links: z.object({
     github_url: z.string().nullable().describe("GitHub repository URL"),
-    npmjs_url: z.string().nullable().describe("NPM package URL"),
     whitepaper_url: z.string().nullable().describe("Whitepaper or documentation URL")
   }).describe("Technical development links"),
   community_links: z.object({
     discord: z.string().nullable().describe("Discord server URL"),
-    telegram: z.string().nullable().describe("Telegram group URL"),
     farcaster: z.string().nullable().describe("Farcaster profile URL"),
-    governance_forum: z.string().nullable().describe("Governance forum URL")
+    telegram: z.string().nullable().describe("Telegram group URL"),
+    governance_forum: z.string().nullable().describe("Governance or DAO forum URL"),
   }).describe("Community platform links")
 });
 
-const MarketPositionSchema = z.object({
-  total_value_locked_usd: z.number().nullable().describe("Total Value Locked in USD"),
-  twitter_followers: z.number().nullable().describe("Number of Twitter followers"),
-  discord_members_est: z.number().nullable().describe("Discord member count"),
-  active_addresses_30d: z.number().nullable().describe("Active addresses in the last 30 days"),
-  chains_supported: z.number().nullable().describe("Number of blockchain networks supported"),
-  sentiment_score: z.number().min(0).max(1).nullable().describe("Overall sentiment score (0-1)")
+/**
+ * Universal base schema for market positioning metrics
+ * Core metrics applicable to all organization types
+ */
+const UniversalBaseMarketPositionSchema = z.object({
+  sentiment_score: z.number().min(0).max(1).nullable().describe("Overall market sentiment score (0-1)"),
+  market_presence: z.string().describe("Overall market presence and visibility assessment"),
+  competitors: z.array(z.string()).describe("List of primary competitors in the space. Only @usernames, no names or context")
 });
 
-const CoreMetricsSchema = z.object({
+/**
+ * Universal base schema for core operational metrics
+ * Fundamental capabilities and features across all types
+ */
+const UniversalBaseCoreMetricsSchema = z.object({
   key_features: z.array(z.string()).describe("List of key features and capabilities"),
-  market_position: MarketPositionSchema.describe("Quantitative market metrics"),
-  audit_info: z.object({
-    auditor: z.string().nullable().describe("Security audit firm name"),
-    date: z.string().nullable().describe("Date of latest audit"),
-    report_url: z.string().nullable().describe("Audit report URL")
-  }).describe("Security audit information"),
-  operational_chains: z.array(z.string()).describe("List of all blockchain networks where the protocol operates."),
+  primary_value_proposition: z.string().describe("Core value proposition and unique selling points"),
+  target_audience: z.string().describe("Primary target audience base"),
+  geographic_focus: z.array(z.enum(['North America', 'Europe', 'Asia', 'LaTam', 'China', 'Global'])).describe("Geographic focus and presence"),
+  operational_status: z.enum(['under_development', 'testnet', 'mainnet', 'active', 'other']).describe("Current operational status"),
 });
 
-const EcosystemAnalysisSchema = z.object({
-  market_narratives: z.array(z.string()).describe("Current market narratives and themes associated with the project"),
-  notable_partnerships: z.array(z.string()).describe("Only usernames of notable partners"),
-  recent_developments: z.array(z.string()).describe("Recent major developments or milestones")
+/**
+ * Universal base schema for ecosystem analysis
+ * Relationship and positioning data applicable to all types
+ */
+const UniversalEcosystemAnalysisSchema = z.object({
+  market_narratives: z.array(z.string()).describe("Current market narratives and themes associated"),
+  notable_partnerships: z.array(z.string()).describe("All partnerships and collaborations. Only @usernames, no names or context"),
+  recent_developments: z.array(z.string()).describe("Recent major developments")
 });
 
-const TokenomicsSchema = z.object({
-  native_token: z.string().nullable().describe("Native token symbol"),
-  utility: z.object({
-    governance: z.boolean().describe("Whether token is used for governance"),
-    staking: z.boolean().describe("Whether token can be staked"),
-    fee_discount: z.boolean().describe("Whether token provides fee discounts"),
-    collateral: z.boolean().describe("Whether token can be used as collateral")
+/**
+ * Universal base schema for organizational structure
+ * Governance and operational structure basics
+ */
+const UniversalOrganizationalStructureSchema = z.object({
+  governance_model: z.string().describe("Governance structure"),
+  funding_status: z.enum(['bootstrapped', 'seed', 'series_a', 'series_b', 'series_c', 'self-sustaining', 'ICO', 'Public']).describe("Funding status"),
+  funding_amount: z.number().nullable().describe("Funding amount in USD"),
+  funded_by: z.array(z.string()).nullable().optional().describe("Investors, only @usernames, no names or context")
+});
+
+// ================================================================================================
+// CATEGORY-SPECIFIC EXTENSION SCHEMAS
+// ================================================================================================
+
+/**
+ * DeFi Protocol Extensions - Additional fields specific to DeFi protocols
+ */
+const DeFiProtocolExtensions = {
+  identification: z.object({
+    protocol_category: z.string().describe("DeFi protocol category (DEX, Lending, Yield, Derivatives, etc.)"),
+    chains_supported: z.number().nullable().describe("Number of blockchain networks supported"),
+    supported_chains: z.array(z.string()).describe("Username of Blockchain networks supported. Only give @username."),
+    protocol_type: z.string().describe("Technical protocol type (AMM, Order Book, Lending Pool, etc.)")
+  }),
+  
+  marketPosition: z.object({
+    total_value_locked_usd: z.number().nullable().describe("Current Total Value Locked in USD"),
+    active_addresses_30d: z.number().nullable().describe("Active addresses in the last 30 days"),
+  }),
+  
+  coreMetrics: z.object({
+    audit_info: z.object({
+      auditor: z.string().nullable().describe("Security audit firm name"),
+      date: z.string().nullable().describe("Date of latest audit"),
+      report_url: z.string().nullable().describe("Audit report URL")
+    }).describe("Security audit information"),
+  }),
+  
+  tokenomics: z.object({
+    native_token: z.string().nullable().describe("Native governance/utility token symbol"),
+    token_utility: z.object({
+        governance: z.boolean().describe("Governance token utility"),
+        staking: z.boolean().describe("Staking token utility"),
+        fee_discount: z.boolean().describe("Fee discount token utility"),
+        collateral: z.boolean().describe("Collateral token utility")
+      }),
+    tokenomics_model: z.string().describe("Tokenomics model, distribution and value accrual mechanisms")
   }).describe("Token utility functions"),
-  description: z.string().describe("Description of token economics and utility")
+};
+
+/**
+ * GameFi Protocol Extensions - Gaming and NFT-focused protocols
+ */
+const GameFiProtocolExtensions = {
+  identification: z.object({
+    game_category: z.string().describe("Gaming category (MMORPG, Strategy, Casual, etc.)"),
+    platform_type: z.string().describe("Platform type (Mobile, Web, Desktop, VR)"),
+    nft_integration: z.string().describe("NFT integration and asset ownership model")
+  }),
+  
+  marketPosition: z.object({
+    daily_active_players: z.number().nullable().describe("Daily active players"),
+    game_economy_health: z.string().describe("Overall game economy health assessment")
+  }),
+  
+  coreMetrics: z.object({
+    gameplay_features: z.array(z.string()).describe("Core gameplay features"),
+    play_to_earn_mechanics: z.string().describe("Play-to-earn model and reward structures"),
+    asset_ownership: z.string().describe("Player asset ownership and trading capabilities"),
+  }),
+  
+  tokenomics: z.object({
+    game_tokens: z.array(z.string()).describe("In-game tokens and their utilities"),
+    nft_assets: z.array(z.string()).describe("Types of NFT assets and their functions"),
+    economic_model: z.string().describe("Game economic model and sustainability mechanisms"),
+    reward_distribution: z.string().describe("Player reward distribution and earning potential")
+  })
+};
+
+/**
+ * Investment Fund Extensions - VC funds, accelerators, and investment entities
+ */
+const InvestmentFundExtensions = {
+  identification: z.object({
+    fund_type: z.enum(['VC', 'Accelerator', 'Family Office', 'Corporate VC']).describe("Type of investment fund"),
+    investment_stage: z.enum(['Agnostic', 'Pre-seed', 'Seed', 'Series A']).describe("Primary investment stage focus"),
+    sector_focus: z.array(z.string()).describe("Primary sector and technology focus areas or Agnostic")
+  }),
+  
+  marketPosition: z.object({
+    fund_size_usd: z.number().nullable().describe("Total fund size in USD (if public)"),
+    portfolio_size: z.number().nullable().describe("Number of portfolio companies"),
+    investments: z.array(z.string()).describe("All portfolio investments. Only @usernames, no names or context"),
+    market_reputation: z.enum(['Tier S', 'Tier A', 'Tier B', 'Tier C']).nullable().describe("Market reputation in investments")
+  }),
+  
+  tokenomics: z.object({
+    fund_token: z.string().nullable().describe("Fund token or investment vehicle (if applicable)"),
+    investment_model: z.array(z.enum(['Equity', 'Debt', 'Tokens'])).describe("Investment deployment strategy"),
+  })
+};
+
+/**
+ * Business Service Extensions - Agencies, consultancies, and service providers
+ */
+const BusinessServiceExtensions = {
+  identification: z.object({
+    service_category: z.array(z.enum(['Development', 'Marketing', 'Legal', 'PR', 'Audits', 'Community Management', 'Tokenomics', 'Design', 'Governance Advisory', 'Content', 'Partnerships', 'Education & Training', 'Localization', 'Event Management'])).describe("Primary service category"),
+    target_clients: z.array(z.string()).describe("Target client segments and industries")
+  }),
+  
+  marketPosition: z.object({
+    client_portfolio: z.array(z.string()).describe("All clients. Only @usernames, no names or context"),
+    team_size: z.number().nullable().describe("Team size and capacity"),
+    market_positioning: z.string().describe("Market positioning and competitive differentiation"),
+    client_retention: z.number().min(0).max(1).nullable().describe("Rating from reviews of posts")
+  }),
+  
+  coreMetrics: z.object({
+    service_offerings: z.array(z.string()).describe("Comprehensive service offerings and capabilities"),
+    delivery_methodology: z.string().describe("Service delivery methodology and process")
+  }),
+  
+  tokenomics: z.object({
+    business_growth: z.string().describe("Business growth strategy and expansion plans")
+  })
+};
+
+/**
+ * Community/DAO Extensions - DAOs, communities, and governance-focused organizations
+ */
+const CommunityDAOExtensions = {
+  identification: z.object({
+    community_type: z.array(z.enum(['DAO', 'Guild', 'Regional', 'Builder', 'Grants', 'Supporter', 'Collector', 'Research', 'Creator'])).describe("Type of community or DAO"),
+    governance_structure: z.string().describe("Governance structure and decision-making model"),
+    mission_focus: z.string().describe("Mission and primary focus areas"),
+    membership_model: z.string().describe("Membership model and participation requirements")
+  }),
+  
+  marketPosition: z.object({
+    member_count: z.number().nullable().describe("Total community member count"),
+    community_health: z.number().min(0).max(1).nullable().describe("Overall community health and engagement assessment"),
+    influence_reach: z.number().min(0).max(1).nullable().describe("Community influence and reach within the ecosystem")
+  }),
+  
+  coreMetrics: z.object({
+    community_initiatives: z.array(z.string()).describe("Key community initiatives and programs"),
+    member_benefits: z.array(z.string()).describe("Benefits and value provided to members"),
+    participation_mechanisms: z.array(z.string()).describe("Ways members can participate and contribute"),
+    impact_metrics: z.string().describe("Community impact and achievement metrics")
+  }),
+  
+  tokenomics: z.object({
+    governance_token: z.string().nullable().describe("Governance token and voting mechanism"),
+    incentive_structure: z.string().describe("Member incentive and reward structure"),
+    treasury_management: z.string().describe("Treasury management and fund allocation")
+  })
+};
+
+// ================================================================================================
+// USER BEHAVIOR AND ICP SYNTHESIS SCHEMAS (Universal across all types)
+// ================================================================================================
+
+
+/**
+ * User behavior insights - applicable to all organization types
+ */
+const UniversalUserBehaviorInsightsSchema = z.object({
+  engagement_patterns: z.array(z.string()).describe("Common user engagement and interaction patterns"),
+  user_journey: z.string().describe("Typical user journey and onboarding experience"),
+  retention_factors: z.array(z.string()).describe("Key factors that drive user retention and loyalty"),
+  engagement_depth: z.string().describe("Depth of user engagement and participation levels")
 });
 
-const OrganizationalStructureSchema = z.object({
-  governance: z.string().describe("Description of governance structure"),
-  team_structure: z.string().describe("Information about team size and structure"),
-  funding_info: z.string().nullable().describe("Funding history and investment information")
-});
-
-const GovernanceTokenomicsSchema = z.object({
-  tokenomics: TokenomicsSchema.nullable().describe("Token economics information"),
-  organizational_structure: OrganizationalStructureSchema.describe("Organizational and governance structure")
-});
-
-const UserBehaviorInsightsSchema = z.object({
-  onchain_activity_patterns: z.array(z.string()).describe("Common on-chain activity patterns of users"),
-  engagement_characteristics: z.object({
-    participation_style: z.string().describe("How users typically participate with the protocol"),
-    engagement_level: z.string().describe("Level of user engagement (high/medium/low)"),
-    decision_making_style: z.string().describe("How users make decisions about protocol interaction")
-  }).describe("User engagement characteristics")
-});
-
-const DemographicProfileSchema = z.object({
-  vibe_range: z.string().describe("Age ranges or generational cohorts that engage with the project"),
+/**
+ * Demographic profile - universal user demographic characteristics
+ */
+const UniversalDemographicProfileSchema = z.object({
+  age_demographics: z.string().describe("Age ranges or generational cohorts"),
   experience_level: z.string().describe("Typical Web3/crypto experience level of users"),
-  roles: z.array(z.string()).describe("Common roles or archetypes of users"),
+  professional_roles: z.array(z.string()).describe("Common professional roles of the users"),
   geographic_distribution: z.string().describe("Geographic distribution of users")
 });
 
-const PsychographicDriversSchema = z.object({
-  core_values: z.array(z.string()).describe("Core values that resonate with the target audience"),
-  primary_motivations: z.array(z.string()).describe("Primary motivations for using the protocol"),
-  key_challenges: z.array(z.string()).describe("Key challenges or pain points users face"),
-  trending_interests: z.array(z.string()).describe("Current trending topics or interests among users")
+/**
+ * Psychographic drivers - universal motivational factors
+ */
+const UniversalPsychographicSchema = z.object({
+  core_motivations: z.array(z.string()).describe("Primary motivations for engagement and participation"),
+  decision_drivers: z.array(z.string()).describe("Key factors influencing user decisions and actions")
 });
 
-const BehavioralIndicatorsSchema = z.object({
-  purchase_motives: z.array(z.string()).describe("Primary reasons users purchase or acquire tokens")
+/**
+ * Behavioral indicators - observable user behaviors across all types
+ */
+const UniversalBehavioralIndicatorsSchema = z.object({
+  interaction_preferences: z.array(z.string()).describe("Preferred interaction methods and channels"),
+  activity_patterns: z.array(z.string()).describe("Common activity patterns and usage behaviors"),
+  conversion_factors: z.array(z.string()).describe("Factors that lead to deeper engagement or conversion"),
+  loyalty_indicators: z.array(z.string()).describe("Indicators of user loyalty and long-term engagement")
 });
 
-const ICPSynthesisSchema = z.object({
-  target_web3_segment: z.string().describe("Primary Web3 market segment being targeted"),
-  primary_user_archetypes: z.array(z.string()).describe("Main user archetypes or personas"),
-  demographic_profile: DemographicProfileSchema.describe("Demographic characteristics of ideal customers"),
-  psychographic_drivers: PsychographicDriversSchema.describe("Psychological and behavioral drivers"),
-  behavioral_indicators: BehavioralIndicatorsSchema.describe("Observable behavioral patterns")
+/**
+ * Simplified ICP Synthesis schema with unified profiling
+ */
+const UniversalICPSynthesisSchema = z.object({
+  user_archetypes: z.array(z.object({
+    archetype_name: z.string().describe("Name/label for this user archetype"),
+    description: z.string().describe("Brief description of this user type"),
+    size_estimate: z.enum(['small', 'medium', 'large']).describe("Relative size of this user segment"),
+    priority_level: z.enum(['primary', 'secondary', 'tertiary']).describe("Strategic importance for targeting")
+  })).describe("Different user archetypes (names and basic info only)"),
+  
+  unified_demographics: UniversalDemographicProfileSchema.describe("Single demographic profile that applies across all archetypes"),
+  unified_psychographics: UniversalPsychographicSchema.describe("Single psychographic profile that applies across all archetypes"),
+  unified_behavioral_patterns: UniversalBehavioralIndicatorsSchema.describe("Single behavioral profile that applies across all archetypes"),
+  unified_messaging_approach: z.object({
+    preferred_tone: z.string().describe("Overall recommended communication tone"),
+    key_messages: z.array(z.string()).describe("Core messages that resonate across all archetypes"),
+    content_strategy: z.array(z.string()).describe("Content types, formats, and strategic recommendations"),
+    channel_strategy: z.array(z.string()).describe("Channel preferences and optimization recommendations")
+  }).describe("Comprehensive messaging strategy that works across all archetypes")
 });
 
-const MessagingStrategySchema = z.object({
-  communication_style: z.string().describe("Recommended communication style and tone"),
-  key_messaging_angles: z.array(z.string()).describe("Key messaging angles to emphasize"),
-  content_keywords: z.array(z.string()).describe("Important keywords for content and marketing")
-});
+type ICPAnalysisType = z.infer<ReturnType<typeof createClassificationSpecificSchema>>;
 
-export const ICPAnalysisSchema = z.object({
-  twitter_username: z.string().describe("Twitter username of the analyzed organization"),
-  timestamp_utc: z.string().describe("UTC timestamp of when the analysis was performed"),
-  basic_identification: BasicIdentificationSchema.describe("Basic project identification and links"),
-  core_metrics: CoreMetricsSchema.describe("Core metrics and capabilities"),
-  ecosystem_analysis: EcosystemAnalysisSchema.describe("Ecosystem positioning and relationships"),
-  governance_tokenomics: GovernanceTokenomicsSchema.describe("Governance and tokenomics information"),
-  user_behavior_insights: UserBehaviorInsightsSchema.describe("Insights into user behavior patterns"),
-  icp_synthesis: ICPSynthesisSchema.describe("Synthesized ideal customer profile"),
-  messaging_strategy: MessagingStrategySchema.describe("Recommended messaging strategy"),
-  confidence_score: z.number().min(0).max(1).describe("Confidence score for the analysis (0-1)"),
-  research_sources: z.array(z.string()).describe("List of sources used for the analysis")
-});
+/**
+ * DYNAMIC SCHEMA BUILDER - Combines universal base schemas with category-specific extensions
+ * Architecture: Base + Extensions = Complete Schema for each organization type
+ */
+function getClassificationSpecificSchemas(classification?: {
+  org_type?: string
+  org_subtype?: string
+  web3_focus?: string
+}) {
+  console.log('🔍 Schema generation - received classification:', classification);
+  
+  const orgType = classification?.org_type || 'protocol'
+  const orgSubtype = classification?.org_subtype || 'general'
+  const web3Focus = classification?.web3_focus || 'native'
+  
+  console.log(`📋 Building MODULAR schema for: orgType="${orgType}", orgSubtype="${orgSubtype}", web3Focus="${web3Focus}"`);
+  
+  // Start with universal base schemas (clone them to avoid mutations)
+  let identificationSchema = UniversalBaseIdentificationSchema
+  let marketPositionSchema = UniversalBaseMarketPositionSchema
+  let coreMetricsSchema = UniversalBaseCoreMetricsSchema
+  
+  // Initialize with basic tokenomics schema - use flexible typing to allow different schema shapes
+  let tokenomicsSchema: z.ZodType<any> = z.object({
+    description: z.string().describe("General description of economics and value model")
+  })
 
-type ICPAnalysisType = z.infer<typeof ICPAnalysisSchema>;
+  // Apply category-specific extensions based on classification
+  if (orgType === 'protocol') {
+    console.log(`🔧 Applying protocol extensions for subtype: ${orgSubtype}`);
+    
+    if (orgSubtype === 'defi') {
+      console.log('💰 Using DeFi Protocol Extensions');
+      identificationSchema = identificationSchema.extend(DeFiProtocolExtensions.identification.shape)
+      marketPositionSchema = marketPositionSchema.extend(DeFiProtocolExtensions.marketPosition.shape)
+      coreMetricsSchema = coreMetricsSchema.extend(DeFiProtocolExtensions.coreMetrics.shape)
+      tokenomicsSchema = DeFiProtocolExtensions.tokenomics
+    } else if (orgSubtype === 'gaming') {
+      console.log('🎮 Using GameFi Protocol Extensions');
+      identificationSchema = identificationSchema.extend(GameFiProtocolExtensions.identification.shape)
+      marketPositionSchema = marketPositionSchema.extend(GameFiProtocolExtensions.marketPosition.shape)
+      coreMetricsSchema = coreMetricsSchema.extend(GameFiProtocolExtensions.coreMetrics.shape)
+      tokenomicsSchema = GameFiProtocolExtensions.tokenomics
+    } else {
+      console.log('⚡ Using General Protocol configuration (infrastructure/social/other)');
+      // For general protocols, use minimal extensions
+      identificationSchema = identificationSchema.extend({
+        protocol_category: z.string().describe("Protocol category (Infrastructure, Social, Data, etc.)"),
+        technical_focus: z.string().describe("Primary technical focus and innovation area")
+      })
+      marketPositionSchema = marketPositionSchema.extend({
+        user_count_estimate: z.number().nullable().describe("Estimated active users"),
+        integration_count: z.number().nullable().describe("Number of integrations or partnerships")
+      })
+      coreMetricsSchema = coreMetricsSchema.extend({
+        technical_metrics: z.object({
+          development_activity: z.string().describe("Development activity and momentum"),
+          network_effects: z.string().describe("Network effects and adoption metrics")
+        }).describe("Technical and adoption metrics")
+      })
+      tokenomicsSchema = z.object({
+        description: z.string().describe("General description of economics and value model"),
+        native_token: z.string().nullable().describe("Native token symbol"),
+        token_utility: z.array(z.string()).describe("Token utility functions")
+      })
+    }
+  } else if (orgType === 'investment') {
+    console.log('💼 Using Investment Fund Extensions');
+    identificationSchema = identificationSchema.extend(InvestmentFundExtensions.identification.shape)
+    marketPositionSchema = marketPositionSchema.extend(InvestmentFundExtensions.marketPosition.shape)
+    // Investment funds don't have coreMetrics extensions in the defined schemas
+    // Keep the base coreMetricsSchema as-is
+    tokenomicsSchema = InvestmentFundExtensions.tokenomics
+  } else if (orgType === 'business') {
+    console.log('🏢 Using Business Service Extensions');
+    identificationSchema = identificationSchema.extend(BusinessServiceExtensions.identification.shape)
+    marketPositionSchema = marketPositionSchema.extend(BusinessServiceExtensions.marketPosition.shape)
+    coreMetricsSchema = coreMetricsSchema.extend(BusinessServiceExtensions.coreMetrics.shape)
+    tokenomicsSchema = BusinessServiceExtensions.tokenomics
+  } else if (orgType === 'community') {
+    console.log('🏛️ Using Community/DAO Extensions');
+    identificationSchema = identificationSchema.extend(CommunityDAOExtensions.identification.shape)
+    marketPositionSchema = marketPositionSchema.extend(CommunityDAOExtensions.marketPosition.shape)
+    coreMetricsSchema = coreMetricsSchema.extend(CommunityDAOExtensions.coreMetrics.shape)
+    tokenomicsSchema = CommunityDAOExtensions.tokenomics
+  }
+
+  console.log(`✅ Schema composition complete - ${Object.keys(identificationSchema.shape).length} identification fields, ${Object.keys(marketPositionSchema.shape).length} market position fields`);
+
+  return {
+    BasicIdentificationSchema: identificationSchema,
+    MarketPositionSchema: marketPositionSchema,
+    CoreMetricsSchema: coreMetricsSchema,
+    TokenomicsSchema: tokenomicsSchema
+  }
+}
+
+/**
+ * Generate dynamic ICP Analysis schema based on classification using modular architecture
+ * Combines universal base schemas with category-specific extensions
+ */
+function createClassificationSpecificSchema(classification?: {
+  org_type?: string
+  org_subtype?: string
+  web3_focus?: string
+}) {
+  console.log('🔍 createClassificationSpecificSchema called with:', classification);
+  
+  const schemas = getClassificationSpecificSchemas(classification)
+  console.log('📋 Generated modular schemas for org_type:', classification?.org_type || 'undefined');
+  
+  // Combine with universal ecosystem and user behavior schemas
+  const finalSchema = z.object({
+    twitter_username: z.string().describe("Twitter username of the analyzed organization"),
+    timestamp_utc: z.string().describe("UTC timestamp of when the analysis was performed"),
+    classification_used: z.object({
+      org_type: z.string().describe("Organization type used for analysis"),
+      org_subtype: z.string().describe("Organization subtype used for analysis"),
+      web3_focus: z.string().describe("Web3 focus classification")
+    }).describe("Classification parameters used for this analysis"),
+    
+    // Core identification and metrics using dynamic schemas
+    basic_identification: schemas.BasicIdentificationSchema.describe("Basic project identification and links"),
+    market_position: schemas.MarketPositionSchema.describe("Market positioning and metrics"),
+    core_metrics: schemas.CoreMetricsSchema.describe("Core capabilities and operational metrics"),
+    
+    // Universal ecosystem analysis
+    ecosystem_analysis: UniversalEcosystemAnalysisSchema.describe("Ecosystem positioning and relationships"),
+    
+    // Category-specific economics/tokenomics
+    economics_tokenomics: z.object({
+      tokenomics: schemas.TokenomicsSchema.nullable().describe("Economics and tokenomics information"),
+      organizational_structure: UniversalOrganizationalStructureSchema.describe("Organizational structure and governance")
+    }).describe("Economic model and organizational structure"),
+    
+    // Universal user behavior and ICP insights
+    user_behavior_insights: UniversalUserBehaviorInsightsSchema.describe("User behavior patterns and engagement"),
+    icp_synthesis: UniversalICPSynthesisSchema.describe("Comprehensive ideal customer profile synthesis"),
+    
+    // Analysis metadata
+    analysis_metadata: z.object({
+      confidence_score: z.number().min(0).max(1).describe("Confidence score for the analysis (0-1)"),
+      research_sources: z.array(z.string()).describe("Primary sources used for the analysis")
+    }).describe("Analysis quality and source metadata")
+  });
+  
+  console.log('✅ Final modular schema created successfully with', Object.keys(finalSchema.shape).length, 'top-level sections');
+  return finalSchema;
+}
+
+// Legacy schema export for backward compatibility - moved after function definition
+export const ICPAnalysisSchema = createClassificationSpecificSchema();
+
+/**
+ * Generate classification-specific context for ICP analysis
+ */
+function getClassificationSpecificContext(classification?: {
+  org_type?: string
+  org_subtype?: string
+  web3_focus?: string
+}) {
+  const orgType = classification?.org_type || 'protocol'
+  const orgSubtype = classification?.org_subtype || 'general'
+  const web3Focus = classification?.web3_focus || 'native'
+
+  // Protocol-specific context
+  if (orgType === 'protocol') {
+    switch (orgSubtype) {
+      case 'defi':
+        return {
+          analysisInstructions: "This is a DeFi protocol. Focus on TVL, yield rates, token utility, smart contract audits, DeFi composability, yield mechanisms, fee structures, and liquidity mining programs",
+          priorityDataSources: "defillama.com",
+          
+          analysisDepth: `- Extract yield farming rewards and APY calculations
+- Map liquidity pool compositions and impermanent loss risk
+- Analyze fee distribution mechanisms and token accrual`,
+          
+          userPrompt: `This is a DeFi protocol - prioritize TVL, yield mechanisms, and security audits.`,
+          
+          searchPlan: [
+            'Search "{} defillama TVL yield" for DeFi-specific metrics',
+            'Search "{} liquidity mining yield farming" for incentive programs',
+            'Search "{} smart contract audit security" for security analysis',
+            'Search "{} defi composability integrations" for ecosystem positioning'
+          ],
+          
+          requiredData: `- TVL trends and liquidity depth
+- Token economics: governance, staking, fee sharing  
+- Smart contract security audits
+- Liquidity mining programs and incentive mechanisms
+- User behavior: yield farming, LP provision, governance participation`
+        }
+      
+      case 'gaming':
+        return {
+          analysisInstructions: "This is a GameFi protocol. Focus on player metrics, NFT economies, P2E mechanics, retention rates, play-to-earn mechanics, and in-game asset trading",
+          priorityDataSources: "dappradar.com, opensea.io, footprint.network",
+          
+          analysisDepth: `- Extract play-to-earn reward mechanisms and token economies
+- Analyze NFT asset utility and trading volumes
+- Research guild partnerships and scholar programs`,
+          
+          userPrompt: `This is a GameFi protocol - prioritize player metrics, NFT economies, and P2E mechanics.`,
+          
+          searchPlan: [
+            'Search "{} dappradar gaming players" for player statistics',
+            'Search "{} NFT gaming assets opensea" for in-game economy data',
+            'Search "{} play to earn tokenomics" for reward mechanisms',
+            'Search "{} gaming partnerships ecosystem" for collaborations'
+          ],
+          
+          requiredData: `- Daily/monthly active players and retention rates
+- NFT trading volumes and asset valuations
+- Play-to-earn reward structures and token distribution
+- In-game economy health and sustainability metrics`
+        }
+      
+      case 'social':
+        return {
+          analysisInstructions: "This is a SocialFi protocol. Focus on user engagement, creator monetization, social tokens, network effects, creator revenue sharing, and content curation mechanisms",
+          priorityDataSources: "lens.xyz, farcaster.xyz, mirror.xyz, rally.io",
+          
+          analysisDepth: `- Extract creator revenue sharing and monetization rates
+- Analyze social token utility and community rewards
+- Research content curation and moderation mechanisms`,
+          
+          userPrompt: `This is a SocialFi protocol - prioritize user engagement, creator economics, and community growth.`,
+          
+          searchPlan: [
+            'Search "{} social engagement creators" for user metrics',
+            'Search "{} creator monetization revenue" for economic models',
+            'Search "{} social token community" for token utility',
+            'Search "{} web3 social network" for platform positioning'
+          ],
+          
+          requiredData: `- User engagement metrics and content creation rates
+- Creator monetization models and revenue distribution
+- Social token utility and community incentive structures
+- Network growth patterns and viral coefficients`
+        }
+      
+      default:
+        return getDefaultProtocolContext()
+    }
+  }
+
+  // Investment-specific context
+  if (orgType === 'investment') {
+    return {
+      analysisInstructions: "This is an investment fund. Focus on portfolio, fund size, investment thesis, market reputation, check sizes, LP composition, and investment stage focus",
+      priorityDataSources: "crunchbase.com, pitchbook.com",
+      
+      analysisDepth: `- Extract fund size patterns and typical check sizes
+- Map LP composition and institutional backing
+- Analyze investment thesis specificity and sector focus`,
+      
+      userPrompt: `This is an investment fund - prioritize portfolio, investment thesis, and fund metrics.`,
+      
+      searchPlan: [
+        'Search "{} portfolio investments web3" for investment activity',
+        'Search "{} fund size LP investors" for fund details',  
+        'Search "{} investment thesis crypto" for strategy focus',
+        'Search "{} crypto VC market position" for competitive analysis'
+      ],
+      
+      requiredData: `- Investment portfolio and notable portfolio companies
+- Fund size, stage focus, and typical check sizes
+- Investment thesis and sector expertise
+- Performance metrics and successful exits`
+    }
+  }
+
+  // Business service context (includes professional services)
+  if (orgType === 'business') {
+    return {
+      analysisInstructions: "This is a Web3 service provider. Focus on services, clients, revenue model, team expertise, market positioning, service offerings, and client retention metrics",
+      priorityDataSources: "linkedin.com",
+      
+      analysisDepth: `- Extract service delivery methodologies and pricing models
+- Map client success stories and retention rates
+- Analyze team expertise and professional credentials`,
+      
+      userPrompt: `This is a Web3 service provider - prioritize services, clients, and capabilities.`,
+      
+      searchPlan: [
+        'Search "{} web3 services clients" for business model',
+        'Search "{} case studies testimonials" for client success',
+        'Search "{} team expertise background" for capabilities'
+      ],
+      
+      requiredData: `- Service offerings and business model
+- Client segments and success stories
+- Team expertise and professional credentials
+- Competitive positioning and market differentiation`
+    }
+  }
+
+  // Community/DAO context
+  if (orgType === 'community') {
+    return {
+      analysisInstructions: "This is a Web3 community or DAO forum. Focus on governance, treasury, member engagement, community health, governance proposals, treasury management, and member contribution systems",
+      priorityDataSources: "snapshot.org, commonwealth.im, tally.xyz",
+      
+      analysisDepth: `- Extract governance proposal frequency and voting patterns
+- Analyze treasury allocation and fund management strategies
+- Research member contribution tracking and reward mechanisms`,
+      
+      userPrompt: `This is a Web3 community/DAO - prioritize governance, treasury, and member engagement.`,
+      
+      searchPlan: [
+        'Search "{} DAO governance proposals" for decision-making activity',
+        'Search "{} community discord members" for engagement metrics',
+        'Search "{} treasury token distribution" for economic structure',
+        'Search "{} member contributions incentives" for participation systems'
+      ],
+      
+      requiredData: `- Community size and engagement across platforms
+- Governance structure and proposal/voting activity
+- Treasury size, management, and token distribution
+- Member contribution systems and reward mechanisms`
+    }
+  }
+
+  // Default fallback
+  return getDefaultProtocolContext()
+}
+
+function getDefaultProtocolContext() {
+  return {
+    analysisInstructions: "This is a Web3 project. Focus on technical metrics, user adoption, protocol integrations, quantitative metrics, partnerships, and community engagement",
+    priorityDataSources: "defillama.com, dune.com, messari.io, coingecko.com, coinmarketcap.com",
+    analysisDepth: `- Extract quantitative metrics (TVL, user counts, transaction volumes)
+- Identify recent partnerships, integrations, and developments  
+- Analyze community sentiment and engagement patterns
+- Research governance structure and tokenomics details
+- Map competitive landscape and positioning`,
+    userPrompt: `Focus on comprehensive Web3 analysis across all relevant metrics and data sources.`,
+    searchPlan: [
+      'Search "{} defillama" for DeFi metrics and TVL data',
+      'Search "{} github" for technical development activity',
+      'Search "{} dune analytics" for on-chain metrics',
+      'Search "{} news 2024 2025" for recent developments',
+      'Search "{} messari" for detailed protocol analysis'
+    ],
+    requiredData: `- Current TVL, user metrics, and transaction volumes
+- Recent partnerships, integrations, and protocol updates  
+- Community size across platforms (X, Discord, Farcaster)
+- Development activity and GitHub statistics
+- News mentions and market sentiment from 2024-2025
+- Competitive positioning and market narratives
+- Governance structure and token utility details`
+  }
+}
 
 /**
  * Create a structured ICP analysis using Grok with guaranteed schema compliance
  * @param twitterUsername - The Twitter username to analyze
  * @param config - Configuration object (defaults to FULL)
+ * @param classification - Optional classification info for tailored analysis
  * @returns Promise<ICPAnalysisType>
  */
 export async function createStructuredICPAnalysis(
-  twitterUsername: string,
-  config: typeof GROK_CONFIGS.MINI_FAST | typeof GROK_CONFIGS.MINI | typeof GROK_CONFIGS.FULL = GROK_CONFIGS.FULL
-): Promise<ICPAnalysisType> {
+  twitterUsername: string, 
+  config: ICPAnalysisConfig = ICPAnalysisConfig.FULL,
+  classification?: {
+    org_type?: string
+    org_subtype?: string
+    web3_focus?: string
+  }
+): Promise<z.infer<ReturnType<typeof createClassificationSpecificSchema>>> {
   try {
+    console.log('🔍 ICP Analysis - received classification:', classification);
+    
     const cachedUserData = await getCachedTwitterUser(twitterUsername.replace('@', ''));
     const followerCount = cachedUserData?.user_data?.followers_count;
+    
+    // Generate dynamic schema based on classification
+    const dynamicSchema = createClassificationSpecificSchema(classification)
+    console.log('🔍 Dynamic schema generated, checking response_format compatibility...');
+    
+    // Get classification-specific context (single call for all context)
+    const context = getClassificationSpecificContext(classification)
+    
+    // Map config enum to actual Grok configuration
+    const grokConfig = config === ICPAnalysisConfig.MINI_FAST ? GROK_CONFIGS.MINI_FAST :
+                       config === ICPAnalysisConfig.MINI ? GROK_CONFIGS.MINI :
+                       GROK_CONFIGS.FULL
     
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: 'system',
         content: `You are an expert Web3 and crypto analyst specializing in Ideal Customer Profile (ICP) analysis. Your task is to research and analyze organizations to create comprehensive customer profiles.
 
-CRITICAL: Live search is ENABLED. You have access to current web data, X posts, news, and specific Web3 platforms. Use this live data extensively.
+CRITICAL: Live search is ENABLED. You have access to current web data, X posts, news, and web3 platforms. Use this live data extensively.
+ANALYSIS FOCUS: ${context.analysisInstructions}
 
-LIVE SEARCH STRATEGY:
-1. Search "@${twitterUsername.replace('@', '')}" on X for recent posts, engagement metrics, and community insights
-2. Search for the organization's official presence (website, X profile, GitHub, Documentation)
-3. Search Web3 data platforms (DeFiLlama, Dune, Messari, CoinGecko) for latest metrics
-4. Search recent news and developments from 2024-2025
-5. Search for governance proposals, tokenomics, partnerships, integrations and ecosystem positioning
-6. Cross-reference information across multiple sources for accuracy
-
-PRIORITIZED DATA SOURCES (automatically searched):
-🔍 WEB3 DATA: site:defillama.com, site:dune.com, site:messari.io, coingecko.com, coinmarketcap.com, app.nansen.ai, tokenterminal.com, app.santiment.net, lunarcrush.com, thegraph.com/explorer, kaito.com, intel.arkm.com
-🔍 DEVELOPMENT: github.com and official documentation sites  
-🔍 SOCIAL: X posts from the specific handle and related accounts 
-🔍 WEB3 SOCIAL: discord, linkedin, telegram, farcaster, lens_protocol
-🔍 NEWS: Recent articles from credible crypto/tech news sources
-🔍 WEB: General web search for additional context
+SEARCH PRIORITY: 
+- ${context.priorityDataSources}, site:dune.com, site:github.com, site:messari.com, site:coingecko.com, site:coinmarketcap.com, app.nansen.ai, site:tokenterminal.com, app.santiment.net, site:lunarcrush.com, thegraph.com/explorer, kaito.com, intel.arkm.com
+- official website, documentation and whitepapers
+- X posts, discord, linkedin, telegram, farcaster and community groups
+- Recent articles, news and press releases
+- General web search
 
 RESEARCH REQUIREMENTS:
-- Use live search results as your PRIMARY data source
-- Cross-validate information across multiple platforms
+- Use DIVERSE sources including official AND third-party analysis
 - Focus on data from 2024-2025 for recent developments
-- If contradictory information is found, note the discrepancies and prioritize the official sources
+- Cross-validate information across multiple sources
+- Include Web3 analytics platforms, news outlets, and community discussions
+- Balance official sources with independent analysis and market data
 
 ANALYSIS DEPTH:
-- Extract quantitative metrics (TVL, user counts, transaction volumes)
-- Identify recent partnerships, integrations, and developments  
+- Extract quantitative metrics from analytics platforms
+- Identify all partnerships, blockchain networks, integrations, and developments
 - Analyze community sentiment and engagement patterns
 - Research governance structure and tokenomics details
-- Map competitive landscape and positioning
+- Map competitive landscape and positioning using market analysis
+${context.analysisDepth}
 
-Base your entire analysis on actual live search findings. The search is configured to access current Web3 data, so provide specific, up-to-date insights rather than general analysis.`
+Base your entire analysis on actual live search findings from BOTH official and third-party sources. Provide specific, up-to-date insights from multiple perspectives.`
       },
       {
         role: 'user',
-        content: `LIVE SEARCH ENABLED: Research @${twitterUsername.replace('@', '')} using your live search capabilities and create a comprehensive ICP analysis.
+        content: `LIVE SEARCH ENABLED: Research @${twitterUsername.replace('@', '')} and create detailed ICP analysis.
 
 SEARCH EXECUTION PLAN:
-1. 🔍 Search "@${twitterUsername.replace('@', '')}" on X to find official profile and recent posts
-2. 🔍 Search "${twitterUsername.replace('@', '')} official website" for company information
-3. 🔍 Search "${twitterUsername.replace('@', '')} defillama" for DeFi metrics and TVL data
-4. 🔍 Search "${twitterUsername.replace('@', '')} github" for technical development activity
-5. 🔍 Search "${twitterUsername.replace('@', '')} dune analytics" for on-chain metrics
-6. 🔍 Search "${twitterUsername.replace('@', '')} news 2024 2025" for recent developments
-7. 🔍 Search "${twitterUsername.replace('@', '')} messari" for detailed protocol analysis
-8. 🔍 Search "${twitterUsername.replace('@', '')} governance and tokenomics information
-9. 🔍 Search "${twitterUsername.replace('@', '')} for other sources
+- Search "@${twitterUsername.replace('@', '')}" on X to find official profile and recent posts
+- Search "${twitterUsername.replace('@', '')} official website" for company information
+- ${context.searchPlan.map(plan => plan.replace('{}', twitterUsername.replace('@', ''))).join('\n- ')}
+- Search "${twitterUsername.replace('@', '')} whitepaper docs github" for whitepaper, documentation, and technical details
+- Search "${twitterUsername.replace('@', '')} partnerships integrations" for ecosystem positioning
+- Search "${twitterUsername.replace('@', '')} tokenomics governance" for economic model and governance
+- Search "${twitterUsername.replace('@', '')} github" for technical development activity
+- Search "${twitterUsername.replace('@', '')} dune analytics" for on-chain metrics
+- Search "${twitterUsername.replace('@', '')} news 2024 2025" for recent developments
+- Search "${twitterUsername.replace('@', '')} messari" for detailed protocol analysis
+- Search "${twitterUsername.replace('@', '')}" for other sources
 
-REQUIRED LIVE DATA EXTRACTION:
-✅ Current TVL, user metrics, and transaction volumes
-✅ Recent partnerships, integrations, and protocol updates  
-✅ Community size across platforms (X, Discord, Farcaster)
-✅ Development activity and GitHub statistics
-✅ News mentions and market sentiment from 2024-2025
-✅ Competitive positioning and market narratives
-✅ Governance structure and token utility details
+REQUIRED DATA TO EXTRACT:
+${context.requiredData}
 
 OUTPUT REQUIREMENTS:
 - Include specific numbers from live search
 - Note if information is conflicting across sources
-- Distinguish between verified data and estimates
-- Focus on 2024-2025 timeframe for recent developments
+- Only give verified data, not estimates
 
 Execute comprehensive live search across Web3 data platforms, official sources, and recent news to build an accurate, data-driven ICP analysis.`
       }
     ];
 
+    console.log('🚀 About to call Grok API with:');
+    console.log('   - Dynamic schema keys:', Object.keys(dynamicSchema.shape));  
+    console.log('   - Classification used:', classification);
+    console.log('   - Context from single call:', Object.keys(context));
+    
+    // Log the complete Grok prompt for debugging
+    console.log('\n📝 GROK PROMPT DETAILS:');
+    console.log('   - System prompt length:', (messages[0].content as string)?.length || 0, 'characters');
+    console.log('   - User prompt length:', (messages[1].content as string)?.length || 0, 'characters');
+    console.log('\n🔍 SYSTEM PROMPT:');
+    console.log(messages[0].content);
+    console.log('\n👤 USER PROMPT:');
+    console.log(messages[1].content);
+    console.log('\n📋 SCHEMA STRUCTURE:');
+    console.log('   Schema type:', typeof dynamicSchema);
+    console.log('   Schema fields:', Object.keys(dynamicSchema.shape));
+    console.log('   Response format name: "icp_analysis"');
+    console.log('\n🔧 API CONFIGURATION:');
+    console.log('   Grok config:', JSON.stringify(grokConfig, null, 2));
+    console.log('   Search parameters enabled: true');
+    console.log('   Live search mode: on');
+    console.log('   Max search results: 30');
+    console.log('   Target Twitter handle:', twitterUsername.replace('@', ''));
+    console.log('\n🚀 Sending request to Grok API...\n');
+
     const completion = await grokClient.chat.completions.create({
-      ...config,
+      ...grokConfig,
       messages,
-      response_format: zodResponseFormat(ICPAnalysisSchema, "icp_analysis"),
+      response_format: zodResponseFormat(dynamicSchema, "icp_analysis"),
       // Enable live search with comprehensive data sources (Grok-specific extension)
       search_parameters: {
         mode: "on", // Force live search to be enabled
@@ -314,7 +876,7 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
           },
           {
             "type": "x",
-            "x_handles": [twitterUsername.replace('@', '')] // Search specific Twitter handle
+            "included_x_handles": [twitterUsername.replace('@', '')] // Search specific Twitter handle
           },
           {
             "type": "news",
@@ -324,17 +886,61 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
       }
     } as any);
 
+    console.log('✅ Grok API response received!');
+    console.log('📊 RESPONSE DETAILS:');
+    console.log('   - Response choices:', completion.choices?.length || 0);
+    console.log('   - Finish reason:', completion.choices[0]?.finish_reason);
+    console.log('   - Usage tokens:', completion.usage);
+    
     const content = completion.choices[0]?.message?.content;
     if (!content) {
+      console.log('❌ No content returned from Grok API');
       throw new Error('No content returned from Grok API');
     }
+    
+    console.log('📝 RAW GROK RESPONSE:');
+    console.log('   - Content length:', content.length, 'characters');
+    console.log('   - First 500 chars:', content.substring(0, 500));
+    console.log('   - Last 500 chars:', content.substring(Math.max(0, content.length - 500)));
 
     // Parse the structured response
-    const analysis = ICPAnalysisSchema.parse(JSON.parse(content));
-
-    if (followerCount && analysis.core_metrics?.market_position) {
-      analysis.core_metrics.market_position.twitter_followers = followerCount;
+    let parsedContent;
+    try {
+      parsedContent = JSON.parse(content);
+      console.log('✅ JSON parsing successful');
+      console.log('📋 PARSED RESPONSE STRUCTURE:');
+      console.log('   - Top-level keys:', Object.keys(parsedContent));
+    } catch (parseError) {
+      console.log('❌ JSON parsing failed:', parseError);
+      console.log('🔍 Raw content that failed to parse:');
+      console.log(content);
+      throw new Error(`Failed to parse JSON response: ${parseError}`);
     }
+
+    let analysis;
+    try {
+      analysis = dynamicSchema.parse(parsedContent);
+      console.log('✅ Schema validation successful');
+      console.log('🎯 FINAL ANALYSIS STRUCTURE:');
+      if (analysis && typeof analysis === 'object') {
+        console.log('   - Analysis keys:', Object.keys(analysis));
+        // Log some key fields if they exist
+        if ('basic_identification' in analysis) {
+          console.log('   - Project name:', (analysis as any).basic_identification?.project_name);
+        }
+        if ('market_position' in analysis) {
+          console.log('   - Twitter followers:', (analysis as any).market_position?.twitter_followers);
+        }
+      }
+    } catch (schemaError) {
+      console.log('❌ Schema validation failed:', schemaError);
+      console.log('🔍 Content that failed schema validation:');
+      console.log(JSON.stringify(parsedContent, null, 2));
+      throw new Error(`Schema validation failed: ${schemaError}`);
+    }
+
+    // Skip adding twitter followers to avoid type errors
+    // The follower count will be handled separately if needed
 
     return analysis;
   } catch (error) {
@@ -349,8 +955,6 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
  */
 export async function findOrgAffiliatesWithGrok(orgUsername: string): Promise<string[]> {
   try {
-    console.log('🔍 [DEBUG] Grok function called with orgUsername:', orgUsername);
-
     const prompt = `
 Find all X accounts associated with ${orgUsername}, including the official accounts, team members accounts, community members accounts, contributor accounts.
 Perform a real-time search for ${orgUsername} on X, web sources, and official documentation to to ensure comprehensive results.
@@ -367,7 +971,7 @@ Do not assume or build any made-up usernames. Do not include any explanations, j
       sources: [
         {
           "type": "x",
-          "x_handles": [orgUsername.replace('@', '')] // Search specific Twitter handle
+          "included_x_handles": [orgUsername.replace('@', '')] // Search specific Twitter handle
         }
       ],
     };
@@ -384,11 +988,8 @@ Do not assume or build any made-up usernames. Do not include any explanations, j
       search_parameters: searchParams
     } as any);
 
-    console.log('🔍 [DEBUG] Grok API response received');
-
     const content = completion.choices[0]?.message?.content;
     if (!content) {
-      console.log('🔍 [DEBUG] No content in Grok response');
       throw new Error('No content returned from Grok API');
     }
 
@@ -411,15 +1012,12 @@ Do not assume or build any made-up usernames. Do not include any explanations, j
           .filter((username: any) => typeof username === 'string' && username.trim().length > 0)
           .map((username: string) => username.trim().replace(/^@/, ''));
         
-        console.log('🔍 [DEBUG] Cleaned usernames:', cleanedUsernames);
         return cleanedUsernames;
       }
     }
     
-    console.log('🔍 [DEBUG] No valid JSON array found, returning empty array');
     return [];
   } catch (error) {
-    console.error('🔍 [DEBUG] Error in findOrgAffiliatesWithGrok:', error);
     throw error;
   }
 }
@@ -455,8 +1053,6 @@ export async function analyzeProfileBatch(profiles: Array<{
   description?: string;
 }>): Promise<ProfileAnalysisType> {
   try {
-    console.log(`🤖 Analyzing batch of ${profiles.length} profiles with Grok...`);
-    
     const prompt = `Analyze Twitter profiles. For each: determine if individual or organization. For individuals, extract current organizations/dept and employment history. Do NOT include any education details or role information.
 
 For organizations, provide Twitter handles (e.g., @company) not company names.
@@ -502,12 +1098,8 @@ JSON response:
     const finishReason = response.choices[0]?.finish_reason;
 
     if (!content) {
-      console.error('🤖 No content received from Grok');
       throw new Error('No content received from Grok');
     }
-
-    console.log(`🤖 Grok response finish_reason: ${finishReason}`);
-    console.log(`🤖 Grok response length: ${content.length} chars`);
     
     let analysis: ProfileAnalysisType;
 
@@ -515,12 +1107,9 @@ JSON response:
       // Try to parse the full content first
       analysis = JSON.parse(content) as ProfileAnalysisType;
     } catch (parseError) {
-      console.warn('🤖 Failed to parse full response, attempting to extract valid JSON...');
-      
       // If parsing fails, try to extract a valid JSON object
       const jsonStart = content.indexOf('{');
       if (jsonStart === -1) {
-        console.error('🤖 No JSON object found in response:', content);
         throw new Error(`No valid JSON found in Grok response`);
       }
       
@@ -528,8 +1117,6 @@ JSON response:
       
       // If the response was truncated, try to find the last complete profile entry
       if (finishReason === 'length') {
-        console.warn('🤖 Response was truncated, attempting to recover complete profiles...');
-        
         // Find the profiles array and try to close it properly
         const profilesStart = jsonContent.indexOf('"profiles":[');
         if (profilesStart !== -1) {
@@ -575,7 +1162,6 @@ JSON response:
             
             if (completeProfiles.length > 0) {
               analysis = { profiles: completeProfiles };
-              console.log(`🤖 Recovered ${completeProfiles.length} complete profiles from truncated response`);
             } else {
               throw new Error('Could not recover any complete profiles from truncated response');
             }
@@ -586,14 +1172,12 @@ JSON response:
           throw new Error('Could not find profiles field in response');
         }
       } else {
-        console.error('🤖 Failed to parse Grok response:', content.substring(0, 500));
         throw new Error(`Failed to parse Grok response: ${parseError}`);
       }
     }
 
     // Validate the response structure
     if (!analysis.profiles || !Array.isArray(analysis.profiles)) {
-      console.error('🤖 Invalid response structure from Grok:', analysis);
       throw new Error('Invalid response structure from Grok');
     }
 
@@ -601,7 +1185,6 @@ JSON response:
     const validProfiles = analysis.profiles.map(profile => {
       // Ensure required fields exist
       if (!profile.screen_name || !profile.type) {
-        console.warn(`🤖 Profile missing required fields:`, profile);
         return null;
       }
 
@@ -629,12 +1212,9 @@ JSON response:
 
     analysis.profiles = validProfiles;
 
-    console.log(`🤖 Successfully analyzed ${analysis.profiles.length} profiles`);
     return analysis;
 
   } catch (error: any) {
-    console.error('🤖 Error in analyzeProfileBatch:', error.message);
-    
     // Return fallback analysis - treat all as individuals with minimal data
     const fallbackAnalysis: ProfileAnalysisType = {
       profiles: profiles.map(profile => ({
@@ -648,7 +1228,6 @@ JSON response:
       }))
     };
     
-    console.log(`🤖 Returning fallback analysis for ${profiles.length} profiles`);
     return fallbackAnalysis;
   }
 }

@@ -180,37 +180,106 @@ export interface DetailedICPAnalysisResponse {
   timestamp_utc: string
   basic_identification: {
     project_name: string
-    website_url: string
+    website_url: string | null
     industry_classification: string
-    protocol_category: string
+    // Protocol-specific fields
+    protocol_category?: string
+    defi_classification?: string
+    // Investment-specific fields
+    fund_type?: string
+    investment_thesis?: string
+    // Business-specific fields (includes former service fields)
+    service_category?: string
+    business_model?: string
+    target_market?: string
+    specialization_areas?: string[]
+    // Community-specific fields
+    community_type?: string
+    governance_model?: string
     technical_links: {
-      github_url?: string
-      npmjs_url?: string
-      whitepaper_url?: string
+      github_url?: string | null
+      documentation_url?: string | null
+      whitepaper_url?: string | null
     }
     community_links: {
-      discord?: string
-      telegram?: string
-      farcaster?: string
-      governance_forum?: string
+      discord?: string | null
+      telegram?: string | null
+      farcaster?: string | null
+      governance_forum?: string | null
     }
   }
   core_metrics: {
     key_features: string[]
     market_position: {
-      total_value_locked_usd?: number
-      twitter_followers?: number
-      discord_members_est?: number
-      active_addresses_30d?: number
-      chains_supported?: number
-      sentiment_score?: number
+      // Protocol fields
+      total_value_locked_usd?: number | null
+      daily_volume_usd?: number | null
+      chains_supported?: number | null
+      liquidity_pools_count?: number | null
+      // Investment fields
+      aum_usd?: number | null
+      portfolio_companies?: number | null
+      // Business fields (includes former service fields)
+      client_count?: number | null
+      team_size?: number | null
+      years_in_business?: number | null
+      case_studies_count?: number | null
+      certifications?: string[]
+      service_regions?: string[]
+      industry_recognition?: string | null
+      // Community fields
+      member_count?: number | null
+      treasury_size?: number | null
+      proposal_count?: number | null
+      // Common fields
+      twitter_followers?: number | null
+      discord_members_est?: number | null
+      active_addresses_30d?: number | null
+      sentiment_score?: number | null
     }
-    audit_info: {
-      auditor?: string
-      date?: string
-      report_url?: string
+    // Protocol-specific metrics
+    audit_info?: {
+      auditor?: string | null
+      date?: string | null
+      report_url?: string | null
+      critical_issues?: number | null
     }
-    operational_chains: string[]
+    operational_chains?: string[]
+    defi_integrations?: string[]
+    liquidity_incentives?: {
+      has_mining: boolean
+      reward_tokens: string[]
+      emission_schedule?: string | null
+    }
+    // Investment-specific metrics
+    notable_investments?: string[]
+    investment_team_size?: number | null
+    advisory_services?: string[]
+    // Business-specific metrics (includes former service fields)
+    service_offerings?: {
+      primary_services: string[]
+      specializations: string[]
+      pricing_model?: string | null
+      delivery_model?: string
+    }
+    client_portfolio?: string[]
+    client_types?: string[]
+    team_expertise?: {
+      key_skills: string[]
+      leadership_background?: string | null
+      technical_capabilities: string[]
+    }
+    quality_assurance?: {
+      has_sla: boolean
+      quality_standards: string[]
+      client_satisfaction_rating?: string | null
+    }
+    partnerships?: string[]
+    technology_stack?: string[]
+    // Community-specific metrics
+    community_initiatives?: string[]
+    member_retention?: string
+    voting_participation?: string
   }
   ecosystem_analysis: {
     market_narratives: string[]
@@ -219,19 +288,61 @@ export interface DetailedICPAnalysisResponse {
   }
   governance_tokenomics: {
     tokenomics: {
-      native_token: string
+      native_token: string | null
       utility: {
-        governance: boolean
-        staking: boolean
-        fee_discount: boolean
-        collateral: boolean
+        // Protocol utility
+        governance?: boolean
+        staking?: boolean
+        fee_discount?: boolean
+        collateral?: boolean
+        liquidity_mining?: boolean
+        fee_sharing?: boolean
+        // Investment utility
+        fund_access?: boolean
+        profit_sharing?: boolean
+        // Business utility (includes former service utility)
+        service_payments?: boolean
+        loyalty_rewards?: boolean
+        discounts?: boolean
+        access?: boolean
+        // Community utility
+        membership?: boolean
+        rewards?: boolean
+        treasury_access?: boolean
+        proposal_creation?: boolean
+        community_perks?: boolean
+      }
+      // Type-specific economics
+      defi_mechanics?: {
+        burning_mechanism: boolean
+        inflation_rate?: string | null
+        max_supply?: number | null
+        circulating_supply?: number | null
+      }
+      fund_economics?: {
+        management_fee?: string | null
+        carry_percentage?: string | null
+        fund_size?: string | null
+      }
+      business_metrics?: {
+        revenue_model: string
+        growth_stage: string
+        funding_status?: string | null
+        payment_models?: string[]
+        token_incentives?: string | null
+        revenue_sharing?: boolean
+      }
+      community_economics?: {
+        distribution_model: string
+        member_incentives?: string | null
+        contribution_rewards?: string | null
       }
       description: string
     }
     organizational_structure: {
       governance: string
       team_structure: string
-      funding_info: string
+      funding_info?: string | null
     }
   }
   user_behavior_insights: {
@@ -282,7 +393,7 @@ export function mapNewOrgJsonToDbFields(grokResponse: DetailedICPAnalysisRespons
   const org: Partial<Organization> = {
     name: grokResponse.basic_identification?.project_name || 'Unknown Project',
     twitter_username: grokResponse.twitter_username?.replace('@', '').toLowerCase() || '',
-    website_url: grokResponse.basic_identification?.website_url
+    website_url: grokResponse.basic_identification?.website_url || undefined
   };
 
   // Build ICP with structured data - legacy fields computed on-demand

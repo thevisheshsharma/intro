@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
-import { createStructuredICPAnalysis, GROK_CONFIGS } from '@/lib/grok'
+import { createStructuredICPAnalysis, ICPAnalysisConfig } from '@/lib/grok'
 import { logAPIError, logExternalServiceError } from '@/lib/error-utils'
 import { 
   saveOrganization, 
@@ -12,6 +12,12 @@ import {
   DatabaseUtils,
   type DetailedICPAnalysisResponse 
 } from '@/lib/organization'
+import { 
+  classifyOrganization, 
+  fetchTwitterProfile,
+  saveClassificationToNeo4j,
+  type ClassificationResult 
+} from '@/lib/organization-classifier'
 
 // Helper function to extract social insights
 function extractSocialInsights(icpAnalysis: any) {
@@ -86,8 +92,72 @@ export async function POST(request: NextRequest) {
     const sanitizedUsername = twitterUsername.replace('@', '').toLowerCase()
     console.log('🤖 Sanitized username:', sanitizedUsername)
 
-    // Check if organization already exists with ICP
-    console.log('🔍 Checking for existing organization and ICP...')
+    // Step 1: Classification Pipeline
+    console.log('🔍 Step 1: Starting organization classification pipeline...')
+    let classification: ClassificationResult | undefined; // Declare classification variable
+    
+    try {
+      // Fetch Twitter profile data
+      console.log('  → Fetching Twitter profile...')
+      const profileData = await fetchTwitterProfile(sanitizedUsername)
+      console.log('  → ✅ Twitter profile fetched')
+      
+      // Run classification
+      console.log('  → Running classification analysis...')
+      classification = await classifyOrganization(sanitizedUsername, profileData)
+      console.log('  → ✅ Classification complete:', classification)
+      
+      // Handle different classification results
+      if (classification.vibe === 'spam') {
+        console.log('  → ❌ Account classified as spam')
+        return NextResponse.json({
+          error: 'This account appears to be a spam account (low followers/following count)',
+          classification
+        }, { status: 400 })
+      }
+      
+      if (classification.vibe === 'individual') {
+        console.log('  → ❌ Account classified as individual')
+        return NextResponse.json({
+          error: 'This appears to be an individual account. ICP analysis is designed for organizations.',
+          classification,
+          suggestion: 'Try using our individual profile analysis tools instead.'
+        }, { status: 400 })
+      }
+      
+      if (classification.web3_focus === 'traditional') {
+        console.log('  → ❌ Organization is not Web3 focused')
+        return NextResponse.json({
+          error: 'This organization does not appear to be Web3/crypto focused.',
+          classification,
+          suggestion: 'ICP analysis is currently designed for Web3 organizations.'
+        }, { status: 400 })
+      }
+      
+      // Proceed with Web3 organization analysis
+      console.log('  → ✅ Valid Web3 organization detected, proceeding with ICP analysis')
+      console.log(`  → Organization type: ${classification.org_type || 'general'}`)
+      console.log(`  → Organization subtype: ${classification.org_subtype || 'general'}`)
+      
+      // Save classification to Neo4j
+      console.log('  → Saving classification to Neo4j...')
+      try {
+        await saveClassificationToNeo4j(sanitizedUsername, profileData, classification)
+        console.log('  → ✅ Classification saved to Neo4j')
+      } catch (neo4jError: any) {
+        console.warn('  → ⚠️ Failed to save classification to Neo4j:', neo4jError.message)
+        // Continue with analysis even if Neo4j save fails
+      }
+      
+    } catch (classificationError: any) {
+      console.error('❌ Classification error:', classificationError)
+      // For now, continue with analysis if classification fails
+      console.log('⚠️ Classification failed, continuing with traditional analysis...')
+      classification = undefined; // Ensure undefined for fallback schema
+    }
+
+    // Step 2: Check if organization already exists with ICP
+    console.log('🔍 Step 2: Checking for existing organization and ICP...')
     let organization = await getOrganizationByTwitter(sanitizedUsername)
     
     if (organization?.id) {
@@ -139,9 +209,20 @@ export async function POST(request: NextRequest) {
 
     // Create comprehensive ICP analysis
     console.log('🤖 Starting Grok ICP analysis...')
+    console.log('  → Using classification:', classification ? {
+      org_type: classification.org_type,
+      org_subtype: classification.org_subtype,
+      web3_focus: classification.web3_focus
+    } : 'No classification (fallback to general schema)')
+    
     const icpAnalysis = await createStructuredICPAnalysis(
       sanitizedUsername,
-      GROK_CONFIGS.FULL
+      ICPAnalysisConfig.FULL,
+      classification ? {
+        org_type: classification.org_type,
+        org_subtype: classification.org_subtype,
+        web3_focus: classification.web3_focus
+      } : undefined
     )
     console.log('✅ Grok analysis completed')
 

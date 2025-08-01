@@ -2,6 +2,8 @@
 
 import React, { useState, useMemo } from 'react'
 import { logParsingError } from '@/lib/error-utils'
+import { ICPAnalysisSchema } from '@/lib/grok'
+import { z } from 'zod'
 import { 
   Building2, 
   Users, 
@@ -20,24 +22,138 @@ import {
   DollarSign,
   Activity,
   Network,
-  Award
+  Award,
+  Coins,
+  TrendingDown,
+  User,
+  CheckCircle,
+  ExternalLink,
+  Calendar,
+  Briefcase,
+  GitBranch,
+  Star,
+  Clock,
+  FileText,
+  Settings,
+  Vote,
+  Brain,
+  Heart,
+  Eye,
+  Lightbulb,
+  Flag,
+  GamepadIcon,
+  PieChart,
+  LineChart,
+  BarChart,
+  Timer,
+  Layers,
+  Workflow,
+  Gauge,
+  UserCheck,
+  Lock,
+  Unlock,
+  Package,
+  Truck,
+  Handshake,
+  Medal,
+  Info
 } from 'lucide-react'
-import type { OrganizationICP, DetailedICPAnalysisResponse } from '@/lib/organization'
+
+// Use the inferred type from the actual Zod schema but make it more flexible for dynamic content
+type ComprehensiveICPAnalysis = z.infer<typeof ICPAnalysisSchema> & {
+  // Extend with all possible category-specific fields as optional
+  basic_identification: z.infer<typeof ICPAnalysisSchema>['basic_identification'] & {
+    // Protocol fields
+    protocol_category?: string
+    chains_supported?: number | null
+    supported_chains?: string[]
+    protocol_type?: string
+    // Gaming fields
+    game_category?: string
+    platform_type?: string
+    nft_integration?: string
+    // Investment fields
+    fund_type?: 'VC' | 'Accelerator' | 'Family Office' | 'Corporate VC'
+    investment_stage?: 'Agnostic' | 'Pre-seed' | 'Seed' | 'Series A'
+    sector_focus?: string[]
+    // Business fields
+    service_category?: string[]
+    target_clients?: string[]
+    // Community fields
+    community_type?: string[]
+    governance_structure?: string
+    mission_focus?: string
+    membership_model?: string
+    [key: string]: any
+  }
+  market_position: z.infer<typeof ICPAnalysisSchema>['market_position'] & {
+    // DeFi metrics
+    total_value_locked_usd?: number | null
+    trading_volume_24h?: number | null
+    active_users_30d?: number | null
+    liquidity_depth?: 'high' | 'medium' | 'low' | null
+    // Gaming metrics
+    daily_active_players?: number | null
+    game_economy_health?: string
+    // Investment metrics
+    fund_size_usd?: number | null
+    portfolio_size?: number | null
+    investments?: string[]
+    market_reputation?: 'Tier S' | 'Tier A' | 'Tier B' | 'Tier C' | null
+    // Business metrics
+    client_portfolio?: string[]
+    team_size?: number | null
+    market_positioning?: string
+    client_retention?: number | null
+    // Community metrics
+    member_count?: number | null
+    community_health?: number | null
+    influence_reach?: number | null
+    [key: string]: any
+  }
+  core_metrics: z.infer<typeof ICPAnalysisSchema>['core_metrics'] & {
+    // Protocol metrics
+    audit_info?: {
+      auditor: string
+      date: Date
+      report_url: string
+    } | null
+    // Gaming metrics
+    gameplay_features?: string[]
+    play_to_earn_mechanics?: string
+    asset_ownership?: string
+    // Business metrics
+    service_offerings?: string[]
+    delivery_methodology?: string
+    // Community metrics
+    community_initiatives?: string[]
+    member_benefits?: string[]
+    participation_mechanisms?: string[]
+    impact_metrics?: string
+    [key: string]: any
+  }
+}
 
 interface EnhancedICPDisplayProps {
-  icp: OrganizationICP
+  icp: {
+    grok_response?: string
+    confidence_score?: number
+    [key: string]: any
+  }
   onEdit?: () => void
   editable?: boolean
 }
 
-// Helper function to safely parse JSON from grok_response
-function parseGrokResponse(grokResponse?: string): DetailedICPAnalysisResponse | null {
+// Helper function to safely parse the comprehensive ICP analysis JSON
+function parseComprehensiveICPResponse(grokResponse?: string): ComprehensiveICPAnalysis | null {
   if (!grokResponse) return null
   
   try {
-    return JSON.parse(grokResponse)
+    const parsed = JSON.parse(grokResponse)
+    console.log('🔍 Parsed comprehensive ICP analysis:', parsed)
+    return parsed as ComprehensiveICPAnalysis
   } catch (error) {
-    logParsingError(error, 'parsing Grok response', 'JSON')
+    logParsingError(error, 'parsing comprehensive ICP response', 'JSON')
     return null
   }
 }
@@ -49,533 +165,621 @@ const DetailedSection = ({ title, icon: Icon, children, iconColor = "text-blue-4
   children: React.ReactNode
   iconColor?: string
 }) => (
-  <div className="bg-gray-900/50 rounded-lg p-4 space-y-3">
-    <div className="flex items-center gap-2 mb-3">
+  <div className="bg-gray-800/30 border border-gray-700/50 rounded-lg p-6">
+    <h4 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
       <Icon className={`w-5 h-5 ${iconColor}`} />
-      <h4 className="text-lg font-medium text-white">{title}</h4>
-    </div>
+      {title}
+    </h4>
     {children}
   </div>
 )
 
-const InfoCard = ({ label, value, highlight = false }: { 
+// Simple info card component
+const InfoCard = ({ label, value, link = false, highlight = false }: {
   label: string
-  value: string | number | undefined
-  highlight?: boolean 
+  value: string | number | null | undefined
+  link?: boolean
+  highlight?: boolean
 }) => {
-  if (!value) return null
-  
+  if (!value && value !== 0) return null
+
+  const displayValue = typeof value === 'number' ? value.toLocaleString() : String(value)
+
   return (
-    <div className={`bg-gray-800/50 rounded-lg p-3 ${highlight ? 'border border-blue-500/30' : ''}`}>
-      <p className="text-xs text-gray-400 mb-1">{label}</p>
-      <p className="text-white text-sm font-medium">{value}</p>
+    <div className={`p-3 rounded-lg border ${highlight ? 'bg-blue-900/20 border-blue-800/30' : 'bg-gray-800/30 border-gray-700/30'}`}>
+      <p className="text-gray-400 text-sm mb-1">{label}</p>
+      {link && typeof value === 'string' && value.startsWith('http') ? (
+        <a 
+          href={value} 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="text-blue-400 hover:text-blue-300 text-sm break-all flex items-center gap-1"
+        >
+          {displayValue}
+          <ExternalLink className="w-3 h-3" />
+        </a>
+      ) : (
+        <p className={`text-sm font-medium ${highlight ? 'text-blue-300' : 'text-white'}`}>
+          {displayValue}
+        </p>
+      )}
     </div>
   )
 }
 
-const TagList = ({ items, colorClass = "bg-blue-900/50 text-blue-300" }: {
-  items: string[] | undefined
-  colorClass?: string
+// Metric card with icons
+const MetricCard = ({ label, value, suffix = '', icon: Icon, color }: {
+  label: string
+  value: string | number | null | undefined
+  suffix?: string
+  icon: any
+  color: string
 }) => {
-  if (!items || items.length === 0) return null
-  
+  if (!value && value !== 0) return null
+
+  const displayValue = typeof value === 'number' ? value.toLocaleString() : String(value)
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {items.map((item, index) => (
-        <span key={index} className={`px-3 py-1 rounded-full text-sm ${colorClass}`}>
-          {item}
-        </span>
-      ))}
+    <div className="p-4 bg-gray-800/30 border border-gray-700/30 rounded-lg">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-gray-400 text-sm">{label}</p>
+        <Icon className={`w-4 h-4 ${color}`} />
+      </div>
+      <p className="text-white text-lg font-semibold">
+        {displayValue}{suffix}
+      </p>
     </div>
   )
 }
 
-export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({ 
-  icp, 
-  onEdit, 
-  editable = false 
-}: EnhancedICPDisplayProps) {
-  // Parse the detailed Grok response
-  const detailedData = useMemo(() => parseGrokResponse(icp.grok_response), [icp.grok_response])
-  
-  const confidenceColor = 
-    (icp.confidence_score || 0) >= 0.8 ? 'text-green-400' :
-    (icp.confidence_score || 0) >= 0.6 ? 'text-yellow-400' : 'text-red-400'
+// Tag list component
+const TagList = ({ items, colorClass }: {
+  items: string[]
+  colorClass: string
+}) => (
+  <div className="flex flex-wrap gap-2">
+    {items.map((item, index) => (
+      <span 
+        key={index} 
+        className={`px-3 py-1 rounded-full text-sm font-medium ${colorClass}`}
+      >
+        {item}
+      </span>
+    ))}
+  </div>
+)
 
-  const confidenceText = 
-    (icp.confidence_score || 0) >= 0.8 ? 'High' :
-    (icp.confidence_score || 0) >= 0.6 ? 'Medium' : 'Low'
+export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }: EnhancedICPDisplayProps) => {
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set())
+
+  const comprehensiveData = useMemo(() => parseComprehensiveICPResponse(icp.grok_response), [icp.grok_response])
+
+  if (!comprehensiveData) {
+    return (
+      <div className="bg-gray-800/30 border border-gray-700/50 rounded-lg p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <AlertCircle className="w-6 h-6 text-yellow-400" />
+          <h3 className="text-xl font-bold text-white">ICP Analysis Unavailable</h3>
+        </div>
+        <p className="text-gray-400 mt-2">No comprehensive analysis data available.</p>
+      </div>
+    )
+  }
+
+  // Extract classification info for conditional rendering
+  const orgType = comprehensiveData.classification_used?.org_type || 'protocol'
+  const orgSubtype = comprehensiveData.classification_used?.org_subtype || 'general'
 
   return (
     <div className="bg-gray-800/50 border border-gray-600 rounded-xl p-6 space-y-8">
-      {/* Header */}
+      {/* Header Section */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Target className="w-6 h-6 text-blue-400" />
           <h3 className="text-2xl font-bold text-white">
-            Enhanced ICP Analysis
+            Comprehensive ICP Analysis
           </h3>
-          {/* Removed icp.is_custom, which does not exist on OrganizationICP */}
-        </div>
-        
-        <div className="flex items-center gap-3">
-          <div className={`px-3 py-1 rounded-full text-sm font-medium ${confidenceColor} bg-gray-700`}>
-            {confidenceText} Confidence ({Math.round((icp.confidence_score || 0) * 100)}%)
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 bg-gray-700 text-gray-300 rounded-full text-sm font-medium capitalize">
+              {orgType}
+            </span>
+            {orgSubtype !== 'general' && (
+              <span className="px-3 py-1 bg-blue-700 text-blue-300 rounded-full text-sm font-medium capitalize">
+                {orgSubtype}
+              </span>
+            )}
           </div>
-          {editable && (
-            <button
-              onClick={onEdit}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-            >
-              Edit ICP
-            </button>
-          )}
         </div>
+        {editable && onEdit && (
+          <button
+            onClick={onEdit}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            Edit Analysis
+          </button>
+        )}
       </div>
 
-      {/* Basic Information from Detailed Response */}
-      {detailedData?.basic_identification && (
+      {/* Analysis Metadata */}
+      {comprehensiveData.analysis_metadata && (
+        <DetailedSection title="Analysis Quality & Sources" icon={Info} iconColor="text-gray-400">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <MetricCard 
+              label="Confidence Score" 
+              value={Math.round(comprehensiveData.analysis_metadata.confidence_score * 100)}
+              suffix="%" 
+              icon={CheckCircle}
+              color="text-green-400"
+            />
+            <InfoCard 
+              label="Sources Count" 
+              value={comprehensiveData.analysis_metadata.research_sources?.length || 0}
+            />
+          </div>
+        </DetailedSection>
+      )}
+
+      {/* Basic Identification - Universal + Category-Specific */}
+      {comprehensiveData.basic_identification && (
         <DetailedSection title="Organization Overview" icon={Building2} iconColor="text-blue-400">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <InfoCard 
               label="Project Name" 
-              value={detailedData.basic_identification.project_name} 
+              value={comprehensiveData.basic_identification.project_name} 
               highlight={true}
             />
             <InfoCard 
-              label="Industry" 
-              value={detailedData.basic_identification.industry_classification} 
+              label="Industry Classification" 
+              value={comprehensiveData.basic_identification.industry_classification} 
             />
             <InfoCard 
-              label="Protocol Category" 
-              value={detailedData.basic_identification.protocol_category} 
+              label="Website" 
+              value={comprehensiveData.basic_identification.website_url} 
+              link={true}
             />
-            {detailedData.basic_identification.website_url && (
-              <div className="bg-gray-800/50 rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-1">Website</p>
-                <a 
-                  href={detailedData.basic_identification.website_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:text-blue-300 text-sm underline"
-                >
-                  {detailedData.basic_identification.website_url}
-                </a>
-              </div>
-            )}
-          </div>
           
-          {/* Technical & Community Links */}
-          <div className="mt-4 space-y-3">
-            {detailedData.basic_identification.technical_links && (
-              <div>
-                <p className="text-sm font-medium text-gray-300 mb-2">Technical Resources</p>
-                <div className="flex flex-wrap gap-2">
-                  {detailedData.basic_identification.technical_links.github_url && (
-                    <a href={detailedData.basic_identification.technical_links.github_url} 
-                       target="_blank" rel="noopener noreferrer"
-                       className="inline-flex items-center gap-1 bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors">
-                      <Code className="w-4 h-4" />
-                      GitHub
-                    </a>
-                  )}
-                  {detailedData.basic_identification.technical_links.npmjs_url && (
-                    <a href={detailedData.basic_identification.technical_links.npmjs_url}
-                       target="_blank" rel="noopener noreferrer" 
-                       className="inline-flex items-center gap-1 bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition-colors">
-                      <Database className="w-4 h-4" />
-                      NPM
-                    </a>
-                  )}
-                  {detailedData.basic_identification.technical_links.whitepaper_url && (
-                    <a href={detailedData.basic_identification.technical_links.whitepaper_url}
-                       target="_blank" rel="noopener noreferrer"
-                       className="inline-flex items-center gap-1 bg-purple-700 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm transition-colors">
-                      <Shield className="w-4 h-4" />
-                      Whitepaper
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
-            
-            {detailedData.basic_identification.community_links && (
-              <div>
-                <p className="text-sm font-medium text-gray-300 mb-2">Community Channels</p>
-                <div className="flex flex-wrap gap-2">
-                  {detailedData.basic_identification.community_links.discord && (
-                    <a href={detailedData.basic_identification.community_links.discord}
-                       target="_blank" rel="noopener noreferrer"
-                       className="inline-flex items-center gap-1 bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1 rounded text-sm transition-colors">
-                      <MessageSquare className="w-4 h-4" />
-                      Discord
-                    </a>
-                  )}
-                  {detailedData.basic_identification.community_links.telegram && (
-                    <a href={detailedData.basic_identification.community_links.telegram}
-                       target="_blank" rel="noopener noreferrer"
-                       className="inline-flex items-center gap-1 bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm transition-colors">
-                      <MessageSquare className="w-4 h-4" />
-                      Telegram
-                    </a>
-                  )}
-                  {detailedData.basic_identification.community_links.farcaster && (
-                    <a href={detailedData.basic_identification.community_links.farcaster}
-                       target="_blank" rel="noopener noreferrer"
-                       className="inline-flex items-center gap-1 bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors">
-                      <Globe className="w-4 h-4" />
-                      Warpcast
-                    </a>
-                  )}
-                  {detailedData.basic_identification.community_links.governance_forum && (
-                    <a href={detailedData.basic_identification.community_links.governance_forum}
-                       target="_blank" rel="noopener noreferrer"
-                       className="inline-flex items-center gap-1 bg-blue-500 hover:bg-blue-400 text-white px-3 py-1 rounded text-sm transition-colors">
-                      <Link className="w-4 h-4" />
-                      Governance
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
+          {/* TGE Status - Universal Field */}
+          {comprehensiveData.basic_identification.tge_status && (
+            <InfoCard 
+              label="TGE Status" 
+              value={comprehensiveData.basic_identification.tge_status === 'pre-tge' ? 'Pre-TGE' : 'Post-TGE'} 
+              highlight={comprehensiveData.basic_identification.tge_status === 'post-tge'}
+            />
+          )}
+        </div>
+
+        {/* Technical Links */}
+        {comprehensiveData.basic_identification.technical_links && (
+          <div className="mt-6">
+            <h5 className="text-white font-medium mb-3 flex items-center gap-2">
+              <Code className="w-4 h-4 text-green-400" />
+              Technical Resources
+            </h5>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {comprehensiveData.basic_identification.technical_links.github_url && (
+                <InfoCard 
+                  label="GitHub Repository" 
+                  value={comprehensiveData.basic_identification.technical_links.github_url} 
+                  link={true}
+                />
+              )}
+              {comprehensiveData.basic_identification.technical_links.whitepaper_url && (
+                <InfoCard 
+                  label="Documentation" 
+                  value={comprehensiveData.basic_identification.technical_links.whitepaper_url} 
+                  link={true}
+                />
+              )}
+            </div>
           </div>
-        </DetailedSection>
+        )}
+
+        {/* Community Links - Updated for new schema */}
+        {comprehensiveData.basic_identification.community_links && (
+          <div className="mt-6">
+            <h5 className="text-white font-medium mb-3 flex items-center gap-2">
+              <Users className="w-4 h-4 text-blue-400" />
+              Community Platforms
+            </h5>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {comprehensiveData.basic_identification.community_links.discord && (
+                <InfoCard 
+                  label="Discord" 
+                  value={comprehensiveData.basic_identification.community_links.discord} 
+                  link={true}
+                />
+              )}
+              {comprehensiveData.basic_identification.community_links.telegram && (
+                <InfoCard 
+                  label="Telegram" 
+                  value={comprehensiveData.basic_identification.community_links.telegram} 
+                  link={true}
+                />
+              )}
+              {comprehensiveData.basic_identification.community_links.farcaster && (
+                <InfoCard 
+                  label="Farcaster" 
+                  value={comprehensiveData.basic_identification.community_links.farcaster} 
+                  link={true}
+                />
+              )}
+              {comprehensiveData.basic_identification.community_links.governance_forum && (
+                <InfoCard 
+                  label="Governance Forum" 
+                  value={comprehensiveData.basic_identification.community_links.governance_forum} 
+                  link={true}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Category-Specific Fields */}
+        <div className="mt-6 space-y-4">
+          {/* Protocol-Specific Fields */}
+          {orgType === 'protocol' && (
+            <>
+              {comprehensiveData.basic_identification.protocol_category && (
+                <InfoCard 
+                  label="Protocol Category" 
+                  value={comprehensiveData.basic_identification.protocol_category} 
+                />
+              )}
+              {comprehensiveData.basic_identification.supported_chains && comprehensiveData.basic_identification.supported_chains.length > 0 && (
+                <div>
+                  <p className="text-gray-400 text-sm mb-2">Supported Chains ({comprehensiveData.basic_identification.supported_chains.length})</p>
+                  <TagList items={comprehensiveData.basic_identification.supported_chains} colorClass="bg-green-900/50 text-green-300" />
+                </div>
+              )}
+            </>
+          )}
+          
+          {/* Investment-Specific Fields */}
+          {orgType === 'investment' && (
+            <>
+              {comprehensiveData.basic_identification.fund_type && (
+                <InfoCard 
+                  label="Fund Type" 
+                  value={comprehensiveData.basic_identification.fund_type} 
+                />
+              )}
+              {comprehensiveData.basic_identification.sector_focus && comprehensiveData.basic_identification.sector_focus.length > 0 && (
+                <div>
+                  <p className="text-gray-400 text-sm mb-2">Sector Focus</p>
+                  <TagList items={comprehensiveData.basic_identification.sector_focus} colorClass="bg-purple-900/50 text-purple-300" />
+                </div>
+              )}
+            </>
+          )}
+          
+          {/* Business-Specific Fields */}
+          {orgType === 'business' && (
+            <>
+              {comprehensiveData.basic_identification.service_category && comprehensiveData.basic_identification.service_category.length > 0 && (
+                <div>
+                  <p className="text-gray-400 text-sm mb-2">Service Categories</p>
+                  <TagList items={comprehensiveData.basic_identification.service_category} colorClass="bg-orange-900/50 text-orange-300" />
+                </div>
+              )}
+            </>
+          )}
+          
+          {/* Community-Specific Fields */}
+          {orgType === 'community' && (
+            <>
+              {comprehensiveData.basic_identification.community_type && comprehensiveData.basic_identification.community_type.length > 0 && (
+                <div>
+                  <p className="text-gray-400 text-sm mb-2">Community Types</p>
+                  <TagList items={comprehensiveData.basic_identification.community_type} colorClass="bg-purple-900/50 text-purple-300" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </DetailedSection>
       )}
 
-      {/* Core Metrics */}
-      {detailedData?.core_metrics && (
-        <DetailedSection title="Key Metrics & Performance" icon={BarChart3} iconColor="text-green-400">
+      {/* Market Position - Updated for new schema */}
+      {comprehensiveData.market_position && (
+        <DetailedSection title="Market Position & Competitive Landscape" icon={BarChart3} iconColor="text-green-400">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {detailedData.core_metrics.market_position.total_value_locked_usd && (
-              <InfoCard 
-                label="Total Value Locked" 
-                value={`$${detailedData.core_metrics.market_position.total_value_locked_usd.toLocaleString()}`}
-                highlight={true}
-              />
-            )}
-            {detailedData.core_metrics.market_position.twitter_followers && (
-              <InfoCard 
-                label="Twitter Followers" 
-                value={detailedData.core_metrics.market_position.twitter_followers.toLocaleString()}
-              />
-            )}
-            {detailedData.core_metrics.market_position.discord_members_est && (
-              <InfoCard 
-                label="Discord Members (Est.)" 
-                value={detailedData.core_metrics.market_position.discord_members_est.toLocaleString()}
-              />
-            )}
-            {detailedData.core_metrics.market_position.chains_supported && (
-              <InfoCard 
-                label="Chains Supported" 
-                value={detailedData.core_metrics.market_position.chains_supported}
-              />
-            )}
-            {/* NEW: Active Addresses 30d */}
-            {detailedData.core_metrics.market_position.active_addresses_30d && (
-              <InfoCard 
-                label="Active Addresses (30d)" 
-                value={detailedData.core_metrics.market_position.active_addresses_30d.toLocaleString()} 
-              />
-            )}
-            {/* NEW: Sentiment Score */}
-            {typeof detailedData.core_metrics.market_position.sentiment_score === 'number' && (
-              <InfoCard 
-                label="Sentiment Score" 
-                value={detailedData.core_metrics.market_position.sentiment_score.toFixed(2)} 
-              />
-            )}
-          </div>
-          
-          {/* Key Features */}
-          {detailedData.core_metrics.key_features && (
-            <div className="mt-4">
-              <p className="text-sm font-medium text-gray-300 mb-2">Key Features</p>
-              <TagList items={detailedData.core_metrics.key_features} colorClass="bg-green-900/50 text-green-300" />
-            </div>
-          )}
-          
-          {/* Operational Chains */}
-          {detailedData.core_metrics.operational_chains && (
-            <div className="mt-4">
-              <p className="text-sm font-medium text-gray-300 mb-2">Operational Chains</p>
-              <TagList items={detailedData.core_metrics.operational_chains} colorClass="bg-purple-900/50 text-purple-300" />
-            </div>
-          )}
-
-          {/* NEW: Audit Info */}
-          {detailedData.core_metrics.audit_info && (
-            <div className="mt-4">
-              <p className="text-sm font-medium text-gray-300 mb-2">Audit Information</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {detailedData.core_metrics.audit_info.auditor && (
-                  <InfoCard 
-                    label="Auditor" 
-                    value={detailedData.core_metrics.audit_info.auditor} 
-                  />
-                )}
-                {detailedData.core_metrics.audit_info.date && (
-                  <InfoCard 
-                    label="Audit Date" 
-                    value={detailedData.core_metrics.audit_info.date} 
-                  />
-                )}
-                {detailedData.core_metrics.audit_info.report_url && (
-                  <div className="bg-gray-800/50 rounded-lg p-3">
-                    <p className="text-xs text-gray-400 mb-1">Audit Report</p>
-                    <a 
-                      href={detailedData.core_metrics.audit_info.report_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-400 hover:text-blue-300 text-sm underline"
-                    >
-                      View Report
-                    </a>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </DetailedSection>
-      )}
-
-      {/* ICP Synthesis - The core of the analysis */}
-      {detailedData?.icp_synthesis && (
-        <DetailedSection title="Ideal Customer Profile Synthesis" icon={Target} iconColor="text-blue-400">
-          <div className="space-y-6">
-            {/* Target Segment */}
-            <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
-              <h5 className="text-lg font-medium text-blue-300 mb-2">Target Web3 Segment</h5>
-              <p className="text-white">{detailedData.icp_synthesis.target_web3_segment}</p>
-            </div>
-            
-            {/* User Archetypes */}
-            {detailedData.icp_synthesis.primary_user_archetypes && (
-              <div>
-                <h5 className="text-sm font-medium text-gray-300 mb-2">Primary User Archetypes</h5>
-                <TagList items={detailedData.icp_synthesis.primary_user_archetypes} colorClass="bg-blue-900/50 text-blue-300" />
-              </div>
-            )}
-            
-            {/* Demographics */}
-            {detailedData.icp_synthesis.demographic_profile && (
-              <div>
-                <h5 className="text-lg font-medium text-green-400 mb-3">Demographics</h5>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <InfoCard 
-                    label="Vibe Range" 
-                    value={detailedData.icp_synthesis.demographic_profile.vibe_range}
-                  />
-                  <InfoCard 
-                    label="Experience Level" 
-                    value={detailedData.icp_synthesis.demographic_profile.experience_level}
-                  />
-                  <InfoCard 
-                    label="Geographic Distribution" 
-                    value={detailedData.icp_synthesis.demographic_profile.geographic_distribution}
-                  />
-                </div>
-                {detailedData.icp_synthesis.demographic_profile.roles && (
-                  <div className="mt-3">
-                    <p className="text-sm font-medium text-gray-300 mb-2">Target Roles</p>
-                    <TagList items={detailedData.icp_synthesis.demographic_profile.roles} colorClass="bg-green-900/50 text-green-300" />
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {/* Psychographics */}
-            {detailedData.icp_synthesis.psychographic_drivers && (
-              <div>
-                <h5 className="text-lg font-medium text-red-400 mb-3">Psychographic Drivers</h5>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {detailedData.icp_synthesis.psychographic_drivers.core_values && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-300 mb-2">Core Values</p>
-                      <TagList items={detailedData.icp_synthesis.psychographic_drivers.core_values} colorClass="bg-red-900/50 text-red-300" />
-                    </div>
-                  )}
-                  {detailedData.icp_synthesis.psychographic_drivers.primary_motivations && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-300 mb-2">Primary Motivations</p>
-                      <TagList items={detailedData.icp_synthesis.psychographic_drivers.primary_motivations} colorClass="bg-orange-900/50 text-orange-300" />
-                    </div>
-                  )}
-                  {detailedData.icp_synthesis.psychographic_drivers.key_challenges && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-300 mb-2">Key Challenges</p>
-                      <TagList items={detailedData.icp_synthesis.psychographic_drivers.key_challenges} colorClass="bg-yellow-900/50 text-yellow-300" />
-                    </div>
-                  )}
-                  {detailedData.icp_synthesis.psychographic_drivers.trending_interests && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-300 mb-2">Trending Interests</p>
-                      <TagList items={detailedData.icp_synthesis.psychographic_drivers.trending_interests} colorClass="bg-pink-900/50 text-pink-300" />
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-            
-            {/* Behavioral Indicators */}
-            {detailedData.icp_synthesis.behavioral_indicators && (
-              <div>
-                <h5 className="text-lg font-medium text-purple-400 mb-3">Behavioral Indicators</h5>
-                {detailedData.icp_synthesis.behavioral_indicators.purchase_motives && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-300 mb-2">Purchase Motives</p>
-                    <TagList items={detailedData.icp_synthesis.behavioral_indicators.purchase_motives} colorClass="bg-purple-900/50 text-purple-300" />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </DetailedSection>
-      )}
-
-      {/* User Behavior Insights */}
-      {detailedData?.user_behavior_insights && (
-        <DetailedSection title="User Behavior Insights" icon={Activity} iconColor="text-purple-400">
-          {detailedData.user_behavior_insights.onchain_activity_patterns && (
-            <div className="mb-4">
-              <p className="text-sm font-medium text-gray-300 mb-2">On-Chain Activity Patterns</p>
-              <TagList items={detailedData.user_behavior_insights.onchain_activity_patterns} colorClass="bg-purple-900/50 text-purple-300" />
-            </div>
-          )}
-          
-          {detailedData.user_behavior_insights.engagement_characteristics && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <InfoCard 
-                label="Participation Style" 
-                value={detailedData.user_behavior_insights.engagement_characteristics.participation_style}
-              />
-              <InfoCard 
-                label="Engagement Level" 
-                value={detailedData.user_behavior_insights.engagement_characteristics.engagement_level}
-              />
-              <InfoCard 
-                label="Decision Making Style" 
-                value={detailedData.user_behavior_insights.engagement_characteristics.decision_making_style}
-              />
-            </div>
-          )}
-        </DetailedSection>
-      )}
-
-      {/* Messaging Strategy */}
-      {detailedData?.messaging_strategy && (
-        <DetailedSection title="Messaging Strategy" icon={MessageSquare} iconColor="text-yellow-400">
-          <div className="space-y-4">
+            <MetricCard 
+              label="Sentiment Score" 
+              value={comprehensiveData.market_position.sentiment_score}
+              suffix="/1.0"
+              icon={TrendingUp}
+              color="text-yellow-400"
+            />
             <InfoCard 
-              label="Communication Style" 
-              value={detailedData.messaging_strategy.communication_style}
+              label="Market Presence" 
+              value={comprehensiveData.market_position.market_presence}
               highlight={true}
             />
-            
-            {detailedData.messaging_strategy.key_messaging_angles && (
-              <div>
-                <p className="text-sm font-medium text-gray-300 mb-2">Key Messaging Angles</p>
-                <TagList items={detailedData.messaging_strategy.key_messaging_angles} colorClass="bg-yellow-900/50 text-yellow-300" />
-              </div>
-            )}
-            
-            {detailedData.messaging_strategy.content_keywords && (
-              <div>
-                <p className="text-sm font-medium text-gray-300 mb-2">Content Keywords</p>
-                <TagList items={detailedData.messaging_strategy.content_keywords} colorClass="bg-orange-900/50 text-orange-300" />
-              </div>
-            )}
+            <InfoCard 
+              label="Competitive Position" 
+              value={comprehensiveData.market_position.competitive_position}
+            />
           </div>
-        </DetailedSection>
+
+        {/* Competitors List - New field */}
+        {comprehensiveData.market_position.competitors && comprehensiveData.market_position.competitors.length > 0 && (
+          <div className="mt-6">
+            <p className="text-gray-400 text-sm mb-2">Primary Competitors ({comprehensiveData.market_position.competitors.length})</p>
+            <TagList items={comprehensiveData.market_position.competitors} colorClass="bg-red-900/50 text-red-300" />
+          </div>
+        )}
+
+        {/* Category-Specific Market Metrics */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* DeFi Metrics */}
+          {orgType === 'protocol' && orgSubtype === 'defi' && (
+            <>
+              {comprehensiveData.market_position.total_value_locked_usd && (
+                <MetricCard 
+                  label="Total Value Locked" 
+                  value={`$${(comprehensiveData.market_position.total_value_locked_usd / 1000000).toFixed(1)}M`}
+                  icon={DollarSign}
+                  color="text-green-400"
+                />
+              )}
+              {comprehensiveData.market_position.trading_volume_24h && (
+                <MetricCard 
+                  label="24h Volume" 
+                  value={`$${(comprehensiveData.market_position.trading_volume_24h / 1000000).toFixed(1)}M`}
+                  icon={Activity}
+                  color="text-blue-400"
+                />
+              )}
+            </>
+          )}
+          
+          {/* Investment Metrics */}
+          {orgType === 'investment' && (
+            <>
+              {comprehensiveData.market_position.fund_size_usd && (
+                <MetricCard 
+                  label="Fund Size" 
+                  value={`$${(comprehensiveData.market_position.fund_size_usd / 1000000).toFixed(0)}M`}
+                  icon={Coins}
+                  color="text-blue-400"
+                />
+              )}
+              {comprehensiveData.market_position.portfolio_size && (
+                <MetricCard 
+                  label="Portfolio Size" 
+                  value={comprehensiveData.market_position.portfolio_size}
+                  icon={PieChart}
+                  color="text-purple-400"
+                />
+              )}
+            </>
+          )}
+          
+          {/* Community Metrics */}
+          {orgType === 'community' && (
+            <>
+              {comprehensiveData.market_position.member_count && (
+                <MetricCard 
+                  label="Member Count" 
+                  value={comprehensiveData.market_position.member_count}
+                  icon={Users}
+                  color="text-blue-400"
+                />
+              )}
+            </>
+          )}
+        </div>
+      </DetailedSection>
       )}
 
-      {/* Governance & Tokenomics */}
-      {detailedData?.governance_tokenomics && (
-        <DetailedSection title="Governance & Tokenomics" icon={DollarSign} iconColor="text-green-400">
-          {detailedData.governance_tokenomics.tokenomics && (
-            <div className="space-y-4">
-              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
-                <h5 className="text-lg font-medium text-green-300 mb-2">Token Information</h5>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <InfoCard 
-                    label="Native Token" 
-                    value={detailedData.governance_tokenomics.tokenomics.native_token}
-                    highlight={true}
-                  />
-                </div>
-                <p className="text-white mt-3">{detailedData.governance_tokenomics.tokenomics.description}</p>
+      {/* Core Metrics - Updated for new schema */}
+      {comprehensiveData.core_metrics && (
+        <DetailedSection title="Core Capabilities & Features" icon={Target} iconColor="text-purple-400">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <InfoCard 
+              label="Primary Value Proposition" 
+              value={comprehensiveData.core_metrics.primary_value_proposition}
+              highlight={true}
+            />
+            <InfoCard 
+              label="Target Audience" 
+              value={comprehensiveData.core_metrics.target_audience}
+            />
+            <InfoCard 
+              label="Operational Status" 
+              value={comprehensiveData.core_metrics.operational_status}
+            />
+          </div>
+
+        {/* Geographic Focus - New field */}
+        {comprehensiveData.core_metrics.geographic_focus && comprehensiveData.core_metrics.geographic_focus.length > 0 && (
+          <div className="mt-6">
+            <p className="text-gray-400 text-sm mb-2">Geographic Focus ({comprehensiveData.core_metrics.geographic_focus.length} regions)</p>
+            <TagList items={comprehensiveData.core_metrics.geographic_focus} colorClass="bg-indigo-900/50 text-indigo-300" />
+          </div>
+        )}
+
+        {comprehensiveData.core_metrics.key_features && comprehensiveData.core_metrics.key_features.length > 0 && (
+          <div className="mt-6">
+            <p className="text-gray-400 text-sm mb-2">Key Features & Capabilities</p>
+            <TagList items={comprehensiveData.core_metrics.key_features} colorClass="bg-yellow-900/50 text-yellow-300" />
+          </div>
+        )}
+      </DetailedSection>
+      )}
+
+      {/* ICP Synthesis - Updated for new simplified schema */}
+      {comprehensiveData.icp_synthesis && (
+        <DetailedSection title="Ideal Customer Profile Synthesis" icon={Target} iconColor="text-red-400">
+          <div className="space-y-8">
+            
+            {/* User Archetypes - Simplified Structure */}
+            {comprehensiveData.icp_synthesis.user_archetypes && comprehensiveData.icp_synthesis.user_archetypes.length > 0 && (
+              <div className="space-y-6">
+                <h5 className="text-white font-medium mb-4 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-blue-400" />
+                  User Archetypes ({comprehensiveData.icp_synthesis.user_archetypes.length})
+                </h5>
                 
-                {/* Token Utilities */}
-                {detailedData.governance_tokenomics.tokenomics.utility && (
-                  <div className="mt-4">
-                    <p className="text-sm font-medium text-gray-300 mb-2">Token Utilities</p>
-                    <div className="flex flex-wrap gap-2">
-                      {detailedData.governance_tokenomics.tokenomics.utility.governance && (
-                        <span className="bg-blue-900/50 text-blue-300 px-3 py-1 rounded-full text-sm">Governance</span>
-                      )}
-                      {detailedData.governance_tokenomics.tokenomics.utility.staking && (
-                        <span className="bg-green-900/50 text-green-300 px-3 py-1 rounded-full text-sm">Staking</span>
-                      )}
-                      {detailedData.governance_tokenomics.tokenomics.utility.fee_discount && (
-                        <span className="bg-yellow-900/50 text-yellow-300 px-3 py-1 rounded-full text-sm">Fee Discount</span>
-                      )}
-                      {detailedData.governance_tokenomics.tokenomics.utility.collateral && (
-                        <span className="bg-purple-900/50 text-purple-300 px-3 py-1 rounded-full text-sm">Collateral</span>
-                      )}
+                <div className="grid gap-4">
+                  {comprehensiveData.icp_synthesis.user_archetypes.map((archetype, index) => (
+                    <div key={index} className="bg-gray-800/30 border border-gray-700/50 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h6 className="text-lg font-semibold text-white">{archetype.archetype_name}</h6>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            archetype.size_estimate === 'large' ? 'bg-green-900/50 text-green-300' :
+                            archetype.size_estimate === 'medium' ? 'bg-yellow-900/50 text-yellow-300' :
+                            'bg-gray-900/50 text-gray-300'
+                          }`}>
+                            {archetype.size_estimate} segment
+                          </span>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            archetype.priority_level === 'primary' ? 'bg-blue-900/50 text-blue-300' :
+                            archetype.priority_level === 'secondary' ? 'bg-purple-900/50 text-purple-300' :
+                            'bg-gray-900/50 text-gray-300'
+                          }`}>
+                            {archetype.priority_level}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-gray-300 text-sm">{archetype.description}</p>
                     </div>
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
-              
-              {/* Organizational Structure */}
-              {detailedData.governance_tokenomics.organizational_structure && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <InfoCard 
-                    label="Governance Model" 
-                    value={detailedData.governance_tokenomics.organizational_structure.governance}
-                  />
-                  <InfoCard 
-                    label="Team Structure" 
-                    value={detailedData.governance_tokenomics.organizational_structure.team_structure}
-                  />
-                  <InfoCard 
-                    label="Funding Information" 
-                    value={detailedData.governance_tokenomics.organizational_structure.funding_info}
-                  />
+            )}
+
+            {/* Unified Profiles - Applied across all archetypes */}
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Unified Demographics */}
+              {comprehensiveData.icp_synthesis.unified_demographics && (
+                <div>
+                  <h5 className="text-blue-400 font-medium mb-3 flex items-center gap-2">
+                    <User className="w-4 h-4" />
+                    Unified Demographics (All Archetypes)
+                  </h5>
+                  <div className="space-y-3 bg-gray-800/20 border border-gray-700/30 rounded-lg p-4">
+                    <InfoCard 
+                      label="Age Demographics" 
+                      value={comprehensiveData.icp_synthesis.unified_demographics.age_demographics}
+                    />
+                    <InfoCard 
+                      label="Experience Level" 
+                      value={comprehensiveData.icp_synthesis.unified_demographics.experience_level}
+                    />
+                    <InfoCard 
+                      label="Geographic Distribution" 
+                      value={comprehensiveData.icp_synthesis.unified_demographics.geographic_distribution}
+                    />
+                    {comprehensiveData.icp_synthesis.unified_demographics.professional_roles && comprehensiveData.icp_synthesis.unified_demographics.professional_roles.length > 0 && (
+                      <div>
+                        <p className="text-gray-400 text-xs mb-1">Professional Roles</p>
+                        <TagList items={comprehensiveData.icp_synthesis.unified_demographics.professional_roles} colorClass="bg-blue-900/50 text-blue-300" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Unified Psychographics */}
+              {comprehensiveData.icp_synthesis.unified_psychographics && (
+                <div>
+                  <h5 className="text-pink-400 font-medium mb-3 flex items-center gap-2">
+                    <Heart className="w-4 h-4" />
+                    Unified Psychographics (All Archetypes)
+                  </h5>
+                  <div className="space-y-3 bg-gray-800/20 border border-gray-700/30 rounded-lg p-4">
+                    {comprehensiveData.icp_synthesis.unified_psychographics.core_motivations && comprehensiveData.icp_synthesis.unified_psychographics.core_motivations.length > 0 && (
+                      <div>
+                        <p className="text-gray-400 text-xs mb-1">Core Motivations</p>
+                        <TagList items={comprehensiveData.icp_synthesis.unified_psychographics.core_motivations} colorClass="bg-green-900/50 text-green-300" />
+                      </div>
+                    )}
+                    {comprehensiveData.icp_synthesis.unified_psychographics.decision_drivers && comprehensiveData.icp_synthesis.unified_psychographics.decision_drivers.length > 0 && (
+                      <div>
+                        <p className="text-gray-400 text-xs mb-1">Decision Drivers</p>
+                        <TagList items={comprehensiveData.icp_synthesis.unified_psychographics.decision_drivers} colorClass="bg-purple-900/50 text-purple-300" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
-          )}
-        </DetailedSection>
-      )}
 
-      {/* Ecosystem Analysis */}
-      {detailedData?.ecosystem_analysis && (
-        <DetailedSection title="Ecosystem Analysis" icon={Network} iconColor="text-cyan-400">
-          <div className="space-y-4">
-            {detailedData.ecosystem_analysis.market_narratives && (
+            {/* Unified Behavioral Patterns */}
+            {comprehensiveData.icp_synthesis.unified_behavioral_patterns && (
               <div>
-                <p className="text-sm font-medium text-gray-300 mb-2">Market Narratives</p>
-                <TagList items={detailedData.ecosystem_analysis.market_narratives} colorClass="bg-cyan-900/50 text-cyan-300" />
-              </div>
-            )}
-            
-            {detailedData.ecosystem_analysis.notable_partnerships && (
-              <div>
-                <p className="text-sm font-medium text-gray-300 mb-2">Notable Partnerships</p>
-                <TagList items={detailedData.ecosystem_analysis.notable_partnerships} colorClass="bg-teal-900/50 text-teal-300" />
-              </div>
-            )}
-            
-            {detailedData.ecosystem_analysis.recent_developments && (
-              <div>
-                <p className="text-sm font-medium text-gray-300 mb-2">Recent Developments</p>
-                <div className="space-y-2">
-                  {detailedData.ecosystem_analysis.recent_developments.map((development: string, index: number) => (
-                    <div key={index} className="bg-gray-800/50 rounded-lg p-3">
-                      <p className="text-white text-sm">{development}</p>
+                <h5 className="text-green-400 font-medium mb-3 flex items-center gap-2">
+                  <Activity className="w-4 h-4" />
+                  Unified Behavioral Patterns (All Archetypes)
+                </h5>
+                <div className="bg-gray-800/20 border border-gray-700/30 rounded-lg p-4 space-y-3">
+                  {comprehensiveData.icp_synthesis.unified_behavioral_patterns.interaction_preferences && comprehensiveData.icp_synthesis.unified_behavioral_patterns.interaction_preferences.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 text-xs mb-1">Interaction Preferences</p>
+                      <TagList items={comprehensiveData.icp_synthesis.unified_behavioral_patterns.interaction_preferences} colorClass="bg-cyan-900/50 text-cyan-300" />
                     </div>
-                  ))}
+                  )}
+                  {comprehensiveData.icp_synthesis.unified_behavioral_patterns.activity_patterns && comprehensiveData.icp_synthesis.unified_behavioral_patterns.activity_patterns.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 text-xs mb-1">Activity Patterns</p>
+                      <TagList items={comprehensiveData.icp_synthesis.unified_behavioral_patterns.activity_patterns} colorClass="bg-orange-900/50 text-orange-300" />
+                    </div>
+                  )}
+                  {comprehensiveData.icp_synthesis.unified_behavioral_patterns.conversion_factors && comprehensiveData.icp_synthesis.unified_behavioral_patterns.conversion_factors.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 text-xs mb-1">Conversion Factors</p>
+                      <TagList items={comprehensiveData.icp_synthesis.unified_behavioral_patterns.conversion_factors} colorClass="bg-green-900/50 text-green-300" />
+                    </div>
+                  )}
+                  {comprehensiveData.icp_synthesis.unified_behavioral_patterns.loyalty_indicators && comprehensiveData.icp_synthesis.unified_behavioral_patterns.loyalty_indicators.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 text-xs mb-1">Loyalty Indicators</p>
+                      <TagList items={comprehensiveData.icp_synthesis.unified_behavioral_patterns.loyalty_indicators} colorClass="bg-purple-900/50 text-purple-300" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Unified Messaging Approach */}
+            {comprehensiveData.icp_synthesis.unified_messaging_approach && (
+              <div>
+                <h5 className="text-yellow-400 font-medium mb-3 flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4" />
+                  Unified Messaging Strategy (All Archetypes)
+                </h5>
+                <div className="bg-gray-800/20 border border-gray-700/30 rounded-lg p-4 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InfoCard 
+                      label="Preferred Tone" 
+                      value={comprehensiveData.icp_synthesis.unified_messaging_approach.preferred_tone}
+                      highlight={true}
+                    />
+                  </div>
+                  
+                  {comprehensiveData.icp_synthesis.unified_messaging_approach.key_messages && comprehensiveData.icp_synthesis.unified_messaging_approach.key_messages.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 text-xs mb-1">Key Messages</p>
+                      <TagList items={comprehensiveData.icp_synthesis.unified_messaging_approach.key_messages} colorClass="bg-blue-900/50 text-blue-300" />
+                    </div>
+                  )}
+                  
+                  {comprehensiveData.icp_synthesis.unified_messaging_approach.content_strategy && comprehensiveData.icp_synthesis.unified_messaging_approach.content_strategy.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 text-xs mb-1">Content Strategy</p>
+                      <TagList items={comprehensiveData.icp_synthesis.unified_messaging_approach.content_strategy} colorClass="bg-indigo-900/50 text-indigo-300" />
+                    </div>
+                  )}
+                  
+                  {comprehensiveData.icp_synthesis.unified_messaging_approach.channel_strategy && comprehensiveData.icp_synthesis.unified_messaging_approach.channel_strategy.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 text-xs mb-1">Channel Strategy</p>
+                      <TagList items={comprehensiveData.icp_synthesis.unified_messaging_approach.channel_strategy} colorClass="bg-green-900/50 text-green-300" />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -584,107 +788,28 @@ export const EnhancedICPDisplay = React.memo(function EnhancedICPDisplay({
       )}
 
       {/* Research Sources */}
-      {detailedData?.research_sources && (
-        <DetailedSection title="Research Sources & Confidence" icon={Award} iconColor="text-amber-400">
-          <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-4">
-            <p className="text-sm font-medium text-amber-300 mb-2">Analysis Based On</p>
-            <TagList items={detailedData.research_sources} colorClass="bg-amber-900/50 text-amber-300" />
+      {comprehensiveData.analysis_metadata?.research_sources && comprehensiveData.analysis_metadata.research_sources.length > 0 && (
+        <DetailedSection title="Research Sources" icon={Globe} iconColor="text-gray-400">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {comprehensiveData.analysis_metadata.research_sources.map((source, index) => (
+              <div key={index} className="text-sm text-gray-400 flex items-center gap-2">
+                <Link className="w-3 h-3" />
+                {source.startsWith('http') ? (
+                  <a href={source} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
+                    {source}
+                  </a>
+                ) : (
+                  <span>{source}</span>
+                )}
+              </div>
+            ))}
           </div>
         </DetailedSection>
-      )}
-
-      {/* Fallback to Legacy Display if no detailed data */}
-      {!detailedData && (
-        <div className="space-y-6">
-          {/* Core ICP Details */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Target Industry & Role from structured data */}
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <Building2 className="w-5 h-5 text-blue-400 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-medium text-gray-300 mb-1">Target Industry</h4>
-                  <p className="text-white">
-                    {icp.basic_identification?.industry_classification || 
-                     icp.basic_identification?.protocol_category || 
-                     'Not specified'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <Users className="w-5 h-5 text-green-400 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-medium text-gray-300 mb-1">Target Role</h4>
-                  <p className="text-white">
-                    {icp.icp_synthesis?.primary_user_archetypes?.join(', ') || 
-                     icp.icp_synthesis?.target_web3_segment || 
-                     'Not specified'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Company Size & Location */}
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <TrendingUp className="w-5 h-5 text-yellow-400 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-medium text-gray-300 mb-1">Experience Level</h4>
-                  <p className="text-white">
-                    {icp.icp_synthesis?.demographic_profile?.experience_level || 
-                     icp.icp_synthesis?.demographic_profile?.vibe_range || 
-                     'Not specified'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <MapPin className="w-5 h-5 text-purple-400 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-medium text-gray-300 mb-1">Geographic Distribution</h4>
-                  <p className="text-white">
-                    {icp.icp_synthesis?.demographic_profile?.geographic_distribution || 'Not specified'}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Pain Points from structured data */}
-          {icp.icp_synthesis?.psychographic_drivers?.key_challenges && 
-           icp.icp_synthesis.psychographic_drivers.key_challenges.length > 0 && (
-            <DetailedSection title="Key Challenges" icon={AlertCircle} iconColor="text-red-400">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {icp.icp_synthesis.psychographic_drivers.key_challenges.map((point: string, index: number) => (
-                  <div key={index} className="bg-gray-800/50 rounded-lg p-3">
-                    <p className="text-white text-sm">{point}</p>
-                  </div>
-                ))}
-              </div>
-            </DetailedSection>
-          )}
-
-          {/* Keywords from structured data */}
-          {icp.messaging_strategy?.content_keywords && 
-           icp.messaging_strategy.content_keywords.length > 0 && (
-            <DetailedSection title="Content Keywords" icon={Zap} iconColor="text-blue-400">
-              <TagList items={icp.messaging_strategy.content_keywords} />
-            </DetailedSection>
-          )}
-        </div>
-      )}
-
-      {/* Custom Notes */}
-      {icp.custom_notes && (
-        <div className="bg-purple-900/20 border border-purple-600/50 rounded-lg p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <MessageSquare className="w-4 h-4 text-purple-400" />
-            <h4 className="text-sm font-medium text-purple-300">Custom Notes</h4>
-          </div>
-          <p className="text-white text-sm">{icp.custom_notes}</p>
-        </div>
       )}
     </div>
   )
 })
+
+EnhancedICPDisplay.displayName = 'EnhancedICPDisplay'
+
+export default EnhancedICPDisplay

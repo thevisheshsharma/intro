@@ -1620,10 +1620,22 @@ export async function POST(request: NextRequest) {
         }
       })
       
-      // 2. Prepare final individuals (accepted users)
+      // 2. Prepare final individuals (accepted users) - set vibe and extract roles
       const finalIndividualsToStore = finalIndividuals
         .filter(profile => profile.id_str || profile.id)
-        .map(profile => transformToNeo4jUser(profile))
+        .map(profile => {
+          const neo4jUser = transformToNeo4jUser(profile)
+          
+          // Set vibe to 'individual' for all final individuals
+          neo4jUser.vibe = 'individual'
+          
+          // Extract individual_role from Grok analysis if available
+          if (profile._grok_analysis?.current_position?.department) {
+            neo4jUser.individual_role = profile._grok_analysis.current_position.department
+          }
+          
+          return neo4jUser
+        })
       
       // 3. Prepare affiliated users and following users
       const affiliatedUsersToStore = results.affiliatedUsers
