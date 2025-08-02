@@ -1,7 +1,6 @@
 import OpenAI from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
-import { getCachedTwitterUser } from './twitter-cache';
 
 /**
  * Grok API client configuration
@@ -59,43 +58,6 @@ export enum ICPAnalysisConfig {
   /** Comprehensive analysis with full research */
   FULL = 'FULL'
 }
-
-/**
- * Create a chat completion with Grok
- * @param messages - Array of chat messages
- * @param config - Configuration object (defaults to FULL)
- * @param options - Additional options for the request
- * @returns Promise<OpenAI.Chat.Completions.ChatCompletion>
- */
-export async function createGrokChatCompletion(
-  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-  config: typeof GROK_CONFIGS.MINI_FAST | typeof GROK_CONFIGS.MINI | typeof GROK_CONFIGS.FULL = GROK_CONFIGS.FULL,
-  options?: {
-    functions?: OpenAI.Chat.Completions.ChatCompletionCreateParams.Function[];
-    function_call?: 'auto' | 'none' | { name: string };
-    enableLiveSearch?: boolean;
-  }
-) {
-  try {
-    const params: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
-      ...config,
-      messages,
-      ...options,
-    };
-
-    // Enable live search if requested
-    if (options?.enableLiveSearch) {
-      // Live search is enabled by default in Grok models when accessing real-time information
-    }
-
-    const completion = await grokClient.chat.completions.create(params);
-    return completion;
-  } catch (error) {
-    throw error;
-  }
-}
-
-
 
 /**
  * COMPREHENSIVE ICP ANALYSIS SYSTEM - MODULAR BASE + EXTENSION SCHEMAS
@@ -395,13 +357,11 @@ function getClassificationSpecificSchemas(classification?: {
   org_subtype?: string
   web3_focus?: string
 }) {
-  console.log('🔍 Schema generation - received classification:', classification);
-  
   const orgType = classification?.org_type || 'protocol'
   const orgSubtype = classification?.org_subtype || 'general'
   const web3Focus = classification?.web3_focus || 'native'
   
-  console.log(`📋 Building MODULAR schema for: orgType="${orgType}", orgSubtype="${orgSubtype}", web3Focus="${web3Focus}"`);
+  console.log(`📋 Building schema for: orgType="${orgType}", orgSubtype="${orgSubtype}"`);
   
   // Start with universal base schemas (clone them to avoid mutations)
   let identificationSchema = UniversalBaseIdentificationSchema
@@ -415,22 +375,18 @@ function getClassificationSpecificSchemas(classification?: {
 
   // Apply category-specific extensions based on classification
   if (orgType === 'protocol') {
-    console.log(`🔧 Applying protocol extensions for subtype: ${orgSubtype}`);
     
     if (orgSubtype === 'defi') {
-      console.log('💰 Using DeFi Protocol Extensions');
       identificationSchema = identificationSchema.extend(DeFiProtocolExtensions.identification.shape)
       marketPositionSchema = marketPositionSchema.extend(DeFiProtocolExtensions.marketPosition.shape)
       coreMetricsSchema = coreMetricsSchema.extend(DeFiProtocolExtensions.coreMetrics.shape)
       tokenomicsSchema = DeFiProtocolExtensions.tokenomics
     } else if (orgSubtype === 'gaming') {
-      console.log('🎮 Using GameFi Protocol Extensions');
       identificationSchema = identificationSchema.extend(GameFiProtocolExtensions.identification.shape)
       marketPositionSchema = marketPositionSchema.extend(GameFiProtocolExtensions.marketPosition.shape)
       coreMetricsSchema = coreMetricsSchema.extend(GameFiProtocolExtensions.coreMetrics.shape)
       tokenomicsSchema = GameFiProtocolExtensions.tokenomics
     } else {
-      console.log('⚡ Using General Protocol configuration (infrastructure/social/other)');
       // For general protocols, use minimal extensions
       identificationSchema = identificationSchema.extend({
         protocol_category: z.string().describe("Protocol category (Infrastructure, Social, Data, etc.)"),
@@ -453,27 +409,22 @@ function getClassificationSpecificSchemas(classification?: {
       })
     }
   } else if (orgType === 'investment') {
-    console.log('💼 Using Investment Fund Extensions');
     identificationSchema = identificationSchema.extend(InvestmentFundExtensions.identification.shape)
     marketPositionSchema = marketPositionSchema.extend(InvestmentFundExtensions.marketPosition.shape)
     // Investment funds don't have coreMetrics extensions in the defined schemas
     // Keep the base coreMetricsSchema as-is
     tokenomicsSchema = InvestmentFundExtensions.tokenomics
   } else if (orgType === 'business') {
-    console.log('🏢 Using Business Service Extensions');
     identificationSchema = identificationSchema.extend(BusinessServiceExtensions.identification.shape)
     marketPositionSchema = marketPositionSchema.extend(BusinessServiceExtensions.marketPosition.shape)
     coreMetricsSchema = coreMetricsSchema.extend(BusinessServiceExtensions.coreMetrics.shape)
     tokenomicsSchema = BusinessServiceExtensions.tokenomics
   } else if (orgType === 'community') {
-    console.log('🏛️ Using Community/DAO Extensions');
     identificationSchema = identificationSchema.extend(CommunityDAOExtensions.identification.shape)
     marketPositionSchema = marketPositionSchema.extend(CommunityDAOExtensions.marketPosition.shape)
     coreMetricsSchema = coreMetricsSchema.extend(CommunityDAOExtensions.coreMetrics.shape)
     tokenomicsSchema = CommunityDAOExtensions.tokenomics
   }
-
-  console.log(`✅ Schema composition complete - ${Object.keys(identificationSchema.shape).length} identification fields, ${Object.keys(marketPositionSchema.shape).length} market position fields`);
 
   return {
     BasicIdentificationSchema: identificationSchema,
@@ -492,10 +443,7 @@ function createClassificationSpecificSchema(classification?: {
   org_subtype?: string
   web3_focus?: string
 }) {
-  console.log('🔍 createClassificationSpecificSchema called with:', classification);
-  
   const schemas = getClassificationSpecificSchemas(classification)
-  console.log('📋 Generated modular schemas for org_type:', classification?.org_type || 'undefined');
   
   // Combine with universal ecosystem and user behavior schemas
   const finalSchema = z.object({
@@ -532,7 +480,6 @@ function createClassificationSpecificSchema(classification?: {
     }).describe("Analysis quality and source metadata")
   });
   
-  console.log('✅ Final modular schema created successfully with', Object.keys(finalSchema.shape).length, 'top-level sections');
   return finalSchema;
 }
 
@@ -757,14 +704,9 @@ export async function createStructuredICPAnalysis(
   }
 ): Promise<z.infer<ReturnType<typeof createClassificationSpecificSchema>>> {
   try {
-    console.log('🔍 ICP Analysis - received classification:', classification);
-    
-    const cachedUserData = await getCachedTwitterUser(twitterUsername.replace('@', ''));
-    const followerCount = cachedUserData?.user_data?.followers_count;
     
     // Generate dynamic schema based on classification
     const dynamicSchema = createClassificationSpecificSchema(classification)
-    console.log('🔍 Dynamic schema generated, checking response_format compatibility...');
     
     // Get classification-specific context (single call for all context)
     const context = getClassificationSpecificContext(classification)
@@ -835,30 +777,8 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
       }
     ];
 
-    console.log('🚀 About to call Grok API with:');
-    console.log('   - Dynamic schema keys:', Object.keys(dynamicSchema.shape));  
-    console.log('   - Classification used:', classification);
-    console.log('   - Context from single call:', Object.keys(context));
-    
-    // Log the complete Grok prompt for debugging
-    console.log('\n📝 GROK PROMPT DETAILS:');
-    console.log('   - System prompt length:', (messages[0].content as string)?.length || 0, 'characters');
-    console.log('   - User prompt length:', (messages[1].content as string)?.length || 0, 'characters');
-    console.log('\n🔍 SYSTEM PROMPT:');
-    console.log(messages[0].content);
-    console.log('\n👤 USER PROMPT:');
-    console.log(messages[1].content);
-    console.log('\n📋 SCHEMA STRUCTURE:');
-    console.log('   Schema type:', typeof dynamicSchema);
-    console.log('   Schema fields:', Object.keys(dynamicSchema.shape));
-    console.log('   Response format name: "icp_analysis"');
-    console.log('\n🔧 API CONFIGURATION:');
-    console.log('   Grok config:', JSON.stringify(grokConfig, null, 2));
-    console.log('   Search parameters enabled: true');
-    console.log('   Live search mode: on');
-    console.log('   Max search results: 30');
-    console.log('   Target Twitter handle:', twitterUsername.replace('@', ''));
-    console.log('\n🚀 Sending request to Grok API...\n');
+    console.log(`🚀 Starting ICP analysis for @${twitterUsername.replace('@', '')} with ${Object.keys(dynamicSchema.shape).length} schema sections`);
+    console.log('   Classification:', classification?.org_type || 'default', classification?.org_subtype || '');
 
     const completion = await grokClient.chat.completions.create({
       ...grokConfig,
@@ -886,34 +806,20 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
       }
     } as any);
 
-    console.log('✅ Grok API response received!');
-    console.log('📊 RESPONSE DETAILS:');
-    console.log('   - Response choices:', completion.choices?.length || 0);
-    console.log('   - Finish reason:', completion.choices[0]?.finish_reason);
-    console.log('   - Usage tokens:', completion.usage);
+    console.log('✅ Grok API response received');
     
     const content = completion.choices[0]?.message?.content;
     if (!content) {
-      console.log('❌ No content returned from Grok API');
       throw new Error('No content returned from Grok API');
     }
-    
-    console.log('📝 RAW GROK RESPONSE:');
-    console.log('   - Content length:', content.length, 'characters');
-    console.log('   - First 500 chars:', content.substring(0, 500));
-    console.log('   - Last 500 chars:', content.substring(Math.max(0, content.length - 500)));
 
     // Parse the structured response
     let parsedContent;
     try {
       parsedContent = JSON.parse(content);
       console.log('✅ JSON parsing successful');
-      console.log('📋 PARSED RESPONSE STRUCTURE:');
-      console.log('   - Top-level keys:', Object.keys(parsedContent));
     } catch (parseError) {
       console.log('❌ JSON parsing failed:', parseError);
-      console.log('🔍 Raw content that failed to parse:');
-      console.log(content);
       throw new Error(`Failed to parse JSON response: ${parseError}`);
     }
 
@@ -921,26 +827,10 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
     try {
       analysis = dynamicSchema.parse(parsedContent);
       console.log('✅ Schema validation successful');
-      console.log('🎯 FINAL ANALYSIS STRUCTURE:');
-      if (analysis && typeof analysis === 'object') {
-        console.log('   - Analysis keys:', Object.keys(analysis));
-        // Log some key fields if they exist
-        if ('basic_identification' in analysis) {
-          console.log('   - Project name:', (analysis as any).basic_identification?.project_name);
-        }
-        if ('market_position' in analysis) {
-          console.log('   - Twitter followers:', (analysis as any).market_position?.twitter_followers);
-        }
-      }
     } catch (schemaError) {
       console.log('❌ Schema validation failed:', schemaError);
-      console.log('🔍 Content that failed schema validation:');
-      console.log(JSON.stringify(parsedContent, null, 2));
       throw new Error(`Schema validation failed: ${schemaError}`);
     }
-
-    // Skip adding twitter followers to avoid type errors
-    // The follower count will be handled separately if needed
 
     return analysis;
   } catch (error) {
@@ -1023,211 +913,15 @@ Do not assume or build any made-up usernames. Do not include any explanations, j
 }
 
 /**
- * Zod schema for profile analysis results
+ * UNIFIED CLASSIFICATION SYSTEM
+ * The unified classification system has been moved to /src/lib/classifier.ts
+ * Import from there for all classification needs
  */
-const ProfileAnalysisSchema = z.object({
-  profiles: z.array(z.object({
-    screen_name: z.string().describe("Twitter username"),
-    type: z.enum(["individual", "organization"]).describe("Whether this is an individual person or an organization"),
-    current_position: z.object({
-      organizations: z.array(z.string()).describe("Current organizations or companies they work for"),
-      department: z.enum(["engineering", "product", "marketing", "business", "community", "leadership", "other"]).describe("Department classification based on role")
-    }).optional().describe("Current professional position"),
-    employment_history: z.array(z.object({
-      organization: z.string().describe("Previous organization or company")
-    })).describe("Previous employment history")
-  })).describe("Analysis results for each profile")
-});
 
-type ProfileAnalysisType = z.infer<typeof ProfileAnalysisSchema>;
+// Re-export types and functions for backward compatibility
+export type { 
+  UnifiedProfileInput, 
+  UnifiedClassificationResult 
+} from './classifier';
 
-/**
- * Analyze a batch of profiles to determine if they are individuals or organizations
- * and extract role/organization information for individuals
- * @param profiles - Array of profile objects with screen_name, name, and description
- * @returns Promise<ProfileAnalysisType>
- */
-export async function analyzeProfileBatch(profiles: Array<{
-  screen_name: string;
-  name: string;
-  description?: string;
-}>): Promise<ProfileAnalysisType> {
-  try {
-    const prompt = `Analyze Twitter profiles. For each: determine if individual or organization. For individuals, extract current organizations/dept and employment history. Do NOT include any education details or role information.
-
-For organizations, provide Twitter handles (e.g., @company) not company names.
-
-Departments: engineering, product, marketing, business, community, leadership, other
-
-Profiles:
-${profiles.map(p => `@${p.screen_name}: ${p.name} - ${p.description || 'No bio'}`).join('\n')}
-
-JSON response:
-{
-  "profiles": [
-    {
-      "screen_name": "username",
-      "type": "individual|organization",
-      "current_position": {
-        "organizations": ["@company1", "@company2"], 
-        "department": "engineering"
-      },
-      "employment_history": [
-        {
-          "organization": "@previous_co"
-        }
-      ]
-    }
-  ]
-}`;
-
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: prompt
-      }
-    ];
-
-    const response = await grokClient.chat.completions.create({
-      ...GROK_CONFIGS.MINI_FAST,
-      messages,
-      max_tokens: 3000 // Increase token limit for batch analysis
-    });
-
-    const content = response.choices[0]?.message?.content;
-    const finishReason = response.choices[0]?.finish_reason;
-
-    if (!content) {
-      throw new Error('No content received from Grok');
-    }
-    
-    let analysis: ProfileAnalysisType;
-
-    try {
-      // Try to parse the full content first
-      analysis = JSON.parse(content) as ProfileAnalysisType;
-    } catch (parseError) {
-      // If parsing fails, try to extract a valid JSON object
-      const jsonStart = content.indexOf('{');
-      if (jsonStart === -1) {
-        throw new Error(`No valid JSON found in Grok response`);
-      }
-      
-      let jsonContent = content.substring(jsonStart);
-      
-      // If the response was truncated, try to find the last complete profile entry
-      if (finishReason === 'length') {
-        // Find the profiles array and try to close it properly
-        const profilesStart = jsonContent.indexOf('"profiles":[');
-        if (profilesStart !== -1) {
-          const arrayStart = jsonContent.indexOf('[', profilesStart);
-          if (arrayStart !== -1) {
-            // Find all complete profile objects
-            const afterArray = jsonContent.substring(arrayStart + 1);
-            const completeProfiles = [];
-            let braceCount = 0;
-            let currentProfile = '';
-            let inProfile = false;
-            
-            for (let i = 0; i < afterArray.length; i++) {
-              const char = afterArray[i];
-              if (char === '{') {
-                if (!inProfile) {
-                  inProfile = true;
-                  currentProfile = '{';
-                } else {
-                  currentProfile += char;
-                }
-                braceCount++;
-              } else if (char === '}') {
-                currentProfile += char;
-                braceCount--;
-                if (braceCount === 0 && inProfile) {
-                  // Complete profile found
-                  try {
-                    const profileObj = JSON.parse(currentProfile);
-                    completeProfiles.push(profileObj);
-                    currentProfile = '';
-                    inProfile = false;
-                  } catch {
-                    // Invalid profile, skip
-                    currentProfile = '';
-                    inProfile = false;
-                  }
-                }
-              } else if (inProfile) {
-                currentProfile += char;
-              }
-            }
-            
-            if (completeProfiles.length > 0) {
-              analysis = { profiles: completeProfiles };
-            } else {
-              throw new Error('Could not recover any complete profiles from truncated response');
-            }
-          } else {
-            throw new Error('Could not find profiles array in response');
-          }
-        } else {
-          throw new Error('Could not find profiles field in response');
-        }
-      } else {
-        throw new Error(`Failed to parse Grok response: ${parseError}`);
-      }
-    }
-
-    // Validate the response structure
-    if (!analysis.profiles || !Array.isArray(analysis.profiles)) {
-      throw new Error('Invalid response structure from Grok');
-    }
-
-    // Validate and clean up each profile
-    const validProfiles = analysis.profiles.map(profile => {
-      // Ensure required fields exist
-      if (!profile.screen_name || !profile.type) {
-        return null;
-      }
-
-      // Fill in defaults for missing fields
-      const cleanProfile = {
-        screen_name: profile.screen_name,
-        type: profile.type as 'individual' | 'organization',
-        current_position: profile.current_position || {
-          organizations: ['Unknown'],
-          department: 'other' as const
-        },
-        employment_history: profile.employment_history || []
-      };
-
-      // Ensure current_position has all required fields
-      if (cleanProfile.current_position) {
-        cleanProfile.current_position = {
-          organizations: cleanProfile.current_position.organizations || ['Unknown'],
-          department: cleanProfile.current_position.department || 'other' as const
-        };
-      }
-
-      return cleanProfile;
-    }).filter((profile): profile is NonNullable<typeof profile> => profile !== null);
-
-    analysis.profiles = validProfiles;
-
-    return analysis;
-
-  } catch (error: any) {
-    // Return fallback analysis - treat all as individuals with minimal data
-    const fallbackAnalysis: ProfileAnalysisType = {
-      profiles: profiles.map(profile => ({
-        screen_name: profile.screen_name,
-        type: 'individual' as const,
-        current_position: {
-          organizations: ['Unknown'],
-          department: 'other' as const
-        },
-        employment_history: []
-      }))
-    };
-    
-    return fallbackAnalysis;
-  }
-}
+export { classifyProfilesWithGrok } from './classifier';

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { findOrgAffiliatesWithGrok, analyzeProfileBatch } from '@/lib/grok'
+import { findOrgAffiliatesWithGrok } from '@/lib/grok'
+import { classifyProfilesWithGrok } from '@/lib/classifier'
 import { runQuery } from '@/lib/neo4j'
+import { validateVibe, logValidationError, VibeType } from '@/lib/validation'
 import { 
   createOrUpdateUser, 
   createOrUpdateUsers,
@@ -19,7 +21,8 @@ import {
   checkExistingAffiliateRelationships,
   checkExistingFollowsRelationships,
   filterOutExistingRelationships,
-  getUsersWithExistingEmploymentRelationships
+  getUsersWithExistingEmploymentRelationships,
+  updateOrganizationClassification
 } from '@/lib/neo4j/services/user-service'
 
 export async function POST(request: NextRequest) {
@@ -60,6 +63,10 @@ export async function POST(request: NextRequest) {
       followingUsers: any[];
       allProfiles: any[];
       errors: string[];
+      meta?: {
+        grokOrganizationsUpdated?: number;
+        [key: string]: any;
+      };
     } = {
       orgProfile: null,
       affiliatedUsers: [],
@@ -67,7 +74,8 @@ export async function POST(request: NextRequest) {
       grokUsers: [],
       followingUsers: [],
       allProfiles: [],
-      errors: []
+      errors: [],
+      meta: {}
     }
 
     // Step 1: Massively Parallel Data Fetching Optimization
@@ -1113,7 +1121,15 @@ export async function POST(request: NextRequest) {
     let usersNeedingGrokAnalysis: any[] = []
     let usersWithExistingRelationships: any[] = []
     let usersIdentifiedAsOrganizations: any[] = []
-    let grokIdentifiedOrganizations: Array<{screenName: string, profile: any}> = []
+    let grokIdentifiedOrganizations: Array<{
+      screenName: string, 
+      profile: any,
+      classification?: {
+        org_type?: string,
+        org_subtype?: string,
+        web3_focus?: string
+      }
+    }> = []
 
     if (relevantIndividuals.length > 0 && results.orgProfile?.id_str) {
       try {
@@ -1268,8 +1284,21 @@ export async function POST(request: NextRequest) {
               description: profile.description || ''
             }))
             
-            // Analyze with Grok
-            const analysis = await analyzeProfileBatch(batchProfiles)
+            // Analyze with Grok using unified function
+            const analysisResults = await classifyProfilesWithGrok(batchProfiles) as any[]
+            
+            // Convert to expected format
+            const analysis = {
+              profiles: analysisResults.map(result => ({
+                screen_name: result.screen_name,
+                type: result.entity_type,
+                current_position: result.current_position,
+                employment_history: result.employment_history,
+                org_type: result.org_type,
+                org_subtype: result.org_subtype,
+                web3_focus: result.web3_focus
+              }))
+            }
             
             console.log(`   → Completed batch ${batchInfo.batchNumber}/${totalBatches}`)
             
@@ -1315,13 +1344,18 @@ export async function POST(request: NextRequest) {
                   totalOrgsFound++
                   console.log(`     🏢 @${analyzed.screen_name || originalProfile.screen_name} - ORGANIZATION (will check/update in Neo4j)`)
                   
-                  // Collect organization for Neo4j processing
+                  // Collect organization for Neo4j processing with enhanced classification
                   if (!grokIdentifiedOrganizations) {
                     grokIdentifiedOrganizations = []
                   }
                   grokIdentifiedOrganizations.push({
                     screenName: analyzed.screen_name || originalProfile.screen_name,
-                    profile: originalProfile
+                    profile: originalProfile,
+                    classification: {
+                      org_type: analyzed.org_type,
+                      org_subtype: analyzed.org_subtype,
+                      web3_focus: analyzed.web3_focus
+                    }
                   })
                 } else {
                   // Keep as individual and enrich with role/org data
@@ -1432,18 +1466,35 @@ export async function POST(request: NextRequest) {
         })
         
         // Separate existing and new organizations
-        const orgsToUpdate: Array<{screenName: string, userId: string}> = []
-        const orgsToFetch: Array<{screenName: string, profile: any}> = []
+        const orgsToUpdate: Array<{
+          screenName: string, 
+          userId: string,
+          classification?: {
+            org_type?: string,
+            org_subtype?: string,
+            web3_focus?: string
+          }
+        }> = []
+        const orgsToFetch: Array<{
+          screenName: string, 
+          profile: any,
+          classification?: {
+            org_type?: string,
+            org_subtype?: string,
+            web3_focus?: string
+          }
+        }> = []
         
-        grokIdentifiedOrganizations.forEach(({ screenName, profile }) => {
+        grokIdentifiedOrganizations.forEach(({ screenName, profile, classification }) => {
           const existingOrg = existingOrgMap.get(screenName.toLowerCase())
           
           if (existingOrg) {
-            // Organization exists - update vibe if needed
+            // Organization exists - update vibe and classification if needed
             if (existingOrg.vibe !== 'organization') {
               orgsToUpdate.push({
                 screenName: existingOrg.screenName,
-                userId: existingOrg.userId
+                userId: existingOrg.userId,
+                classification
               })
               console.log(`     🔄 @${screenName} - EXISTS, will update vibe to 'organization'`)
             } else {
@@ -1451,31 +1502,44 @@ export async function POST(request: NextRequest) {
             }
           } else {
             // Organization doesn't exist - fetch and store
-            orgsToFetch.push({ screenName, profile })
+            orgsToFetch.push({ screenName, profile, classification })
             console.log(`     🆕 @${screenName} - NEW, will fetch and store`)
           }
         })
         
-        // Update vibes for existing organizations
+        // Update vibes and classification for existing organizations
         if (orgsToUpdate.length > 0) {
-          console.log(`   → Updating vibe for ${orgsToUpdate.length} existing organizations...`)
+          console.log(`   → Updating vibe and classification for ${orgsToUpdate.length} existing organizations...`)
           
-          const updateVibeQuery = `
-            UNWIND $orgs AS org
-            MATCH (u:User {userId: org.userId})
-            SET u.vibe = 'organization'
-            RETURN u.screenName as screenName, u.vibe as vibe
-          `
-          
-          const updateResults = await runQuery(updateVibeQuery, { orgs: orgsToUpdate })
-          console.log(`   → Updated vibe for ${updateResults.length} organizations`)
+          try {
+            // Prepare data for organization classification update
+            const orgClassificationUpdates = orgsToUpdate.map(org => ({
+              userId: org.userId,
+              classification: org.classification || {
+                org_type: 'business',
+                org_subtype: 'other',
+                web3_focus: 'traditional'
+              }
+            }))
+            
+            // Update organization classification (includes vibe update)
+            await updateOrganizationClassification(orgClassificationUpdates)
+            
+            if (!results.meta) results.meta = {}
+            results.meta.grokOrganizationsUpdated = orgsToUpdate.length
+            console.log(`   ✅ Updated ${orgsToUpdate.length} existing organizations`)
+            
+          } catch (updateError: any) {
+            console.error('   ❌ Error updating existing organizations:', updateError)
+            results.errors.push(`Failed to update existing organizations: ${updateError.message}`)
+          }
         }
         
         // Fetch and store new organizations
         if (orgsToFetch.length > 0) {
           console.log(`   → Fetching ${orgsToFetch.length} new organizations from SocialAPI...`)
           
-          const fetchPromises = orgsToFetch.map(async ({ screenName, profile }) => {
+          const fetchPromises = orgsToFetch.map(async ({ screenName, profile, classification }) => {
             try {
               // Try to fetch fresh profile data
               const response = await fetch(`https://api.socialapi.me/twitter/user/${screenName}`, {
@@ -1487,27 +1551,27 @@ export async function POST(request: NextRequest) {
               
               if (response.ok) {
                 const freshOrgProfile = await response.json()
-                return { success: true, profile: freshOrgProfile, fallbackProfile: profile }
+                return { success: true, profile: freshOrgProfile, fallbackProfile: profile, classification }
               } else {
                 console.warn(`   → Failed to fetch @${screenName}: ${response.status}, using existing profile data`)
-                return { success: false, profile: null, fallbackProfile: profile }
+                return { success: false, profile: null, fallbackProfile: profile, classification }
               }
             } catch (error: any) {
               console.warn(`   → Error fetching @${screenName}:`, error.message)
-              return { success: false, profile: null, fallbackProfile: profile }
+              return { success: false, profile: null, fallbackProfile: profile, classification }
             }
           })
           
           const fetchResults = await Promise.allSettled(fetchPromises)
-          const organizationsToStore: any[] = []
+          const organizationsToStore: Array<{profile: any, classification?: any}> = []
           
           fetchResults.forEach((result, index) => {
             if (result.status === 'fulfilled') {
-              const { success, profile, fallbackProfile } = result.value
+              const { success, profile, fallbackProfile, classification } = result.value
               const profileToUse = success ? profile : fallbackProfile
               
               if (profileToUse && (profileToUse.id_str || profileToUse.id)) {
-                organizationsToStore.push(profileToUse)
+                organizationsToStore.push({ profile: profileToUse, classification })
                 const source = success ? 'fresh API data' : 'existing profile data'
                 console.log(`     ✅ @${profileToUse.screen_name} - prepared for storage (${source})`)
               } else {
@@ -1518,11 +1582,19 @@ export async function POST(request: NextRequest) {
             }
           })
           
-          // Store organizations with vibe='organization'
+          // Store organizations with vibe='organization' and classification data
           if (organizationsToStore.length > 0) {
-            const orgUsersToUpsert = organizationsToStore.map(profile => {
+            const orgUsersToUpsert = organizationsToStore.map(({ profile, classification }) => {
               const orgUser = transformToNeo4jUser(profile)
               orgUser.vibe = 'organization' // Set vibe to organization
+              
+              // Apply classification data if available
+              if (classification) {
+                orgUser.org_type = classification.org_type || 'business'
+                orgUser.org_subtype = classification.org_subtype || 'other'
+                orgUser.web3_focus = classification.web3_focus || 'traditional'
+              }
+              
               return orgUser
             })
             
@@ -1580,7 +1652,12 @@ export async function POST(request: NextRequest) {
       rejectedByReason.spam_filtered.forEach(profile => {
         if (profile.id_str || profile.id) {
           const neo4jUser = transformToNeo4jUser(profile)
-          neo4jUser.vibe = 'spam'
+          // Validate and set vibe to 'spam'
+          const vibeValidation = validateVibe(VibeType.SPAM)
+          if (!vibeValidation.isValid) {
+            logValidationError('vibe', VibeType.SPAM, vibeValidation.error!, `spam_filtered for user ${profile.id_str || profile.id}`)
+          }
+          neo4jUser.vibe = vibeValidation.sanitizedValue
           rejectedUsersToStore.push(neo4jUser)
         }
       })
@@ -1589,7 +1666,12 @@ export async function POST(request: NextRequest) {
       rejectedByReason.organization_account.forEach(profile => {
         if (profile.id_str || profile.id) {
           const neo4jUser = transformToNeo4jUser(profile)
-          neo4jUser.vibe = 'organization'
+          // Validate and set vibe to 'organization'
+          const vibeValidation = validateVibe(VibeType.ORGANIZATION)
+          if (!vibeValidation.isValid) {
+            logValidationError('vibe', VibeType.ORGANIZATION, vibeValidation.error!, `organization_account for user ${profile.id_str || profile.id}`)
+          }
+          neo4jUser.vibe = vibeValidation.sanitizedValue
           rejectedUsersToStore.push(neo4jUser)
         }
       })
@@ -1598,7 +1680,12 @@ export async function POST(request: NextRequest) {
       rejectedByReason.regional_or_functional_account.forEach(profile => {
         if (profile.id_str || profile.id) {
           const neo4jUser = transformToNeo4jUser(profile)
-          neo4jUser.vibe = 'organization'
+          // Validate and set vibe to 'organization'
+          const vibeValidation = validateVibe(VibeType.ORGANIZATION)
+          if (!vibeValidation.isValid) {
+            logValidationError('vibe', VibeType.ORGANIZATION, vibeValidation.error!, `regional_or_functional_account for user ${profile.id_str || profile.id}`)
+          }
+          neo4jUser.vibe = vibeValidation.sanitizedValue
           rejectedUsersToStore.push(neo4jUser)
         }
       })
@@ -1607,7 +1694,12 @@ export async function POST(request: NextRequest) {
       rejectedByReason.grok_identified_organization.forEach(profile => {
         if (profile.id_str || profile.id) {
           const neo4jUser = transformToNeo4jUser(profile)
-          neo4jUser.vibe = 'organization'
+          // Validate and set vibe to 'organization'
+          const vibeValidation = validateVibe(VibeType.ORGANIZATION)
+          if (!vibeValidation.isValid) {
+            logValidationError('vibe', VibeType.ORGANIZATION, vibeValidation.error!, `grok_identified_organization for user ${profile.id_str || profile.id}`)
+          }
+          neo4jUser.vibe = vibeValidation.sanitizedValue
           rejectedUsersToStore.push(neo4jUser)
         }
       })
@@ -1626,12 +1718,16 @@ export async function POST(request: NextRequest) {
         .map(profile => {
           const neo4jUser = transformToNeo4jUser(profile)
           
-          // Set vibe to 'individual' for all final individuals
-          neo4jUser.vibe = 'individual'
+          // Validate and set vibe to 'individual' for all final individuals
+          const vibeValidation = validateVibe(VibeType.INDIVIDUAL)
+          if (!vibeValidation.isValid) {
+            logValidationError('vibe', VibeType.INDIVIDUAL, vibeValidation.error!, `finalIndividualsToStore for user ${profile.id_str || profile.id}`)
+          }
+          neo4jUser.vibe = vibeValidation.sanitizedValue
           
-          // Extract individual_role from Grok analysis if available
+          // Extract department from Grok analysis if available
           if (profile._grok_analysis?.current_position?.department) {
-            neo4jUser.individual_role = profile._grok_analysis.current_position.department
+            neo4jUser.department = profile._grok_analysis.current_position.department
           }
           
           return neo4jUser
@@ -1691,6 +1787,13 @@ export async function POST(request: NextRequest) {
       // ===== PROCESS EMPLOYMENT DATA =====
       
       console.log(`   → Processing employment data for ${finalIndividuals.length} individuals...`)
+      
+      // Add small delay to prevent deadlocks after batch storage
+      if (allUsersToStore.length > 0) {
+        console.log(`   → Adding brief delay to prevent transaction deadlocks...`)
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      
       const { processEmploymentData } = await import('@/lib/neo4j/services/user-service')
       await processEmploymentData(finalIndividuals)
       console.log(`   → Employment data processing completed`)

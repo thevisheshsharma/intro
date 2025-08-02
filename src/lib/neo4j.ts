@@ -28,18 +28,44 @@ export async function closeDriver(): Promise<void> {
   }
 }
 
-// Utility function to run a query with automatic session management
+// Utility function to run a query with automatic session management and deadlock retry
 export async function runQuery<T = any>(
   query: string,
-  parameters: Record<string, any> = {}
+  parameters: Record<string, any> = {},
+  maxRetries: number = 3
 ): Promise<T[]> {
-  const session = await getSession()
-  try {
-    const result = await session.run(query, parameters)
-    return result.records.map(record => record.toObject())
-  } finally {
-    await session.close()
+  let lastError: any = null
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const session = await getSession()
+    try {
+      const result = await session.run(query, parameters)
+      return result.records.map(record => record.toObject())
+    } catch (error: any) {
+      lastError = error
+      
+      // Check if this is a deadlock error
+      const isDeadlock = error.message?.includes('ForsetiClient') && 
+                        error.message?.includes('ExclusiveLock') &&
+                        error.message?.includes('waiting for')
+      
+      if (isDeadlock && attempt < maxRetries) {
+        console.warn(`⚠️ Deadlock detected on attempt ${attempt}/${maxRetries}, retrying after delay...`)
+        // Wait with exponential backoff
+        const delay = Math.min(100 * Math.pow(2, attempt - 1), 1000)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      } else if (!isDeadlock) {
+        // For non-deadlock errors, don't retry
+        throw error
+      }
+    } finally {
+      await session.close()
+    }
   }
+  
+  // If we get here, all retries failed
+  console.error(`❌ All ${maxRetries} attempts failed due to deadlocks`)
+  throw lastError
 }
 
 // Enhanced batch query function with automatic chunking for large datasets

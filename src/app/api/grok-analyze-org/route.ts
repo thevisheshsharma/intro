@@ -17,7 +17,7 @@ import {
   fetchTwitterProfile,
   saveClassificationToNeo4j,
   type ClassificationResult 
-} from '@/lib/organization-classifier'
+} from '@/lib/classifier'
 
 // Helper function to extract social insights
 function extractSocialInsights(icpAnalysis: any) {

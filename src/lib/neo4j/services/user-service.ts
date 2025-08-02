@@ -1,4 +1,5 @@
 import { runQuery, runBatchQuery } from '@/lib/neo4j'
+import { validateVibe, logValidationError } from '@/lib/validation'
 
 export interface Neo4jUser {
   userId: string
@@ -23,7 +24,7 @@ export interface Neo4jUser {
   verificationType?: string    // verification_info.type - Business/Personal
   verificationReason?: string  // verification_info.reason - Verification reason
   vibe?: string               // Primary entity classification: 'individual', 'organization', 'spam'
-  individual_role?: string    // specific role for individual profiles (founder, developer, marketing, etc.)
+  department?: string         // current department/role from current_position.department
   // Organization classification fields (can be null for individuals/spam accounts)
   org_type?: string           // Organization type: protocol, investment, business, community
   org_subtype?: string        // Organization subtype: defi, gaming, vc, etc.
@@ -58,6 +59,16 @@ export interface TwitterApiUser {
 
 // Convert Twitter API user to Neo4j format
 export function transformToNeo4jUser(apiUser: TwitterApiUser, vibe?: string): Neo4jUser {
+  // Validate vibe field if provided
+  let sanitizedVibe = ''
+  if (vibe !== undefined) {
+    const vibeValidation = validateVibe(vibe)
+    if (!vibeValidation.isValid) {
+      logValidationError('vibe', vibe, vibeValidation.error!, `transformToNeo4jUser for user ${apiUser.id_str || apiUser.id}`)
+    }
+    sanitizedVibe = vibeValidation.sanitizedValue
+  }
+
   return {
     userId: apiUser.id_str || apiUser.id,
     screenName: apiUser.screen_name,
@@ -80,8 +91,8 @@ export function transformToNeo4jUser(apiUser: TwitterApiUser, vibe?: string): Ne
     profileBannerUrl: apiUser.profile_banner_url || '',
     verificationType: apiUser.verification_info?.type || '',
     verificationReason: apiUser.verification_info?.reason || '',
-    vibe: vibe || '',
-    individual_role: '',  // Initialize individual_role field
+    vibe: sanitizedVibe,
+    department: '',       // Initialize department field
     // Organization classification fields - set to empty strings by default, updated by classifier
     org_type: '',
     org_subtype: '',
@@ -91,6 +102,18 @@ export function transformToNeo4jUser(apiUser: TwitterApiUser, vibe?: string): Ne
 
 // Create or update a user in Neo4j
 export async function createOrUpdateUser(user: Neo4jUser): Promise<void> {
+  // Validate vibe field before saving
+  const vibeValidation = validateVibe(user.vibe)
+  if (!vibeValidation.isValid) {
+    logValidationError('vibe', user.vibe, vibeValidation.error!, `createOrUpdateUser for user ${user.userId}`)
+  }
+  
+  // Use sanitized vibe value
+  const validatedUser = {
+    ...user,
+    vibe: vibeValidation.sanitizedValue
+  }
+
   const query = `
     MERGE (u:User {userId: $userId})
     SET u.screenName = $screenName,
@@ -113,7 +136,7 @@ export async function createOrUpdateUser(user: Neo4jUser): Promise<void> {
         u.verificationType = COALESCE($verificationType, ''),
         u.verificationReason = COALESCE($verificationReason, ''),
         u.vibe = COALESCE($vibe, ''),
-        u.individual_role = COALESCE($individual_role, ''),
+        u.department = COALESCE($department, ''),
         u.org_type = COALESCE($org_type, ''),
         u.org_subtype = COALESCE($org_subtype, ''),
         u.web3_focus = COALESCE($web3_focus, '')
@@ -121,14 +144,15 @@ export async function createOrUpdateUser(user: Neo4jUser): Promise<void> {
   `
   
   // Ensure all parameters are defined to avoid Neo4j parameter errors
-  const sanitizedUser = {
-    ...user,
-    org_type: user.org_type || '',
-    org_subtype: user.org_subtype || '',
-    web3_focus: user.web3_focus || ''
+  const finalUser = {
+    ...validatedUser,
+    department: validatedUser.department || '',
+    org_type: validatedUser.org_type || '',
+    org_subtype: validatedUser.org_subtype || '',
+    web3_focus: validatedUser.web3_focus || ''
   }
   
-  await runQuery(query, sanitizedUser)
+  await runQuery(query, finalUser)
 }
 
 // Check if multiple users exist in Neo4j (returns array of existing user IDs)
@@ -247,6 +271,7 @@ export async function createOrUpdateUsers(users: Neo4jUser[]): Promise<void> {
     // Sanitize batch to ensure all parameters are defined
     const sanitizedBatch = batch.map(user => ({
       ...user,
+      department: user.department || '',
       org_type: user.org_type || '',
       org_subtype: user.org_subtype || '',
       web3_focus: user.web3_focus || ''
@@ -275,7 +300,7 @@ export async function createOrUpdateUsers(users: Neo4jUser[]): Promise<void> {
           u.verificationType = COALESCE(userData.verificationType, ''),
           u.verificationReason = COALESCE(userData.verificationReason, ''),
           u.vibe = COALESCE(userData.vibe, ''),
-          u.individual_role = COALESCE(userData.individual_role, ''),
+          u.department = COALESCE(userData.department, ''),
           u.org_type = COALESCE(userData.org_type, ''),
           u.org_subtype = COALESCE(userData.org_subtype, ''),
           u.web3_focus = COALESCE(userData.web3_focus, '')
@@ -687,7 +712,7 @@ export function transformToNeo4jOrganization(apiUser: TwitterApiUser): Neo4jUser
     verificationType: apiUser.verification_info?.type || '',
     verificationReason: apiUser.verification_info?.reason || '',
     vibe: 'organization', // Mark as organization using vibe field
-    individual_role: '', // Not applicable for organizations
+    department: '',      // Not applicable for organizations
     // Organization classification fields - set to empty strings by default, updated by classifier
     org_type: '',
     org_subtype: '',
@@ -943,7 +968,7 @@ export async function processEmploymentData(profiles: any[]): Promise<void> {
   const startTime = Date.now()
   
   // Extract all organization data in single pass
-  const { orgUsernames, worksAtRelationships, workedAtRelationships, individualRoleUpdates } = extractOrganizationData(profiles)
+  const { orgUsernames, worksAtRelationships, workedAtRelationships, departmentUpdates } = extractOrganizationData(profiles)
   
   if (orgUsernames.length === 0) {
     console.log('No organizations found to process')
@@ -989,30 +1014,29 @@ export async function processEmploymentData(profiles: any[]): Promise<void> {
     existingWorkedAt
   )
   
-  // Execute all operations in parallel
-  const operations = []
+  // Execute all operations sequentially to avoid deadlocks
+  console.log(`🔄 Executing employment operations sequentially to prevent deadlocks...`)
   
   if (newWorksAt.length > 0) {
-    operations.push(addWorksAtRelationships(newWorksAt))
+    console.log(`   → Adding ${newWorksAt.length} WORKS_AT relationships...`)
+    await addWorksAtRelationships(newWorksAt)
   }
   
   if (newWorkedAt.length > 0) {
-    operations.push(addWorkedAtRelationships(newWorkedAt))
+    console.log(`   → Adding ${newWorkedAt.length} WORKED_AT relationships...`)
+    await addWorkedAtRelationships(newWorkedAt)
   }
   
-  if (individualRoleUpdates.length > 0) {
-    operations.push(updateUserIndividualRolesOptimized(individualRoleUpdates))
-  }
-  
-  if (operations.length > 0) {
-    await Promise.all(operations)
+  if (departmentUpdates.length > 0) {
+    console.log(`   → Updating ${departmentUpdates.length} user departments...`)
+    await updateUserDepartmentsOptimized(departmentUpdates)
   }
   
   const duration = Date.now() - startTime
   console.log(`✅ Employment data processing complete in ${duration}ms`)
   console.log(`   - New WORKS_AT: ${newWorksAt.length} (${existingWorksAt.length} already existed)`)
   console.log(`   - New WORKED_AT: ${newWorkedAt.length} (${existingWorkedAt.length} already existed)`)
-  console.log(`   - Individual role updates: ${individualRoleUpdates.length}`)
+  console.log(`   - Department updates: ${departmentUpdates.length}`)
 }
 
 // Batch ensure multiple organizations exist as User nodes with vibe='organization'
@@ -1085,12 +1109,12 @@ export function extractOrganizationData(profiles: any[]): {
   orgUsernames: string[]
   worksAtRelationships: Array<{userId: string, orgUsername: string}>
   workedAtRelationships: Array<{userId: string, orgUsername: string}>
-  individualRoleUpdates: Array<{userId: string, individual_role: string}>
+  departmentUpdates: Array<{userId: string, department: string}>
 } {
   const orgUsernames = new Set<string>()
   const worksAtRelationships: Array<{userId: string, orgUsername: string}> = []
   const workedAtRelationships: Array<{userId: string, orgUsername: string}> = []
-  const individualRoleUpdates: Array<{userId: string, individual_role: string}> = []
+  const departmentUpdates: Array<{userId: string, department: string}> = []
   
   profiles.forEach(profile => {
     const userId = profile.id_str || profile.id
@@ -1099,11 +1123,11 @@ export function extractOrganizationData(profiles: any[]): {
     const grokAnalysis = profile._grok_analysis
     if (!grokAnalysis) return
     
-    // Extract individual role (only for users who are already classified as individuals)
+    // Extract department (only for users who are already classified as individuals)
     if (grokAnalysis.current_position?.department) {
-      individualRoleUpdates.push({
+      departmentUpdates.push({
         userId,
-        individual_role: grokAnalysis.current_position.department
+        department: grokAnalysis.current_position.department
       })
     }
     
@@ -1136,42 +1160,32 @@ export function extractOrganizationData(profiles: any[]): {
     orgUsernames: Array.from(orgUsernames),
     worksAtRelationships,
     workedAtRelationships,
-    individualRoleUpdates
+    departmentUpdates
   }
-}
-
-// Batch update user individual roles (only for users already classified as individuals)
-export async function updateUserIndividualRoles(individualRoleUpdates: Array<{userId: string, individual_role: string}>): Promise<void> {
-  if (individualRoleUpdates.length === 0) return
-  
-  console.log(`👤 Updating individual roles for ${individualRoleUpdates.length} users`)
-  
-  const batchSize = 500
-  for (let i = 0; i < individualRoleUpdates.length; i += batchSize) {
-    const batch = individualRoleUpdates.slice(i, i + batchSize)
-    
-    const query = `
-      UNWIND $updates AS update
-      MATCH (u:User {userId: update.userId})
-      WHERE (u.vibe = 'individual' OR u.vibe = '' OR u.vibe IS NULL)
-      SET u.individual_role = update.individual_role
-    `
-    
-    await runQuery(query, { updates: batch })
-  }
-  
-  console.log(`✅ Updated individual roles for ${individualRoleUpdates.length} users`)
 }
 
 // Batch update user vibes
 export async function updateUserVibes(vibeUpdates: Array<{userId: string, vibe: string}>): Promise<void> {
   if (vibeUpdates.length === 0) return
   
-  console.log(`🎨 Updating vibes for ${vibeUpdates.length} users`)
+  // Validate all vibe values before processing
+  const { validUsers, invalidUsers } = await import('@/lib/validation').then(mod => 
+    mod.validateVibesBatch(vibeUpdates)
+  )
+  
+  // Log any validation errors
+  if (invalidUsers.length > 0) {
+    console.warn(`🚨 Found ${invalidUsers.length} invalid vibe values in batch update:`)
+    invalidUsers.forEach(({ userId, originalVibe, error }) => {
+      logValidationError('vibe', originalVibe, error, `updateUserVibes batch for user ${userId}`)
+    })
+  }
+  
+  console.log(`🎨 Updating vibes for ${validUsers.length} users (${invalidUsers.length} had invalid values)`)
   
   const batchSize = 500
-  for (let i = 0; i < vibeUpdates.length; i += batchSize) {
-    const batch = vibeUpdates.slice(i, i + batchSize)
+  for (let i = 0; i < validUsers.length; i += batchSize) {
+    const batch = validUsers.slice(i, i + batchSize)
     
     const query = `
       UNWIND $updates AS update
@@ -1182,7 +1196,7 @@ export async function updateUserVibes(vibeUpdates: Array<{userId: string, vibe: 
     await runQuery(query, { updates: batch })
   }
   
-  console.log(`✅ Updated vibes for ${vibeUpdates.length} users`)
+  console.log(`✅ Updated vibes for ${validUsers.length} users (${invalidUsers.length} had validation errors)`)
 }
 
 // Check existing employment relationships in batch
@@ -1340,10 +1354,23 @@ export async function createOrUpdateUsersOptimized(users: Neo4jUser[], maxAgeHou
 export async function updateUserVibesOptimized(updates: Array<{userId: string, vibe: string}>): Promise<number> {
   if (updates.length === 0) return 0
   
-  console.log(`🔍 Checking vibe updates for ${updates.length} users...`)
+  // Validate all vibe values before processing
+  const { validUsers, invalidUsers } = await import('@/lib/validation').then(mod => 
+    mod.validateVibesBatch(updates)
+  )
+  
+  // Log any validation errors
+  if (invalidUsers.length > 0) {
+    console.warn(`� Found ${invalidUsers.length} invalid vibe values in optimized batch update:`)
+    invalidUsers.forEach(({ userId, originalVibe, error }) => {
+      logValidationError('vibe', originalVibe, error, `updateUserVibesOptimized batch for user ${userId}`)
+    })
+  }
+  
+  console.log(`🔍 Checking vibe updates for ${validUsers.length} users (${invalidUsers.length} had invalid values)...`)
   
   // First, check which users actually need vibe updates
-  const userIds = updates.map(u => u.userId)
+  const userIds = validUsers.map(u => u.userId)
   const query = `
     UNWIND $userIds AS userId
     MATCH (u:User {userId: userId})
@@ -1358,7 +1385,7 @@ export async function updateUserVibesOptimized(updates: Array<{userId: string, v
   })
   
   // Filter to only updates that are actually changing the vibe
-  const actualUpdates = updates.filter(update => {
+  const actualUpdates = validUsers.filter(update => {
     const currentVibe = currentVibes.get(update.userId) || ''
     return currentVibe !== update.vibe
   })
@@ -1368,7 +1395,7 @@ export async function updateUserVibesOptimized(updates: Array<{userId: string, v
     return 0
   }
   
-  console.log(`📝 Updating vibe for ${actualUpdates.length} users (${updates.length - actualUpdates.length} already correct)`)
+  console.log(`📝 Updating vibe for ${actualUpdates.length} users (${validUsers.length - actualUpdates.length} already correct, ${invalidUsers.length} had validation errors)`)
   
   const batchSize = 500
   for (let i = 0; i < actualUpdates.length; i += batchSize) {
@@ -1386,41 +1413,41 @@ export async function updateUserVibesOptimized(updates: Array<{userId: string, v
   return actualUpdates.length
 }
 
-// Optimized: Update individual roles for users (only for users already classified as individuals)
-export async function updateUserIndividualRolesOptimized(updates: Array<{userId: string, individual_role: string}>): Promise<number> {
+// Optimized: Update user departments (for individual users)
+export async function updateUserDepartmentsOptimized(updates: Array<{userId: string, department: string}>): Promise<number> {
   if (updates.length === 0) return 0
   
-  console.log(`🔍 Checking individual role updates for ${updates.length} users...`)
+  console.log(`🔍 Checking department updates for ${updates.length} users...`)
   
-  // First, check which users need individual role updates (and are individuals or unclassified)
+  // First, check which users need department updates (and are individuals or unclassified)
   const userIds = updates.map(u => u.userId)
   const query = `
     UNWIND $userIds AS userId
     MATCH (u:User {userId: userId})
     WHERE (u.vibe = 'individual' OR u.vibe = '' OR u.vibe IS NULL)
-    RETURN u.userId as userId, u.individual_role as currentRole
+    RETURN u.userId as userId, u.department as currentDepartment
   `
   
   const results = await runQuery(query, { userIds })
-  const currentRoles = new Map<string, string>()
+  const currentDepartments = new Map<string, string>()
   
   results.forEach(record => {
-    currentRoles.set(record.userId, record.currentRole || '')
+    currentDepartments.set(record.userId, record.currentDepartment || '')
   })
   
-  // Filter to only updates for individual/unclassified users that are actually changing the role
+  // Filter to only updates for individual/unclassified users that are actually changing the department
   const actualUpdates = updates.filter(update => {
-    const currentRole = currentRoles.get(update.userId)
-    // Only update if user exists as individual/unclassified and role is different
-    return currentRole !== undefined && currentRole !== update.individual_role
+    const currentDepartment = currentDepartments.get(update.userId)
+    // Only update if user exists as individual/unclassified and department is different
+    return currentDepartment !== undefined && currentDepartment !== update.department
   })
   
   if (actualUpdates.length === 0) {
-    console.log(`✅ All individual roles are already up-to-date`)
+    console.log(`✅ All departments are already up-to-date`)
     return 0
   }
   
-  console.log(`📝 Updating individual role for ${actualUpdates.length} users (${updates.length - actualUpdates.length} skipped - not individuals/unclassified or already correct)`)
+  console.log(`📝 Updating department for ${actualUpdates.length} users (${updates.length - actualUpdates.length} skipped - not individuals/unclassified or already correct)`)
   
   const batchSize = 500
   for (let i = 0; i < actualUpdates.length; i += batchSize) {
@@ -1430,7 +1457,7 @@ export async function updateUserIndividualRolesOptimized(updates: Array<{userId:
       UNWIND $updates AS update
       MATCH (u:User {userId: update.userId})
       WHERE (u.vibe = 'individual' OR u.vibe = '' OR u.vibe IS NULL)
-      SET u.individual_role = update.individual_role
+      SET u.department = update.department
     `
     
     await runQuery(updateQuery, { updates: batch })
@@ -1557,4 +1584,52 @@ export async function getUsersWithExistingEmploymentRelationships(userIds: strin
   console.log(`✅ Found ${usersWithRelationships.length} users with existing employment relationships`)
   
   return usersWithRelationships
+}
+
+// Update organization classification data for existing organizations
+export async function updateOrganizationClassification(
+  organizations: Array<{
+    userId: string,
+    classification: {
+      org_type?: string,
+      org_subtype?: string,
+      web3_focus?: string
+    }
+  }>
+): Promise<void> {
+  if (organizations.length === 0) return
+
+  console.log(`📊 Updating organization classification for ${organizations.length} organizations...`)
+
+  const query = `
+    UNWIND $organizations AS org
+    MATCH (u:User {userId: org.userId})
+    SET 
+      u.org_type = COALESCE(org.classification.org_type, u.org_type, ''),
+      u.org_subtype = COALESCE(org.classification.org_subtype, u.org_subtype, ''),
+      u.web3_focus = COALESCE(org.classification.web3_focus, u.web3_focus, ''),
+      u.vibe = 'organization',
+      u.lastUpdated = datetime()
+    RETURN u.screenName as screenName, u.org_type as orgType, u.org_subtype as orgSubtype, u.web3_focus as web3Focus
+  `
+
+  try {
+    const results = await runQuery<{
+      screenName: string,
+      orgType: string,
+      orgSubtype: string,
+      web3Focus: string
+    }>(query, { organizations })
+
+    console.log(`✅ Updated organization classification for ${results.length} organizations`)
+    
+    // Log the updates for verification
+    results.forEach(result => {
+      console.log(`     🏢 @${result.screenName}: ${result.orgType}/${result.orgSubtype} (${result.web3Focus})`)
+    })
+
+  } catch (error: any) {
+    console.error('❌ Error updating organization classification:', error)
+    throw error
+  }
 }
