@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { createStructuredICPAnalysis, ICPAnalysisConfig } from '@/lib/grok'
-import { logAPIError, logExternalServiceError } from '@/lib/error-utils'
+import { logAPIError } from '@/lib/error-utils'
+import { getOrganizationForUI } from '@/lib/neo4j/services/user-service'
 import { 
   saveOrganization, 
-  saveICPAnalysis,
   updateOrganizationSocialInsights,
-  getICPAnalysis,
   getOrganizationByTwitter,
   trackUserOrganizationAccess,
-  DatabaseUtils,
-  type DetailedICPAnalysisResponse 
+  DatabaseUtils
 } from '@/lib/organization'
 import { 
   classifyOrganization, 
@@ -30,32 +28,6 @@ function extractSocialInsights(icpAnalysis: any) {
     recent_developments: icpAnalysis.ecosystem_analysis?.recent_developments?.join('; '),
     key_partnerships: icpAnalysis.ecosystem_analysis?.notable_partnerships || [],
     funding_info: icpAnalysis.governance_tokenomics?.organizational_structure?.funding_info
-  }
-}
-
-// Helper function to create detailed response format - optimized to reduce redundant copying
-function createDetailedResponse(icpAnalysis: any): DetailedICPAnalysisResponse {
-  return {
-    twitter_username: icpAnalysis.twitter_username,
-    timestamp_utc: icpAnalysis.timestamp_utc,
-    // Pass structured objects directly - no need to reconstruct
-    basic_identification: icpAnalysis.basic_identification,
-    core_metrics: icpAnalysis.core_metrics,
-    ecosystem_analysis: icpAnalysis.ecosystem_analysis,
-    governance_tokenomics: {
-      ...icpAnalysis.governance_tokenomics,
-      // Only add default tokenomics if missing
-      tokenomics: icpAnalysis.governance_tokenomics?.tokenomics || {
-        native_token: '',
-        utility: { governance: false, staking: false, fee_discount: false, collateral: false },
-        description: ''
-      }
-    },
-    user_behavior_insights: icpAnalysis.user_behavior_insights,
-    icp_synthesis: icpAnalysis.icp_synthesis,
-    messaging_strategy: icpAnalysis.messaging_strategy,
-    confidence_score: icpAnalysis.confidence_score,
-    research_sources: icpAnalysis.research_sources
   }
 }
 
@@ -162,22 +134,23 @@ export async function POST(request: NextRequest) {
     
     if (organization?.id) {
       console.log('✅ Organization found:', organization)
-      const existingICP = await getICPAnalysis(organization.id)
+      // ✅ Check Neo4j for existing ICP analysis
+      const existingProperties = await getOrganizationForUI(twitterUsername)
       
-      if (existingICP) {
-        console.log('✅ Existing ICP found, returning from cache')
+      if (existingProperties?.icp_synthesis && existingProperties?.confidence_score) {
+        console.log('✅ Existing ICP found in Neo4j, returning from cache')
         // Track user access
         await trackUserOrganizationAccess(userId, organization.id)
         
-        // Return existing ICP analysis
+        // Return existing ICP analysis from Neo4j (already inflated for UI)
         return NextResponse.json({
           success: true,
           organization,
-          icp: existingICP,
+          icp: existingProperties, // Inflated structure ready for UI
           fromCache: true
         })
       } else {
-        console.log('ℹ️ Organization exists but no ICP found')
+        console.log('ℹ️ Organization exists but no ICP found in Neo4j')
       }
     } else {
       console.log('ℹ️ No organization found')
@@ -236,32 +209,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Convert to expected format and save
-    console.log('💾 Saving ICP analysis...')
-    const detailedResponse = createDetailedResponse(icpAnalysis)
-    
-    const savedICP = await saveICPAnalysis(
-      organization.id!,
-      detailedResponse,
-      {
-        grokResponse: JSON.stringify(icpAnalysis),
-        modelUsed: 'grok-3',
-        tokenUsage: undefined
-      }
-    )
+    // ✅ ICP analysis is now saved to Neo4j by createStructuredICPAnalysis
+    // No need for separate Supabase save operation
+    console.log('✅ ICP analysis saved to Neo4j via createStructuredICPAnalysis')
 
-    if (!savedICP) {
-      console.log('❌ Failed to save ICP analysis')
-      return NextResponse.json({ 
-        error: 'Failed to save ICP analysis - database operation returned null' 
-      }, { status: 500 })
-    }
-
-    console.log('✅ ICP analysis saved')
-
-    // Fetch canonical ICP from DB to ensure consistency
-    console.log('📊 Fetching canonical ICP from database...')
-    const canonicalICP = await getICPAnalysis(organization.id!)
+    // Fetch canonical ICP from Neo4j to ensure consistency
+    console.log('📊 Fetching canonical ICP from Neo4j...')
+    const canonicalICP = await getOrganizationForUI(twitterUsername)
 
     console.log('✅ Grok analysis complete - returning response')
     return NextResponse.json({

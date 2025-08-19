@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { logAPIError } from '@/lib/error-utils'
+import { getOrganizationForUI, updateOrganizationProperties } from '@/lib/neo4j/services/user-service'
 import { 
   saveOrganization, 
   getOrganizationByTwitter,
-  saveICPAnalysis,
-  getICPAnalysis,
-  mapNewOrgJsonToDbFields,
   trackUserOrganizationAccess,
-  cleanupDuplicateOrganizations,
-  type Organization,
-  type OrganizationICP 
+  type Organization
 } from '@/lib/organization'
 
 // GET: Retrieve organization and ICP (global, not user-specific)
@@ -49,9 +45,10 @@ export async function GET(request: NextRequest) {
       await trackUserOrganizationAccess(userId, organization.id)
     }
     
-    console.log('📊 Fetching ICP analysis for organization:', organization.id)
-    const icp = await getICPAnalysis(organization.id!)
-    console.log('📊 ICP found:', icp ? 'YES' : 'NO')
+    console.log('📊 Fetching ICP analysis from Neo4j for organization:', twitter_username)
+    // Use the new centralized UI inflation function
+    const icp = await getOrganizationForUI(twitter_username)
+    console.log('📊 ICP found in Neo4j:', icp ? 'YES' : 'NO')
     
     const response = {
       organization,
@@ -106,27 +103,27 @@ export async function POST(request: NextRequest) {
         await trackUserOrganizationAccess(userId, organization.id)
       }
       
-      const icp = await getICPAnalysis(organization.id!)
-      console.log('📊 ICP found for existing org:', icp ? 'YES' : 'NO')
+      // ✅ Check Neo4j for ICP data instead of Supabase
+      const icp = await getOrganizationForUI(twitter_username)
+      console.log('📊 ICP found in Neo4j for existing org:', icp ? 'YES' : 'NO')
       return NextResponse.json({ organization, icp })
     }
     
     // Organization doesn't exist, create it
     console.log('🆕 Creating new organization...')
     let orgFields: Omit<Organization, 'user_id'> & { created_by_user_id: string }
-    let icpFields: Partial<OrganizationICP> | undefined
     
     if (body.basic_identification && body.icp_synthesis) {
       console.log('📊 Creating from detailed Grok response')
-      const mapped = mapNewOrgJsonToDbFields(body)
+      // ✅ Save comprehensive data to Neo4j instead of mapping to Supabase
+      await updateOrganizationProperties(userId, body)
+      
       orgFields = { 
-        ...mapped.org, 
         created_by_user_id: userId,
-        // Ensure required fields are present
-        name: mapped.org.name || body.twitter_username || 'Unknown',
-        twitter_username: (mapped.org.twitter_username || body.twitter_username || '').replace(/^@/, '').toLowerCase()
+        name: body.basic_identification?.project_name || body.twitter_username || 'Unknown',
+        twitter_username: (body.twitter_username || '').replace(/^@/, '').toLowerCase(),
+        website_url: body.basic_identification?.website_url
       }
-      icpFields = mapped.icp
     } else {
       console.log('📝 Creating from basic fields')
       // Fallback to legacy fields - only essential organization data
@@ -155,15 +152,8 @@ export async function POST(request: NextRequest) {
       await trackUserOrganizationAccess(userId, organization.id)
     }
     
-    // Save ICP if present in new format
-    let icp = null
-    if (icpFields) {
-      console.log('💾 Saving ICP fields')
-      icp = await saveICPAnalysis(organization.id!, icpFields as any, {})
-    } else {
-      console.log('📊 Fetching existing ICP')
-      icp = await getICPAnalysis(organization.id!)
-    }
+    // ✅ Get ICP data from Neo4j
+    const icp = await getOrganizationForUI(twitter_username)
     
     console.log('✅ Final response - org:', organization, 'icp:', icp ? 'YES' : 'NO')
     return NextResponse.json({ organization, icp })
@@ -212,13 +202,12 @@ export async function PUT(request: NextRequest) {
       }, { status: 404 })
     }
     
-    const savedICP = await saveICPAnalysis(
-      organization.id!,
-      icp,
-      {
-        customNotes
-      }
-    )
+    // ✅ Update ICP data in Neo4j instead of Supabase
+    const updatedData = { ...icp, custom_notes: customNotes }
+    await updateOrganizationProperties(userId, updatedData)
+    
+    // Get updated data from Neo4j
+    const savedICP = await getOrganizationForUI(twitter_username)
     
     if (!savedICP) {
       return NextResponse.json({ 

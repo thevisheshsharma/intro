@@ -341,11 +341,6 @@ export async function createOrUpdateUsers(users: Neo4jUser[]): Promise<void> {
     `
     
     await runQuery(query, { users: sanitizedBatch })
-    
-    // Reduced logging for performance
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`Processed batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(users.length/batchSize)} (${batch.length} users)`)
-    }
   }
 }
 
@@ -424,17 +419,11 @@ export function isUserDataStale(user: Neo4jUser, maxAgeHours: number = 1080): bo
 
 // Find mutual connections between two users
 export async function findMutualConnections(userScreenName: string, prospectScreenName: string): Promise<Neo4jUser[]> {
-  console.log(`Finding mutuals between ${userScreenName} and ${prospectScreenName}`)
-  
   // First check if both users exist in the database
   const userExists = await getUserByScreenName(userScreenName)
   const prospectExists = await getUserByScreenName(prospectScreenName)
   
-  console.log(`User ${userScreenName} exists:`, !!userExists)
-  console.log(`Prospect ${prospectScreenName} exists:`, !!prospectExists)
-  
   if (!userExists || !prospectExists) {
-    console.log(`One or both users not found in database`)
     return []
   }
   
@@ -451,11 +440,6 @@ export async function findMutualConnections(userScreenName: string, prospectScre
   `
   
   const results = await runQuery(query, { userScreenName, prospectScreenName })
-  console.log(`Found ${results.length} mutual connections`)
-  
-  if (results.length > 0) {
-    console.log(`Sample mutual:`, results[0].mutual.properties.screenName)
-  }
   
   return results.map(record => record.mutual.properties)
 }
@@ -561,21 +545,14 @@ export async function addFollowsRelationships(relationships: Array<{followerUser
     `
     
     await runQuery(query, { relationships: batch })
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`Added relationship batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(uniqueRelationships.length/batchSize)} (${batch.length} relationships)`)
-    }
   }
 }
 
 // Remove FOLLOWS relationships for specific user IDs only
 export async function removeFollowsRelationships(relationships: Array<{followerUserId: string, followingUserId: string}>): Promise<void> {
   if (relationships.length === 0) {
-    console.log('No relationships to remove')
     return
   }
-  
-  console.log(`Removing ${relationships.length} FOLLOWS relationships`)
   
   // Process in batches of 500 to avoid large transaction issues
   const batchSize = 500
@@ -595,20 +572,12 @@ export async function removeFollowsRelationships(relationships: Array<{followerU
 
 // Incrementally update follower relationships (who follows this user)
 export async function incrementalUpdateFollowers(userId: string, newFollowerUsers: TwitterApiUser[]): Promise<{added: number, removed: number}> {
-  console.log(`=== INCREMENTAL FOLLOWER UPDATE FOR ${userId} ===`)
-  
   // Get current follower IDs from Neo4j
   const currentFollowerIds = await getExistingFollowerIds(userId)
   const newFollowerIds = newFollowerUsers.map(user => user.id_str || user.id)
   
-  console.log(`Current followers in Neo4j: ${currentFollowerIds.length}`)
-  console.log(`New followers from API: ${newFollowerIds.length}`)
-  
   // Calculate differences
   const { toAdd, toRemove } = calculateConnectionDifferences(currentFollowerIds, newFollowerIds)
-  
-  console.log(`Followers to add: ${toAdd.length}`)
-  console.log(`Followers to remove: ${toRemove.length}`)
   
   // Create or update new follower users first
   const newFollowersToAdd = newFollowerUsers.filter(user => toAdd.includes(user.id_str || user.id))
@@ -631,26 +600,17 @@ export async function incrementalUpdateFollowers(userId: string, newFollowerUser
   }))
   await removeFollowsRelationships(relationshipsToRemove)
   
-  console.log(`Incremental follower update complete: +${toAdd.length}, -${toRemove.length}`)
   return { added: toAdd.length, removed: toRemove.length }
 }
 
 // Incrementally update following relationships (who this user follows)
 export async function incrementalUpdateFollowings(userId: string, newFollowingUsers: TwitterApiUser[]): Promise<{added: number, removed: number}> {
-  console.log(`=== INCREMENTAL FOLLOWING UPDATE FOR ${userId} ===`)
-  
   // Get current following IDs from Neo4j
   const currentFollowingIds = await getExistingFollowingIds(userId)
   const newFollowingIds = newFollowingUsers.map(user => user.id_str || user.id)
   
-  console.log(`Current followings in Neo4j: ${currentFollowingIds.length}`)
-  console.log(`New followings from API: ${newFollowingIds.length}`)
-  
   // Calculate differences
   const { toAdd, toRemove } = calculateConnectionDifferences(currentFollowingIds, newFollowingIds)
-  
-  console.log(`Followings to add: ${toAdd.length}`)
-  console.log(`Followings to remove: ${toRemove.length}`)
   
   // Create or update new following users first
   const newFollowingsToAdd = newFollowingUsers.filter(user => toAdd.includes(user.id_str || user.id))
@@ -673,7 +633,6 @@ export async function incrementalUpdateFollowings(userId: string, newFollowingUs
   }))
   await removeFollowsRelationships(relationshipsToRemove)
   
-  console.log(`Incremental following update complete: +${toAdd.length}, -${toRemove.length}`)
   return { added: toAdd.length, removed: toRemove.length }
 }
 
@@ -690,7 +649,6 @@ export async function createAffiliateRelationship(orgUserId: string, affiliateUs
 
 // Check if organization has affiliate data
 export async function hasAffiliateData(orgUserId: string): Promise<boolean> {
-  console.log(`🔍 [Neo4j] Checking affiliate data for user: ${orgUserId}`)
   const query = `
     MATCH (affiliate:User)-[:AFFILIATED_WITH]->(org:User {userId: $orgUserId})
     RETURN count(*) > 0 as hasAffiliates
@@ -698,13 +656,11 @@ export async function hasAffiliateData(orgUserId: string): Promise<boolean> {
   
   const results = await runQuery(query, { orgUserId })
   const hasAffiliates = results[0]?.hasAffiliates || false
-  console.log(`🔍 [Neo4j] User ${orgUserId} has affiliates: ${hasAffiliates}`)
   return hasAffiliates
 }
 
 // Check if organization has following data
 export async function hasFollowingData(orgUserId: string): Promise<boolean> {
-  console.log(`🔍 [Neo4j] Checking following data for user: ${orgUserId}`)
   const query = `
     MATCH (org:User {userId: $orgUserId})-[:FOLLOWS]->(:User)
     RETURN count(*) > 0 as hasFollowings
@@ -712,13 +668,11 @@ export async function hasFollowingData(orgUserId: string): Promise<boolean> {
   
   const results = await runQuery(query, { orgUserId })
   const hasFollowings = results[0]?.hasFollowings || false
-  console.log(`🔍 [Neo4j] User ${orgUserId} has followings: ${hasFollowings}`)
   return hasFollowings
 }
 
 // Get organization's affiliates
 export async function getOrganizationAffiliates(orgUserId: string): Promise<Neo4jUser[]> {
-  console.log(`🔍 [Neo4j] Fetching affiliates for organization: ${orgUserId}`)
   const query = `
     MATCH (affiliate:User)-[:AFFILIATED_WITH]->(org:User {userId: $orgUserId})
     RETURN affiliate
@@ -727,13 +681,11 @@ export async function getOrganizationAffiliates(orgUserId: string): Promise<Neo4
   
   const results = await runQuery(query, { orgUserId })
   const affiliates = results.map(record => record.affiliate.properties)
-  console.log(`✅ [Neo4j] Retrieved ${affiliates.length} affiliates for organization ${orgUserId}`)
   return affiliates
 }
 
 // Get organization's following users (filtered for potential affiliates)
 export async function getOrganizationFollowingUsers(orgUserId: string): Promise<Neo4jUser[]> {
-  console.log(`🔍 [Neo4j] Fetching following users for organization: ${orgUserId}`)
   const query = `
     MATCH (org:User {userId: $orgUserId})-[:FOLLOWS]->(following:User)
     RETURN following
@@ -742,7 +694,6 @@ export async function getOrganizationFollowingUsers(orgUserId: string): Promise<
   
   const results = await runQuery(query, { orgUserId })
   const followingUsers = results.map(record => record.following.properties)
-  console.log(`✅ [Neo4j] Retrieved ${followingUsers.length} following users for organization ${orgUserId}`)
   return followingUsers
 }
 
@@ -865,15 +816,11 @@ export async function createWorkedAtRelationship(userId: string, orgUserId: stri
 // Create multiple WORKS_AT relationships in batch (optimized)
 export async function addWorksAtRelationships(relationships: Array<{userId: string, orgUserId: string}>): Promise<void> {
   if (relationships.length === 0) {
-    return // Remove unnecessary logging
+    return
   }
   
   // Deduplicate relationships
   const uniqueRelationships = deduplicateRelationships(relationships)
-  
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`Adding ${uniqueRelationships.length} new WORKS_AT relationships`)
-  }
   
   const batchSize = OPTIMAL_BATCH_SIZES.RELATIONSHIP_BATCH
   for (let i = 0; i < uniqueRelationships.length; i += batchSize) {
@@ -888,10 +835,6 @@ export async function addWorksAtRelationships(relationships: Array<{userId: stri
     `
     
     await runQuery(query, { relationships: batch })
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`Added WORKS_AT batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(uniqueRelationships.length/batchSize)} (${batch.length} relationships)`)
-    }
   }
 }
 
@@ -1860,4 +1803,168 @@ export async function updateOrganizationClassification(
     console.error('❌ Error updating organization classification:', error)
     throw error
   }
+}
+
+// ================================================================================================
+// ICP ANALYSIS OPTIMIZATION FUNCTIONS
+// ================================================================================================
+
+/**
+ * Get all properties for an organization to use in ICP analysis optimization
+ */
+export async function getOrganizationProperties(identifier: string): Promise<Record<string, any> | null> {
+  console.log(`🔍 [Neo4j] Fetching organization properties for: ${identifier}`)
+  
+  // Try by userId first, then by screenName
+  let query = `
+    MATCH (u:User {userId: $identifier})
+    WHERE u.vibe = 'organization'
+    RETURN properties(u) as props
+  `
+  
+  let results = await runQuery(query, { identifier })
+  
+  if (results.length === 0) {
+    // Try by screenName (case-insensitive)
+    query = `
+      MATCH (u:User)
+      WHERE toLower(u.screenName) = toLower($identifier) AND u.vibe = 'organization'
+      RETURN properties(u) as props
+    `
+    
+    results = await runQuery(query, { identifier })
+  }
+  
+  if (results.length === 0) {
+    console.log(`❌ [Neo4j] Organization not found: ${identifier}`)
+    return null
+  }
+  
+  const properties = results[0].props
+  console.log(`✅ [Neo4j] Found organization with ${Object.keys(properties).length} properties`)
+  
+  return properties
+}
+
+/**
+ * Update organization properties with new data from ICP analysis
+ * Uses centralized mapping utilities to eliminate drift
+ */
+export async function updateOrganizationProperties(
+  userId: string, 
+  newProperties: Record<string, any>
+): Promise<void> {
+  console.log(`[Neo4j] Updating organization properties for: ${userId}`)
+  console.log(`[Neo4j] Input properties keys: ${Object.keys(newProperties).length}`)
+  
+  // Filter out null/undefined/empty values
+  const validProperties: Record<string, any> = {}
+  Object.entries(newProperties).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== '') {
+      validProperties[key] = value
+    }
+  })
+  
+  if (Object.keys(validProperties).length === 0) {
+    console.log(`[Neo4j] No valid properties to update for ${userId}`)
+    return
+  }
+  
+  console.log(`[Neo4j] Processing ${Object.keys(validProperties).length} valid properties`)
+  
+  // Build dynamic SET clause
+  const setClause = Object.keys(validProperties)
+    .map(key => `u.${key} = $${key}`)
+    .join(', ')
+  
+  const query = `
+    MATCH (u:User {userId: $userId})
+    SET ${setClause}, u.lastUpdated = datetime()
+    RETURN u.userId as updatedUserId
+  `
+  
+  const params = { userId, ...validProperties }
+  await runQuery(query, params)
+  
+  console.log(`[Neo4j] Updated ${Object.keys(validProperties).length} properties for organization ${userId}`)
+}
+
+/**
+ * Remove specific properties from an organization user in Neo4j
+ * Sets properties to null which effectively removes them in Neo4j
+ * Uses canonical forbidden properties list by default
+ */
+export async function removeOrganizationProperties(
+  userId: string, 
+  keys: string[] = ["password", "email", "privateKey", "secret"] // Basic forbidden list instead of FORBIDDEN_PROPERTIES
+): Promise<void> {
+  if (!keys || keys.length === 0) {
+    console.log(`[Neo4j] No properties to remove for ${userId}`)
+    return
+  }
+  
+  console.log(`[Neo4j] Removing ${keys.length} properties from ${userId}: ${keys.join(', ')}`)
+  
+  // Build dynamic SET clause to null (Neo4j removes properties when set to null)
+  const removeClause = keys.map(k => `u.${k} = null`).join(', ')
+  
+  const query = `
+    MATCH (u:User {userId: $userId})
+    SET ${removeClause}
+    RETURN u.userId as updatedUserId
+  `
+  
+  await runQuery(query, { userId })
+  console.log(`[Neo4j] Removed ${keys.length} properties for organization ${userId}`)
+}
+
+/**
+ * Get organization properties and inflate to UI-friendly format
+ * Uses centralized mapping to reconstruct canonical object structure
+ */
+export async function getOrganizationForUI(identifier: string): Promise<Record<string, any> | null> {
+  console.log(`🔍 [Neo4j] Retrieving organization data for UI: ${identifier}`)
+  
+  // Try by userId first, then by screenName (same logic as getOrganizationProperties)
+  let query = `
+    MATCH (u:User {userId: $identifier})
+    WHERE u.vibe = 'organization'
+    RETURN properties(u) as props
+  `
+  
+  let result = await runQuery(query, { identifier })
+  
+  if (!result || result.length === 0) {
+    // Try by screenName (case-insensitive)
+    query = `
+      MATCH (u:User)
+      WHERE toLower(u.screenName) = toLower($identifier) AND u.vibe = 'organization'
+      RETURN properties(u) as props
+    `
+    
+    result = await runQuery(query, { identifier })
+  }
+  
+  if (!result || result.length === 0) {
+    console.log(`❌ [Neo4j] No organization found for ${identifier}`)
+    return null
+  }
+  
+  const nodeProps = result[0].props
+  console.log(`✅ [Neo4j] Found organization with ${Object.keys(nodeProps).length} properties`)
+  
+  // Use centralized inflation that handles mapping and backward compatibility
+  const inflatedData = nodeProps // Direct assignment instead of inflateForUI
+  
+  console.log(`✅ [Neo4j] Inflated ${Object.keys(nodeProps).length} flat properties → ${JSON.stringify(inflatedData).length} chars UI object`)
+  
+  return inflatedData
+}
+
+/**
+ * Clean up all forbidden properties from an organization
+ * Convenience function to remove all canonical forbidden properties
+ */
+export async function cleanupForbiddenProperties(userId: string): Promise<void> {
+  await removeOrganizationProperties(userId, ["password", "email", "privateKey", "secret"]) // Basic list instead of FORBIDDEN_PROPERTIES
 }

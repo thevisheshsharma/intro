@@ -13,13 +13,14 @@ import { ErrorDisplay } from '@/components/ui/error-display'
 import { EnhancedICPDisplay } from '@/components/icp/enhanced-icp-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { lookupTwitterUser, transformTwitterUser } from '../../lib/twitter-helpers'
-import type { Organization, OrganizationICP } from '@/lib/organization'
+import type { Organization } from '@/lib/organization'
 import SearchForm from '@/app/SearchForm'
+import { isICPAnalysisStale } from '@/lib/utils'
 
 export default function ManageOrgPanel() {
   const { user, isLoaded } = useUser()
   const [organization, setOrganization] = useState<Organization | null>(null)
-  const [icp, setIcp] = useState<OrganizationICP | null>(null)
+  const [icp, setIcp] = useState<Record<string, any> | null>(null) // ✅ Use generic type for Neo4j data
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -69,8 +70,15 @@ export default function ManageOrgPanel() {
           setOrganization(data.organization)
           console.log('✅ Organization loaded:', data.organization)
           if (data.icp) {
-            setIcp(data.icp)
-            console.log('✅ ICP loaded:', data.icp)
+            // ✅ Check if ICP analysis is stale before showing it
+            const isStale = isICPAnalysisStale(data.icp)
+            if (!isStale) {
+              setIcp(data.icp)
+              console.log('✅ ICP loaded (fresh):', data.icp)
+            } else {
+              console.log('⏰ ICP analysis is stale (>60 days), will need re-analysis')
+              setIcp(null) // Don't show stale data
+            }
           }
         } else {
           console.log('ℹ️ No organization found for last searched username')
@@ -184,9 +192,6 @@ export default function ManageOrgPanel() {
       // Load org data (now checks globally, not user-specific)
       console.log('🏢 Fetching organization data...')
       
-      // First check for duplicates (debug)
-      await checkForDuplicates()
-      
       const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${normalizedUsername}`)
       const data = await response.json()
       
@@ -198,9 +203,17 @@ export default function ManageOrgPanel() {
         setOrganization(data.organization)
         console.log('✅ Organization loaded:', data.organization)
         if (data.icp) {
-          setIcp(data.icp)
-          console.log('✅ ICP data loaded:', data.icp)
-          setSuccess('Loaded existing ICP analysis')
+          // ✅ Check if ICP analysis is stale before showing it
+          const isStale = isICPAnalysisStale(data.icp)
+          if (!isStale) {
+            setIcp(data.icp)
+            console.log('✅ ICP data loaded (fresh):', data.icp)
+            setSuccess('Loaded existing ICP analysis')
+          } else {
+            console.log('⏰ ICP analysis is stale (>60 days), needs re-analysis')
+            setIcp(null) // Don't show stale data
+            setSuccess('Organization found - ICP analysis is outdated, please re-analyze')
+          }
         } else {
           console.log('ℹ️ No ICP data found for organization')
           setSuccess('Organization found - ready for ICP analysis')
@@ -222,9 +235,9 @@ export default function ManageOrgPanel() {
     }
   }
 
-  // Debug function to check for duplicates
+  // Debug function to check for duplicates (development only)
   const checkForDuplicates = async () => {
-    if (!searchValue.trim()) return
+    if (process.env.NODE_ENV !== 'development' || !searchValue.trim()) return
     
     console.log('🔍 Checking for duplicate organizations...')
     try {
