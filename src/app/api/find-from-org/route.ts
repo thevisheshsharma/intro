@@ -22,6 +22,7 @@ import {
   checkExistingFollowsRelationships,
   filterOutExistingRelationships,
   getUsersWithExistingEmploymentRelationships,
+  getOrganizationEmployees,
   updateOrganizationClassification
 } from '@/lib/neo4j/services/user-service'
 
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
       grokUsers: string[];
       followingUsers: any[];
       allProfiles: any[];
+      existingEmployees: any[];
       errors: string[];
       meta?: {
         grokOrganizationsUpdated?: number;
@@ -74,6 +76,7 @@ export async function POST(request: NextRequest) {
       grokUsers: [],
       followingUsers: [],
       allProfiles: [],
+      existingEmployees: [],
       errors: [],
       meta: {}
     }
@@ -91,7 +94,8 @@ export async function POST(request: NextRequest) {
       neo4jOrgResult,
       socialApiOrgResult,
       grokResult,
-      searchResult
+      searchResult,
+      existingEmployeesResult
     ] = await Promise.allSettled([
       // 1a: Neo4j org lookup
       (async () => {
@@ -145,6 +149,26 @@ export async function POST(request: NextRequest) {
           console.warn(`   → ⚠️  Search: API returned ${searchResponse.status}`)
           return []
         }
+      })(),
+      
+      // 1e: Existing employees lookup (conditional)
+      (async () => {
+        console.log('   → Starting existing employees lookup...')
+        try {
+          // Try to get org user ID from Neo4j first
+          const orgUser = await getUserByScreenName(orgUsername)
+          if (orgUser?.userId) {
+            const employees = await getOrganizationEmployees(orgUser.userId)
+            console.log(`   → ✅ Existing employees: Found ${employees.length} with WORKS_AT relationships`)
+            return employees
+          } else {
+            console.log('   → ✅ Existing employees: No org found in Neo4j, will check after org profile determined')
+            return null // Will be checked later when org profile is available
+          }
+        } catch (error: any) {
+          console.warn(`   → ⚠️  Existing employees: ${error.message}`)
+          return null
+        }
       })()
     ])
     
@@ -191,6 +215,18 @@ export async function POST(request: NextRequest) {
         console.error(`   → ❌ Search error: ${searchResult.reason?.message}`)
         results.errors.push(`Search error: ${searchResult.reason?.message}`)
         results.searchedUsers = []
+      }
+
+      // Process Existing Employees result
+      if (existingEmployeesResult.status === 'fulfilled' && existingEmployeesResult.value) {
+        results.existingEmployees = existingEmployeesResult.value
+        console.log(`   → ✅ Existing employees: Found ${results.existingEmployees.length} with WORKS_AT relationships`)
+      } else {
+        console.log('   → ✅ Existing employees: None found or will check later when org profile is available')
+        if (existingEmployeesResult.status === 'rejected') {
+          console.debug('   → Existing employees lookup error:', existingEmployeesResult.reason?.message)
+        }
+        results.existingEmployees = []
       }
 
       // Affiliates will be fetched after org profile is determined
@@ -340,6 +376,19 @@ export async function POST(request: NextRequest) {
       } else {
         console.log('   → ⚠️  No user ID available for affiliates fetch')
         results.affiliatedUsers = []
+      }
+      
+      // Fetch existing employees if not already fetched and we now have org profile
+      if (results.orgProfile?.id_str && results.existingEmployees.length === 0) {
+        try {
+          console.log('   → Fetching existing employees now that org profile is available...')
+          const employees = await getOrganizationEmployees(results.orgProfile.id_str)
+          results.existingEmployees = employees
+          console.log(`   → ✅ Found ${employees.length} existing employees with WORKS_AT relationships`)
+        } catch (employeesError: any) {
+          console.warn(`   → ⚠️  Error fetching existing employees: ${employeesError.message}`)
+          results.existingEmployees = []
+        }
       }
       
     } catch (error: any) {
@@ -600,6 +649,15 @@ export async function POST(request: NextRequest) {
     // instead of multiple separate checks throughout the code. This significantly reduces Neo4j queries.
     console.log('🔍 Step 3: Collecting profiles and batch checking existence in Neo4j...')
     
+    // Create a set of existing employee usernames to exclude from processing
+    const existingEmployeeUsernames = new Set<string>()
+    if (results.existingEmployees.length > 0) {
+      results.existingEmployees.forEach(employee => {
+        existingEmployeeUsernames.add(employee.screenName.toLowerCase())
+      })
+      console.log(`   → Excluding ${existingEmployeeUsernames.size} existing employees from profile collection pipeline`)
+    }
+    
     const allUsernames = new Set<string>()
     const allProfiles: any[] = []
     
@@ -611,30 +669,30 @@ export async function POST(request: NextRequest) {
       grok: []  // Will be populated after checking existing Grok users
     }
     
-    // Add FULL PROFILES from affiliates (already have complete data)
+    // Add FULL PROFILES from affiliates (already have complete data) - exclude existing employees
     results.affiliatedUsers.forEach((user: any) => {
-      if (user.screen_name) {
+      if (user.screen_name && !existingEmployeeUsernames.has(user.screen_name.toLowerCase())) {
         allUsernames.add(user.screen_name.toLowerCase())
         allProfiles.push(user)
       }
     })
     
-    // Add FULL PROFILES from search (already have complete data)
+    // Add FULL PROFILES from search (already have complete data) - exclude existing employees
     results.searchedUsers.forEach((user: any) => {
       if (user.screen_name) {
         const username = user.screen_name.toLowerCase()
-        if (!allUsernames.has(username)) { // Avoid duplicates
+        if (!allUsernames.has(username) && !existingEmployeeUsernames.has(username)) { // Avoid duplicates and existing employees
           allUsernames.add(username)
           allProfiles.push(user)
         }
       }
     })
     
-    // Add FULL PROFILES from following list analysis (already have complete data)
+    // Add FULL PROFILES from following list analysis (already have complete data) - exclude existing employees
     results.followingUsers.forEach((user: any) => {
       if (user.screen_name) {
         const username = user.screen_name.toLowerCase()
-        if (!allUsernames.has(username)) { // Avoid duplicates
+        if (!allUsernames.has(username) && !existingEmployeeUsernames.has(username)) { // Avoid duplicates and existing employees
           allUsernames.add(username)
           allProfiles.push(user)
         }
@@ -647,11 +705,11 @@ export async function POST(request: NextRequest) {
     if (results.grokUsers.length > 0) {
       console.log(`   → Processing ${results.grokUsers.length} Grok usernames...`)
       
-      // Filter out Grok usernames already found in other sources
+      // Filter out Grok usernames already found in other sources or existing employees
       const grokUsernamesNotYetAdded = results.grokUsers.filter((username: string) => {
         if (username) {
           const cleanUsername = username.toLowerCase()
-          return !allUsernames.has(cleanUsername)
+          return !allUsernames.has(cleanUsername) && !existingEmployeeUsernames.has(cleanUsername)
         }
         return false
       })
@@ -663,34 +721,36 @@ export async function POST(request: NextRequest) {
           const existingGrokUsers = await getUsersByScreenNames(grokUsernamesNotYetAdded)
           const existingUsernamesSet = new Set(existingGrokUsers.map(user => user.screenName.toLowerCase()))
           
-          // Add existing Grok users to profiles
+          // Add existing Grok users to profiles (exclude existing employees)
           existingGrokUsers.forEach(existingUser => {
-            const apiFormatUser = {
-              id: existingUser.userId,
-              id_str: existingUser.userId,
-              screen_name: existingUser.screenName,
-              name: existingUser.name,
-              description: existingUser.description,
-              location: existingUser.location,
-              url: existingUser.url,
-              profile_image_url_https: existingUser.profileImageUrl,
-              followers_count: existingUser.followersCount,
-              friends_count: existingUser.followingCount,
-              verified: existingUser.verified,
-              created_at: existingUser.createdAt,
-              listed_count: existingUser.listedCount,
-              statuses_count: existingUser.statusesCount,
-              favourites_count: existingUser.favouritesCount,
-              protected: existingUser.protected,
-              can_dm: existingUser.canDm,
-              profile_banner_url: existingUser.profileBannerUrl,
-              verification_info: {
-                type: existingUser.verificationType,
-                reason: existingUser.verificationReason
+            if (!existingEmployeeUsernames.has(existingUser.screenName.toLowerCase())) {
+              const apiFormatUser = {
+                id: existingUser.userId,
+                id_str: existingUser.userId,
+                screen_name: existingUser.screenName,
+                name: existingUser.name,
+                description: existingUser.description,
+                location: existingUser.location,
+                url: existingUser.url,
+                profile_image_url_https: existingUser.profileImageUrl,
+                followers_count: existingUser.followersCount,
+                friends_count: existingUser.followingCount,
+                verified: existingUser.verified,
+                created_at: existingUser.createdAt,
+                listed_count: existingUser.listedCount,
+                statuses_count: existingUser.statusesCount,
+                favourites_count: existingUser.favouritesCount,
+                protected: existingUser.protected,
+                can_dm: existingUser.canDm,
+                profile_banner_url: existingUser.profileBannerUrl,
+                verification_info: {
+                  type: existingUser.verificationType,
+                  reason: existingUser.verificationReason
+                }
               }
+              allProfiles.push(apiFormatUser)
+              allUsernames.add(existingUser.screenName.toLowerCase())
             }
-            allProfiles.push(apiFormatUser)
-            allUsernames.add(existingUser.screenName.toLowerCase())
           })
           
           // Identify usernames that need fetching from API
@@ -1131,10 +1191,71 @@ export async function POST(request: NextRequest) {
       }
     }> = []
 
+    // First, process existing employees as source of truth
+    console.log(`   → Processing ${results.existingEmployees.length} existing employees as source of truth...`)
+    const existingEmployeeUserIds = new Set<string>()
+    
+    if (results.existingEmployees.length > 0) {
+      results.existingEmployees.forEach(employee => {
+        existingEmployeeUserIds.add(employee.userId)
+        
+        // Convert employee data to expected format and add to final individuals
+        const employeeProfile = {
+          id: employee.userId,
+          id_str: employee.userId,
+          screen_name: employee.screenName,
+          name: employee.name,
+          description: employee.description,
+          location: employee.location,
+          url: employee.url,
+          profile_image_url_https: employee.profileImageUrl,
+          followers_count: employee.followersCount,
+          friends_count: employee.followingCount,
+          verified: employee.verified,
+          created_at: employee.createdAt,
+          listed_count: employee.listedCount,
+          statuses_count: employee.statusesCount,
+          favourites_count: employee.favouritesCount,
+          protected: employee.protected,
+          can_dm: employee.canDm,
+          profile_banner_url: employee.profileBannerUrl,
+          verification_info: {
+            type: employee.verificationType,
+            reason: employee.verificationReason
+          },
+          _relevance_reason: 'existing_works_at_relationship',
+          _grok_analysis: {
+            current_position: {
+              position: employee.position || 'Employee',
+              organizations: [orgUsername],
+              department: employee.department || 'Unknown',
+              startDate: employee.startDate,
+              endDate: employee.endDate
+            },
+            employment_history: []
+          }
+        }
+        
+        finalIndividuals.push(employeeProfile)
+        usersWithExistingRelationships.push(employeeProfile)
+      })
+      
+      console.log(`   → ✅ Added ${results.existingEmployees.length} existing employees directly to final results (skipping all analysis)`)
+    }
+
     if (relevantIndividuals.length > 0 && results.orgProfile?.id_str) {
       try {
-        // Get user IDs from relevant individuals
-        const userIds = relevantIndividuals
+        // Filter out existing employees from relevant individuals before processing
+        const relevantIndividualsToProcess = relevantIndividuals.filter(profile => {
+          const userId = profile.id_str || profile.id
+          return !existingEmployeeUserIds.has(userId)
+        })
+        
+        console.log(`   → Filtered out ${relevantIndividuals.length - relevantIndividualsToProcess.length} existing employees from analysis pipeline`)
+        console.log(`   → Processing ${relevantIndividualsToProcess.length} remaining individuals for comprehensive data check`)
+        
+        // Get user IDs from filtered relevant individuals
+        const userIds = relevantIndividualsToProcess
           .filter(profile => profile.id_str || profile.id)
           .map(profile => profile.id_str || profile.id)
         
@@ -1194,10 +1315,11 @@ export async function POST(request: NextRequest) {
           const classificationResults = {
             skipGrok: 0,
             needsGrok: 0,
-            organizations: 0
+            organizations: 0,
+            existingEmployees: results.existingEmployees.length
           }
           
-          relevantIndividuals.forEach(profile => {
+          relevantIndividualsToProcess.forEach(profile => {
             const userId = profile.id_str || profile.id
             const userData = userDataMap.get(userId)
             
@@ -1224,24 +1346,32 @@ export async function POST(request: NextRequest) {
           })
           
           console.log(`📊 Early filtering results:`)
+          console.log(`   👥 Existing employees (source of truth): ${classificationResults.existingEmployees}`)
           console.log(`   🏢 Organizations (pre-identified): ${classificationResults.organizations}`)
           console.log(`   ⚡ Skip Grok (has employment data): ${classificationResults.skipGrok}`)
           console.log(`   🤖 Needs Grok analysis: ${classificationResults.needsGrok}`)
-          console.log(`   📈 Grok analysis reduction: ${Math.round((classificationResults.skipGrok / relevantIndividuals.length) * 100)}%`)
+          console.log(`   📈 Total Grok analysis reduction: ${Math.round(((classificationResults.existingEmployees + classificationResults.skipGrok) / (relevantIndividuals.length || 1)) * 100)}%`)
           
         } else {
           console.log('   → No valid user IDs found for comprehensive data check')
-          usersNeedingGrokAnalysis = relevantIndividuals
+          usersNeedingGrokAnalysis = relevantIndividualsToProcess
         }
       } catch (comprehensiveCheckError: any) {
         console.warn(`⚠️ Error in comprehensive user data check:`, comprehensiveCheckError.message)
         results.errors.push(`Comprehensive data check error: ${comprehensiveCheckError.message}`)
-        // Fallback: send all users to Grok analysis
-        usersNeedingGrokAnalysis = relevantIndividuals
+        // Fallback: send all users (except existing employees) to Grok analysis
+        usersNeedingGrokAnalysis = relevantIndividuals.filter(profile => {
+          const userId = profile.id_str || profile.id
+          return !existingEmployeeUserIds.has(userId)
+        })
       }
     } else {
       console.log('   → No relevant individuals or org profile for comprehensive check')
-      usersNeedingGrokAnalysis = relevantIndividuals
+      // Exclude existing employees from fallback analysis
+      usersNeedingGrokAnalysis = relevantIndividuals.filter(profile => {
+        const userId = profile.id_str || profile.id
+        return !existingEmployeeUserIds.has(userId)
+      })
     }
 
     // Step 5.6: Grok analysis for remaining users only (OPTIMIZED)
@@ -1516,7 +1646,7 @@ export async function POST(request: NextRequest) {
             const orgClassificationUpdates = orgsToUpdate.map(org => ({
               userId: org.userId,
               classification: org.classification || {
-                org_type: 'business',
+                org_type: 'service',
                 org_subtype: 'other',
                 web3_focus: 'traditional'
               }
@@ -1590,7 +1720,7 @@ export async function POST(request: NextRequest) {
               
               // Apply classification data if available
               if (classification) {
-                orgUser.org_type = classification.org_type || 'business'
+                orgUser.org_type = classification.org_type || 'service'
                 orgUser.org_subtype = classification.org_subtype || 'other'
                 orgUser.web3_focus = classification.web3_focus || 'traditional'
               }
@@ -1612,12 +1742,14 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`📊 Final analysis summary:`)
+    console.log(`   👥 Existing employees (source of truth): ${results.existingEmployees.length}`)
     console.log(`   🏢 Users pre-identified as organizations: ${usersIdentifiedAsOrganizations.length}`)
     console.log(`   🏢 Organizations identified by Grok: ${grokIdentifiedOrganizations.length}`)
     console.log(`   ✅ Users with existing employment data: ${usersWithExistingRelationships.length}`)
     console.log(`   🤖 Users processed by Grok: ${usersNeedingGrokAnalysis.length}`)
     console.log(`   👤 Total final individuals: ${finalIndividuals.length}`)
     console.log(`   📈 Updated total rejected: ${rejectedProfiles.length}`)
+    console.log(`   💰 Total expensive AI calls saved: ${results.existingEmployees.length + usersWithExistingRelationships.length + usersIdentifiedAsOrganizations.length}`)
 
     // Update results with the Grok-analyzed profile collection
     results.allProfiles = finalIndividuals
@@ -1860,7 +1992,7 @@ export async function POST(request: NextRequest) {
       const grokAnalysis = profile._grok_analysis
       let hasOrgAffiliation = false
       
-      if (grokAnalysis?.current_position?.organizations) {
+      if (grokAnalysis?.current_position?.organizations && Array.isArray(grokAnalysis.current_position.organizations)) {
         // Check if any of the current organizations match the searched org
         const orgs = grokAnalysis.current_position.organizations
         hasOrgAffiliation = orgs.some((org: string) => {
@@ -1896,6 +2028,7 @@ export async function POST(request: NextRequest) {
         directAffiliatesFound: directAffiliates.length,
         otherIndividualsFound: otherIndividuals.length,
         individualsFound: finalIndividuals.length,
+        existingEmployeesFound: results.existingEmployees.length,
         affiliatesFound: results.affiliatedUsers.length,
         searchResultsFound: results.searchedUsers.length,
         grokSuggestionsFound: results.grokUsers.length,
@@ -1911,6 +2044,7 @@ export async function POST(request: NextRequest) {
       individuals: finalIndividuals,
       directAffiliates: directAffiliates,
       otherIndividuals: otherIndividuals,
+      existingEmployees: results.existingEmployees,
       rejectedProfiles: rejectedProfiles,
       grokAnalysisMetadata: grokAnalysisMetadata,
       errors: results.errors.length > 0 ? results.errors : undefined

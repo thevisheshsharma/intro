@@ -1,5 +1,7 @@
 import { runQuery } from '@/lib/neo4j'
 import OpenAI from 'openai';
+import { zodResponseFormat } from 'openai/helpers/zod';
+import { z } from 'zod';
 import { getUserByScreenName, transformToNeo4jUser, createOrUpdateUser, processEmploymentData } from '@/lib/neo4j/services/user-service'
 import { validateVibe, logValidationError, VibeType } from '@/lib/validation'
 import { GROK_CONFIGS } from './grok'
@@ -16,13 +18,13 @@ const grokClient = new OpenAI({
 export interface ClassificationResult {
   vibe: 'individual' | 'organization' | 'spam' | string
   current_position?: {
-    organizations: string[]
+    organizations: string[] | null
     department: 'engineering' | 'product' | 'marketing' | 'business' | 'operations' | 'research' | 'community' | 'leadership' | 'other'
   }
   employment_history?: Array<{
     organization: string
   }>
-  org_type?: 'protocol' | 'investment' | 'business' | 'community'
+  org_type?: 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community'
   org_subtype?: string
   web3_focus?: 'native' | 'adjacent' | 'traditional'
   last_updated: string
@@ -67,7 +69,7 @@ export type UnifiedClassificationResult = {
   
   // Individual fields (optional)
   current_position?: {
-    organizations: string[];
+    organizations: string[] | null;
     department: 'engineering' | 'product' | 'marketing' | 'business' | 'operations' | 'research' | 'community' | 'leadership' | 'other';
   };
   employment_history?: Array<{
@@ -75,10 +77,35 @@ export type UnifiedClassificationResult = {
   }>;
   
   // Organization fields (optional)
-  org_type?: 'protocol' | 'investment' | 'business' | 'community';
+  org_type?: 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community';
   org_subtype?: string;
   web3_focus?: 'native' | 'adjacent' | 'traditional';
 };
+
+/**
+ * Zod schema for classification results with proper validation
+ * Note: OpenAI structured outputs require nullable() for optional fields
+ */
+const ClassificationSchema = z.object({
+  results: z.array(z.object({
+    screen_name: z.string(),
+    entity_type: z.enum(['individual', 'organization']),
+    
+    // Individual fields (conditional) - nullable for OpenAI compatibility
+    current_position: z.object({
+      organizations: z.array(z.string()).nullable(),
+      department: z.enum(['product', 'marketing', 'business', 'ecosystem', 'community', 'legal', 'hr', 'leadership', 'other'])
+    }).nullable().optional(),
+    employment_history: z.array(z.object({
+      organization: z.string()
+    })).nullable().optional(),
+    
+    // Organization fields (conditional) - nullable for OpenAI compatibility
+    org_type: z.enum(['protocol', 'infrastructure', 'exchange', 'investment', 'service', 'community']).nullable().optional(),
+    org_subtype: z.string().nullable().optional(),
+    web3_focus: z.enum(['native', 'adjacent', 'traditional']).nullable().optional()
+  }))
+});
 
 /**
  * Fetch Twitter profile data from SocialAPI
@@ -203,220 +230,433 @@ export async function classifyProfilesWithGrok(
   const isArray = Array.isArray(input);
   const profiles = isArray ? input : [input];
   
-  try {
-    console.log(`🔍 Unified Classification: Processing ${profiles.length} profile${profiles.length === 1 ? '' : 's'} with ${GROK_CONFIGS.MINI_FAST.model}`);
-    
-    // Streamlined prompt for faster processing
-    const prompt = `Classify Twitter profiles as individual or organization. Extract relevant data based on bio.
-
-RULES:
-- Individual: current orgs + department (engineering/product/marketing/business/operations/research/community/leadership/other) + prev orgs
-- Organization: type (protocol/investment/business/community) + subtype + web3_focus (native/adjacent/traditional)
-
-Profiles:
-${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n')}
-
-JSON format:
-{
-  "results": [
-    {
-      "screen_name": "username",
-      "entity_type": "individual|organization",
-      "current_position": {"organizations": ["@company"], "department": "engineering"},
-      "employment_history": [{"organization": "@prev_co"}],
-      "org_type": "protocol|investment|business|community",
-      "org_subtype": "defi|gaming|vc|agency|dao|etc",
-      "web3_focus": "native|adjacent|traditional"
-    }
-  ]
-}`;
-
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: prompt
-      }
-    ];
-
-    // Use GROK_MINI_FAST for optimal speed with good accuracy
-    const response = await grokClient.chat.completions.create({
-      ...GROK_CONFIGS.MINI_FAST,
-      messages,
-      max_tokens: 2000, // Reduced from 4000 for faster responses
-      temperature: 0.1, // Lower temperature for faster, more deterministic responses
-      disableReasoning: true // Get clean JSON responses
-    } as any);
-
-    const content = response.choices[0]?.message?.content;
-    const reasoningContent = (response.choices[0]?.message as any)?.reasoning_content;
-    
-    // Use sophisticated content extraction
-    let textToAnalyze = content;
-    if (!content && reasoningContent) {
-      textToAnalyze = reasoningContent;
-      console.log('   → Using reasoning_content as fallback');
-    }
-    
-    if (!textToAnalyze) {
-      throw new Error('No content received from Grok');
-    }
-
-    let parsedResults: any;
-
+  // Retry logic for API failures
+  const maxRetries = 2;
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      // Try direct JSON parsing first
-      parsedResults = JSON.parse(textToAnalyze);
-    } catch (parseError) {
-      // Enhanced JSON extraction combining both approaches
-      console.log('   → Direct parsing failed, attempting extraction...');
+      console.log(`🔍 Unified Classification: Processing ${profiles.length} profile${profiles.length === 1 ? '' : 's'} with Zod schema validation${attempt > 1 ? ` (attempt ${attempt}/${maxRetries})` : ''}`);
       
-      // Method 1: Look for complete JSON object
-      const jsonMatch = textToAnalyze.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        {
+          role: 'system',
+          content: `You are an expert Twitter profile classifier. You understand web3 degen and technical language. Analyze each profile to classify it.
+
+CLASSIFICATION RULES:
+- Classify each profile as either "individual" or "organization"
+- For individuals: identify their current position (organizations and department) and employment history
+- For organizations: identify the type (protocol/infrastructure/exchange/investment/service/community), subtype, and web3 focus
+- If you cannot determine a value with confidence, set it to null
+- Organizations in current_position and employment_history should be prefixed with @
+
+PROFILES TO CLASSIFY:
+${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n')}`
+        }
+      ];
+
+      // Use Zod response format for guaranteed schema compliance
+      const response = await grokClient.chat.completions.create({
+        ...GROK_CONFIGS.MINI_FAST,
+        messages,
+        response_format: zodResponseFormat(ClassificationSchema, "classification_results"),
+        temperature: 0.1,
+        max_tokens: 3000  // Increased from 2000 to prevent truncation
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error('No content received from Grok - empty response');
+      }
+
+      if (content.trim() === '') {
+        throw new Error('No content received from Grok - empty string');
+      }
+
+      // Debug: Log the raw response to understand parsing issues
+      console.log('   → Raw Grok response (first 500 chars):', content.substring(0, 500));
+      console.log('   → Response length:', content.length);
+
+      let parsedResults: any;
+
+      try {
+        // First attempt: Direct JSON parsing
+        parsedResults = JSON.parse(content);
+        console.log('   → Direct JSON parsing succeeded');
+      } catch (parseError) {
+        console.log('   → Direct JSON parsing failed:', (parseError as Error).message);
+        
+        // Clean up common JSON issues
+        let cleanedContent = content
+          .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+          .replace(/\\n/g, '\\\\n') // Escape escaped newlines
+          .replace(/\\r/g, '\\\\r') // Escape escaped carriage returns
+          .replace(/\\t/g, '\\\\t') // Escape escaped tabs
+          .replace(/"/g, '"') // Replace smart quotes
+          .replace(/"/g, '"') // Replace smart quotes
+          .replace(/'/g, "'") // Replace smart quotes
+          .replace(/[\r\n]+/g, ' ') // Replace actual line breaks with spaces
+          .replace(/\s+/g, ' ') // Normalize whitespace
+          .trim();
+
+        // Fix truncated strings - if content ends with an incomplete string, try to close it
+        if (cleanedContent.match(/[^\\]"[^"]*$/)) {
+          console.log('   → Detected truncated string, attempting to fix...');
+          cleanedContent = cleanedContent.replace(/[^\\]"[^"]*$/, '"');
+        }
+        
+        // If content ends abruptly, try to close JSON structure
+        const openBraces = (cleanedContent.match(/\{/g) || []).length;
+        const closeBraces = (cleanedContent.match(/\}/g) || []).length;
+        if (openBraces > closeBraces) {
+          console.log(`   → Adding ${openBraces - closeBraces} closing braces to fix truncated JSON`);
+          cleanedContent += '}'.repeat(openBraces - closeBraces);
+        }
+
+        console.log('   → Cleaned content (first 300 chars):', cleanedContent.substring(0, 300));
+
         try {
-          parsedResults = JSON.parse(jsonMatch[0]);
-        } catch (extractError) {
-          console.log('   → JSON extraction method 1 failed');
-        }
-      }
-      
-      // Method 2: Sophisticated brace matching
-      if (!parsedResults) {
-        const jsonStart = textToAnalyze.indexOf('{');
-        if (jsonStart !== -1) {
-          let braceCount = 0;
-          let jsonEnd = -1;
+          // Try parsing cleaned content
+          parsedResults = JSON.parse(cleanedContent);
+          console.log('   → Cleaned JSON parsing succeeded');
+        } catch (cleanError) {
+          console.log('   → Cleaned parsing failed:', (cleanError as Error).message);
           
-          for (let i = jsonStart; i < textToAnalyze.length; i++) {
-            if (textToAnalyze[i] === '{') braceCount++;
-            if (textToAnalyze[i] === '}') braceCount--;
-            if (braceCount === 0) {
-              jsonEnd = i;
-              break;
-            }
-          }
+          // Extract JSON using more sophisticated patterns
+          console.log('   → Attempting JSON extraction...');
           
-          if (jsonEnd !== -1) {
-            const jsonText = textToAnalyze.substring(jsonStart, jsonEnd + 1);
+          // Method 1: Find JSON between ```json markers
+          const jsonCodeBlockMatch = cleanedContent.match(/```json\s*(\{[\s\S]*?\})\s*```/);
+          if (jsonCodeBlockMatch) {
             try {
-              parsedResults = JSON.parse(jsonText);
-            } catch (extractError2) {
-              console.log('   → JSON extraction method 2 failed');
+              parsedResults = JSON.parse(jsonCodeBlockMatch[1]);
+              console.log('   → JSON code block extraction succeeded');
+            } catch (codeBlockError) {
+              console.log('   → JSON code block extraction failed');
             }
+          }
+          
+          // Method 1.5: Look for results array even if outer structure is broken
+          if (!parsedResults) {
+            try {
+              // Try multiple patterns for results array extraction
+              let resultsMatch = cleanedContent.match(/"results"\s*:\s*\[([\s\S]*)\]/);
+              
+              if (!resultsMatch) {
+                // Try finding incomplete results array and complete it
+                resultsMatch = cleanedContent.match(/"results"\s*:\s*\[([\s\S]*)/);
+                if (resultsMatch) {
+                  let resultsContent = resultsMatch[1];
+                  
+                  // Count objects in the incomplete array
+                  let openObjects = (resultsContent.match(/\{/g) || []).length;
+                  let closeObjects = (resultsContent.match(/\}/g) || []).length;
+                  
+                  // Close incomplete objects
+                  if (openObjects > closeObjects) {
+                    resultsContent += '}'.repeat(openObjects - closeObjects);
+                  }
+                  
+                  // Ensure the array ends properly
+                  if (!resultsContent.trim().endsWith('}')) {
+                    resultsContent = resultsContent.replace(/,$/, '') + '}';
+                  }
+                  
+                  const resultsArrayJson = `{"results":[${resultsContent}]}`;
+                  parsedResults = JSON.parse(resultsArrayJson);
+                  console.log('   → Results array extraction with completion succeeded');
+                }
+              } else {
+                const resultsArrayJson = `{"results":[${resultsMatch[1]}]}`;
+                parsedResults = JSON.parse(resultsArrayJson);
+                console.log('   → Results array extraction succeeded');
+              }
+            } catch (resultsError) {
+              console.log('   → Results array extraction failed:', (resultsError as Error).message);
+            }
+          }
+          
+          // Method 2: Look for complete JSON object with proper brace matching
+          if (!parsedResults) {
+            try {
+              const jsonStart = cleanedContent.indexOf('{');
+              if (jsonStart !== -1) {
+                let braceCount = 0;
+                let jsonEnd = -1;
+                let inString = false;
+                let escapeNext = false;
+                
+                for (let i = jsonStart; i < cleanedContent.length; i++) {
+                  const char = cleanedContent[i];
+                  
+                  if (escapeNext) {
+                    escapeNext = false;
+                    continue;
+                  }
+                  
+                  if (char === '\\') {
+                    escapeNext = true;
+                    continue;
+                  }
+                  
+                  if (char === '"' && !escapeNext) {
+                    inString = !inString;
+                    continue;
+                  }
+                  
+                  if (!inString) {
+                    if (char === '{') braceCount++;
+                    if (char === '}') braceCount--;
+                    if (braceCount === 0) {
+                      jsonEnd = i;
+                      break;
+                    }
+                  }
+                }
+                
+                if (jsonEnd !== -1) {
+                  const extractedJson = cleanedContent.substring(jsonStart, jsonEnd + 1);
+                  console.log('   → Extracted JSON (first 200 chars):', extractedJson.substring(0, 200));
+                  try {
+                    parsedResults = JSON.parse(extractedJson);
+                    console.log('   → Brace matching extraction succeeded');
+                  } catch (extractError) {
+                    console.log('   → Brace matching extraction failed:', (extractError as Error).message);
+                  }
+                }
+              }
+            } catch (braceMatchingError) {
+              console.log('   → Brace matching process failed:', (braceMatchingError as Error).message);
+            }
+          }
+          
+          // Final fallback: Generate structure from response analysis
+          if (!parsedResults) {
+            console.log('   → All JSON parsing failed, analyzing response for classification hints...');
+            console.log('   → Full response for analysis:', content);
+            
+            parsedResults = {
+              results: profiles.map(profile => {
+                // Analyze the response text for this profile
+                const description = (profile.description || '').toLowerCase();
+                const responseText = content.toLowerCase();
+                const profileMention = profile.screen_name.toLowerCase();
+                
+                // Look for explicit classification in response
+                const profileSection = responseText.includes(profileMention) 
+                  ? responseText.substring(
+                      Math.max(0, responseText.indexOf(profileMention) - 100),
+                      responseText.indexOf(profileMention) + 200
+                    )
+                  : responseText;
+                
+                // Check for organization indicators
+                const hasOrgIndicators = 
+                  profileSection.includes('organization') || 
+                  profileSection.includes('company') || 
+                  profileSection.includes('protocol') || 
+                  profileSection.includes('platform') ||
+                  profileSection.includes('business') ||
+                  profileSection.includes('org_type') ||
+                  description.includes('protocol') || 
+                  description.includes('platform') || 
+                  description.includes('ecosystem') ||
+                  description.includes('foundation') ||
+                  description.includes('dao') ||
+                  description.includes('fund') ||
+                  description.includes('vc') ||
+                  description.includes('company') ||
+                  description.includes('corp');
+                
+                // Check for individual indicators
+                const hasIndividualIndicators = 
+                  profileSection.includes('individual') ||
+                  profileSection.includes('engineer') ||
+                  profileSection.includes('developer') ||
+                  profileSection.includes('ceo') ||
+                  profileSection.includes('founder') ||
+                  profileSection.includes('current_position') ||
+                  description.includes('engineer') ||
+                  description.includes('developer') ||
+                  description.includes('founder') ||
+                  description.includes('ceo') ||
+                  description.includes('working at') ||
+                  description.includes('works at');
+                
+                if (hasOrgIndicators && !hasIndividualIndicators) {
+                  // Determine org details from description
+                  let orgType = 'service';
+                  let web3Focus = 'traditional';
+                  
+                  if (description.includes('protocol') || description.includes('defi') || description.includes('blockchain')) {
+                    orgType = 'protocol';
+                    web3Focus = 'native';
+                  } else if (description.includes('infrastructure') || description.includes('layer') || description.includes('l1') || description.includes('l2')) {
+                    orgType = 'infrastructure';
+                    web3Focus = 'native';
+                  } else if (description.includes('exchange') || description.includes('dex') || description.includes('cex') || description.includes('trading')) {
+                    orgType = 'exchange';
+                    web3Focus = 'native';
+                  } else if (description.includes('fund') || description.includes('vc') || description.includes('invest')) {
+                    orgType = 'investment';
+                    web3Focus = description.includes('crypto') || description.includes('web3') ? 'native' : 'adjacent';
+                  } else if (description.includes('dao') || description.includes('community')) {
+                    orgType = 'community';
+                    web3Focus = 'native';
+                  }
+                  
+                  return {
+                    screen_name: profile.screen_name,
+                    entity_type: 'organization',
+                    current_position: null,
+                    employment_history: null,
+                    org_type: orgType,
+                    org_subtype: 'other',
+                    web3_focus: web3Focus
+                  };
+                } else {
+                  // Default to individual
+                  let department = 'other';
+                  let organizations = null;
+                  
+                  if (description.includes('engineer') || description.includes('developer')) {
+                    department = 'engineering';
+                  } else if (description.includes('product') || description.includes('pm')) {
+                    department = 'product';
+                  } else if (description.includes('marketing') || description.includes('growth')) {
+                    department = 'marketing';
+                  } else if (description.includes('business') || description.includes('bd')) {
+                    department = 'business';
+                  } else if (description.includes('ceo') || description.includes('founder') || description.includes('lead')) {
+                    department = 'leadership';
+                  }
+                  
+                  // Try to extract organization from description
+                  const orgMatch = description.match(/(?:at|@|working at|works at)\s+([a-zA-Z0-9_]+)/);
+                  if (orgMatch) {
+                    organizations = [orgMatch[1]];
+                  }
+                  
+                  return {
+                    screen_name: profile.screen_name,
+                    entity_type: 'individual',
+                    current_position: {
+                      organizations: organizations,
+                      department: department
+                    },
+                    employment_history: [],
+                    org_type: null,
+                    org_subtype: null,
+                    web3_focus: null
+                  };
+                }
+              })
+            };
+            console.log('   → Generated fallback classification for', parsedResults.results.length, 'profiles');
           }
         }
       }
-      
-      // Fallback: Create basic structure
-      if (!parsedResults) {
-        console.log('   → All parsing failed, using fallback classification');
-        parsedResults = {
-          results: profiles.map(profile => {
-            // Simple heuristic classification
-            const description = (profile.description || '').toLowerCase();
-            const isLikelyOrg = description.includes('protocol') || 
-                               description.includes('platform') || 
-                               description.includes('ecosystem') ||
-                               description.includes('foundation') ||
-                               description.includes('dao') ||
-                               description.includes('fund') ||
-                               description.includes('vc');
-            
-            if (isLikelyOrg) {
-              return {
-                screen_name: profile.screen_name,
-                entity_type: 'organization',
-                org_type: 'business',
-                org_subtype: 'other',
-                web3_focus: 'traditional'
-              };
-            } else {
-              return {
-                screen_name: profile.screen_name,
-                entity_type: 'individual',
-                current_position: {
-                  organizations: ['Unknown'],
-                  department: 'other'
-                },
-                employment_history: []
-              };
-            }
-          })
+
+      // Validate with Zod schema
+      let validatedResults: any;
+      try {
+        validatedResults = ClassificationSchema.parse(parsedResults);
+      } catch (zodError) {
+        console.log('   → Zod validation failed, using normalized fallback...');
+        // Ensure the structure matches our schema
+        const results = parsedResults.results || parsedResults.profiles || [parsedResults];
+        validatedResults = {
+          results: results.map((result: any) => ({
+            screen_name: result.screen_name || 'unknown',
+            entity_type: ['individual', 'organization'].includes(result.entity_type) ? result.entity_type : 'individual',
+            current_position: result.entity_type === 'individual' ? (result.current_position || null) : null,
+            employment_history: result.entity_type === 'individual' ? (result.employment_history || null) : null,
+            org_type: result.entity_type === 'organization' ? (result.org_type || null) : null,
+            org_subtype: result.entity_type === 'organization' ? (result.org_subtype || null) : null,
+            web3_focus: result.entity_type === 'organization' ? (result.web3_focus || null) : null
+          }))
         };
       }
+      
+      // Convert to UnifiedClassificationResult format
+      const normalizedResults: UnifiedClassificationResult[] = validatedResults.results.map((result: any) => {
+        const normalized: UnifiedClassificationResult = {
+          screen_name: result.screen_name,
+          entity_type: result.entity_type
+        };
+        
+        if (result.entity_type === 'individual') {
+          // Handle nullable optional fields
+          normalized.current_position = result.current_position || {
+            organizations: null,
+            department: 'other'
+          };
+          normalized.employment_history = result.employment_history || [];
+        } else {
+          // Handle nullable optional fields for organizations
+          normalized.org_type = result.org_type || 'service';
+          normalized.org_subtype = result.org_subtype || 'other';
+          normalized.web3_focus = result.web3_focus || 'traditional';
+        }
+        
+        return normalized;
+      });
+
+      console.log(`✅ Zod Classification: Successfully processed ${normalizedResults.length} profiles`);
+      
+      // Return format matching input - successful processing
+      return isArray ? normalizedResults : normalizedResults[0];
+
+    } catch (error: any) {
+      lastError = error;
+      console.error(`❌ Zod Classification attempt ${attempt} failed:`, error.message);
+      
+      // If this is the last attempt, break out to use fallback
+      if (attempt === maxRetries) {
+        break;
+      }
+      
+      // Wait a bit before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
-
-    // Validate and normalize results
-    const results = parsedResults.results || parsedResults.profiles || [parsedResults];
-    
-    const normalizedResults: UnifiedClassificationResult[] = results.map((result: any) => {
-      // Normalize field names (handle both entity_type and type)
-      const entityType = result.entity_type || result.type || 'individual';
-      
-      const normalized: UnifiedClassificationResult = {
-        screen_name: result.screen_name,
-        entity_type: entityType as 'individual' | 'organization'
-      };
-      
-      if (entityType === 'individual') {
-        // Add individual fields, ensure they exist
-        normalized.current_position = result.current_position || {
-          organizations: ['Unknown'],
-          department: 'other' as const
-        };
-        normalized.employment_history = result.employment_history || [];
-      } else {
-        // Add organization fields with defaults
-        normalized.org_type = result.org_type || 'business';
-        normalized.org_subtype = result.org_subtype || 'other';
-        normalized.web3_focus = result.web3_focus || 'traditional';
-      }
-      
-      return normalized;
-    });
-
-    console.log(`✅ Unified Classification: Successfully processed ${normalizedResults.length} profiles`);
-    
-    // Return format matching input
-    return isArray ? normalizedResults : normalizedResults[0];
-
-  } catch (error: any) {
-    console.error('❌ Unified Classification failed:', error);
-    
-    // Enhanced fallback with proper typing
-    const fallbackResults: UnifiedClassificationResult[] = profiles.map(profile => {
-      const description = (profile.description || '').toLowerCase();
-      const isLikelyOrg = description.includes('protocol') || 
-                         description.includes('platform') || 
-                         description.includes('ecosystem') ||
-                         description.includes('foundation') ||
-                         description.includes('dao') ||
-                         description.includes('fund') ||
-                         description.includes('vc');
-      
-      if (isLikelyOrg) {
-        return {
-          screen_name: profile.screen_name,
-          entity_type: 'organization' as const,
-          org_type: 'business' as const,
-          org_subtype: 'other',
-          web3_focus: 'traditional' as const
-        };
-      } else {
-        return {
-          screen_name: profile.screen_name,
-          entity_type: 'individual' as const,
-          current_position: {
-            organizations: ['Unknown'],
-            department: 'other' as const
-          },
-          employment_history: []
-        };
-      }
-    });
-    
-    return isArray ? fallbackResults : fallbackResults[0];
   }
+  
+  // If all retries failed, use enhanced fallback
+  console.error('❌ All Zod Classification attempts failed, using enhanced fallback');
+  console.error('❌ Last error:', lastError?.message);
+  
+  const fallbackResults: UnifiedClassificationResult[] = profiles.map(profile => {
+    const description = (profile.description || '').toLowerCase();
+    const isLikelyOrg = description.includes('protocol') || 
+                       description.includes('platform') || 
+                       description.includes('ecosystem') ||
+                       description.includes('foundation') ||
+                       description.includes('dao') ||
+                       description.includes('fund') ||
+                       description.includes('vc');
+    
+    if (isLikelyOrg) {
+      return {
+        screen_name: profile.screen_name,
+        entity_type: 'organization' as const,
+        org_type: 'service' as const,
+        org_subtype: 'other',
+        web3_focus: 'traditional' as const
+      };
+    } else {
+      return {
+        screen_name: profile.screen_name,
+        entity_type: 'individual' as const,
+        current_position: {
+          organizations: null,
+          department: 'other' as const
+        },
+        employment_history: []
+      };
+    }
+  });
+  
+  return isArray ? fallbackResults : fallbackResults[0];
 }
 
 /**

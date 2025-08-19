@@ -453,8 +453,8 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
             </>
           )}
           
-          {/* Business-Specific Fields */}
-          {orgType === 'business' && (
+          {/* Service Provider-Specific Fields */}
+          {orgType === 'service' && (
             <>
               {comprehensiveData.basic_identification.service_category && comprehensiveData.basic_identification.service_category.length > 0 && (
                 <div>
@@ -644,7 +644,6 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
                           </span>
                         </div>
                       </div>
-                      <p className="text-gray-300 text-sm">{archetype.description}</p>
                     </div>
                   ))}
                 </div>
@@ -663,15 +662,11 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
                   <div className="space-y-3 bg-gray-800/20 border border-gray-700/30 rounded-lg p-4">
                     <InfoCard 
                       label="Age Demographics" 
-                      value={comprehensiveData.icp_synthesis.unified_demographics.age_demographics}
+                      value={comprehensiveData.icp_synthesis.unified_demographics.age_demographics.join(', ')}
                     />
                     <InfoCard 
                       label="Experience Level" 
-                      value={comprehensiveData.icp_synthesis.unified_demographics.experience_level}
-                    />
-                    <InfoCard 
-                      label="Geographic Distribution" 
-                      value={comprehensiveData.icp_synthesis.unified_demographics.geographic_distribution}
+                      value={comprehensiveData.icp_synthesis.unified_demographics.experience_level.join(', ')}
                     />
                     {comprehensiveData.icp_synthesis.unified_demographics.professional_roles && comprehensiveData.icp_synthesis.unified_demographics.professional_roles.length > 0 && (
                       <div>

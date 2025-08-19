@@ -73,20 +73,15 @@ export enum ICPAnalysisConfig {
  * Applied to all organizations regardless of type/category
  */
 const UniversalBaseIdentificationSchema = z.object({
-  project_name: z.string().describe("The official name of the project/organization"),
+  project_name: z.string().describe("Official name"),
   website_url: z.string().nullable().describe("Official website URL"),
   industry_classification: z.string().describe("Primary industry sector classification"),
-  tge_status: z.enum(['pre-tge', 'post-tge']).nullable().describe("Token Generation Event (TGE) status: Pre-TGE or Post-TGE"),
-  technical_links: z.object({
-    github_url: z.string().nullable().describe("GitHub repository URL"),
-    whitepaper_url: z.string().nullable().describe("Whitepaper or documentation URL")
-  }).describe("Technical development links"),
-  community_links: z.object({
+  links: z.object({
     discord: z.string().nullable().describe("Discord server URL"),
     farcaster: z.string().nullable().describe("Farcaster profile URL"),
     telegram: z.string().nullable().describe("Telegram group URL"),
-    governance_forum: z.string().nullable().describe("Governance or DAO forum URL"),
-  }).describe("Community platform links")
+    governance_forum: z.string().nullable().describe("Governance or DAO or treasury link"),
+  }).describe("Social platform links")
 });
 
 /**
@@ -96,7 +91,7 @@ const UniversalBaseIdentificationSchema = z.object({
 const UniversalBaseMarketPositionSchema = z.object({
   sentiment_score: z.number().min(0).max(1).nullable().describe("Overall market sentiment score (0-1)"),
   market_presence: z.string().describe("Overall market presence and visibility assessment"),
-  competitors: z.array(z.string()).describe("List of primary competitors in the space. Only @usernames, no names or context")
+  competitors: z.array(z.string()).describe("List of primary competitors in the space. X handles only (@username format)")
 });
 
 /**
@@ -105,10 +100,9 @@ const UniversalBaseMarketPositionSchema = z.object({
  */
 const UniversalBaseCoreMetricsSchema = z.object({
   key_features: z.array(z.string()).describe("List of key features and capabilities"),
-  primary_value_proposition: z.string().describe("Core value proposition and unique selling points"),
   target_audience: z.string().describe("Primary target audience base"),
-  geographic_focus: z.array(z.enum(['North America', 'Europe', 'Asia', 'LaTam', 'China', 'Global'])).describe("Geographic focus and presence"),
-  operational_status: z.enum(['under_development', 'testnet', 'mainnet', 'active', 'other']).describe("Current operational status"),
+  geographic_focus: z.array(z.enum(['North America', 'Europe', 'Asia', 'LaTam', 'China', 'Africa', 'Oceania', 'Global'])).describe("Geographic focus and presence"),
+  operational_status: z.enum(['development', 'testnet', 'mainnet', 'active', 'other', 'deprecated', 'acquired']).describe("Current operational status"),
 });
 
 /**
@@ -117,59 +111,98 @@ const UniversalBaseCoreMetricsSchema = z.object({
  */
 const UniversalEcosystemAnalysisSchema = z.object({
   market_narratives: z.array(z.string()).describe("Current market narratives and themes associated"),
-  notable_partnerships: z.array(z.string()).describe("All partnerships and collaborations. Only @usernames, no names or context"),
+  notable_partnerships: z.array(z.string()).describe("All partnerships and collaborations. X handles only (@username format)"),
   recent_developments: z.array(z.string()).describe("Recent major developments")
 });
 
 /**
- * Universal base schema for organizational structure
- * Governance and operational structure basics
+ * Universal base schema for funding structure
+ * Funding and investment information
  */
-const UniversalOrganizationalStructureSchema = z.object({
-  governance_model: z.string().describe("Governance structure"),
-  funding_status: z.enum(['bootstrapped', 'seed', 'series_a', 'series_b', 'series_c', 'self-sustaining', 'ICO', 'Public']).describe("Funding status"),
-  funding_amount: z.number().nullable().describe("Funding amount in USD"),
-  funded_by: z.array(z.string()).nullable().optional().describe("Investors, only @usernames, no names or context")
+const UniversalFundingStructureSchema = z.object({
+  funding_status: z.enum(['bootstrapped', 'pre-seed', 'seed', 'series_a', 'series_b', 'series_c', 'Grants', 'Private', 'self-sustaining', 'ICO', 'Public']).describe("Funding status"),
+  funding_amount: z.enum(['<1M', '1-5M', '5-10M', '10-50M', '50-100M', '>100M', 'undisclosed']),
+  investors: z.array(z.string()).nullable().describe("Investors, X handles only (@username format)")
+}).describe("Funding history");
+
+/**
+ * Base Tokenomics Schema - Core tokenomics fields without nullable wrapper
+ * Applied directly within token-bearing organization extensions
+ */
+const BaseTokenomicsSchema = z.object({
+  tge_status: z.enum(['pre-tge', 'post-tge']).nullable().describe("Token Generation Event (TGE) status"),
+  token_symbol: z.string().nullable().describe("Native token symbol"),
+  utilities: z.array(z.enum(['governance', 'staking', 'fee_payment', 'fee_discount', 'collateral', 'rewards', 'access', 'liquidity_mining', 'other'])).nullable().describe("Core token utilities and use cases"),
+  tokenomics_model: z.string().nullable().describe("Token distribution, allocation, and value accrual mechanisms"),
+  governance_structure: z.string().nullable().describe("Governance structure if applicable"),
 });
 
-// ================================================================================================
-// CATEGORY-SPECIFIC EXTENSION SCHEMAS
-// ================================================================================================
+/**
+ * Base Tokenomics Extensions - Wrapped with nullable/optional for direct use
+ */
+const BaseTokenomicsExtensions = {
+  tokenomics: BaseTokenomicsSchema.nullable().describe("Token details if native token exists"),
+};
+
+/**
+ * Base Audit Schema - Core audit/security fields without nullable wrapper
+ * Applied directly within auditable organization extensions
+ */
+const BaseAuditSchema = z.object({
+  auditor: z.string().nullable().describe("Security audit firm name"),
+  date: z.string().nullable().describe("Date of latest audit"),
+  report_url: z.string().nullable().describe("Audit report URL")
+});
+
+/**
+ * Base Audit Extensions - Wrapped with nullable/optional for direct use
+ */
+const BaseAuditExtensions = {
+  audit_info: BaseAuditSchema.describe("Security audit information"),
+};
+
+/// ================================================================================================
+/// CATEGORY-SPECIFIC EXTENSION SCHEMAS
+/// ================================================================================================
+
+/**
+ * Protocol Base Extensions - Common fields for ALL protocol subtypes
+ * Applied to all protocols regardless of subtype (defi, gaming, social, etc.)
+ */
+const ProtocolBaseExtensions = {
+  identification: z.object({
+    protocol_category: z.enum(['DeFi', 'GameFi', 'Social', 'Infrastructure', 'Other']).describe("Protocol category"),
+    chains_supported: z.number().int().min(0).nullable().describe("Number of blockchain networks supported"),
+    supported_chains: z.array(z.string()).describe("Blockchain network slugs (e.g., ethereum, polygon, arbitrum)"),
+    technical_links: z.object({
+      github_url: z.string().nullable().describe("GitHub repository URL"),
+      whitepaper_url: z.string().nullable().describe("Whitepaper or documentation URL")
+    }).describe("Technical development links")
+  }),
+  coreMetrics: z.object(BaseAuditExtensions),
+  tokenomics: BaseTokenomicsSchema.nullable().describe("Token details if native token exists")
+};
 
 /**
  * DeFi Protocol Extensions - Additional fields specific to DeFi protocols
  */
 const DeFiProtocolExtensions = {
   identification: z.object({
-    protocol_category: z.string().describe("DeFi protocol category (DEX, Lending, Yield, Derivatives, etc.)"),
-    chains_supported: z.number().nullable().describe("Number of blockchain networks supported"),
-    supported_chains: z.array(z.string()).describe("Username of Blockchain networks supported. Only give @username."),
-    protocol_type: z.string().describe("Technical protocol type (AMM, Order Book, Lending Pool, etc.)")
+    protocol_category: z.string().describe("DeFi protocol category (DEX, Lending, Yield, Derivatives, etc.)")
   }),
   
   marketPosition: z.object({
-    total_value_locked_usd: z.number().nullable().describe("Current Total Value Locked in USD"),
-    active_addresses_30d: z.number().nullable().describe("Active addresses in the last 30 days"),
+    total_value_locked_usd: z.number().min(0).nullable().describe("Current Total Value Locked in USD")
   }),
   
-  coreMetrics: z.object({
-    audit_info: z.object({
-      auditor: z.string().nullable().describe("Security audit firm name"),
-      date: z.string().nullable().describe("Date of latest audit"),
-      report_url: z.string().nullable().describe("Audit report URL")
-    }).describe("Security audit information"),
-  }),
-  
-  tokenomics: z.object({
-    native_token: z.string().nullable().describe("Native governance/utility token symbol"),
-    token_utility: z.object({
-        governance: z.boolean().describe("Governance token utility"),
-        staking: z.boolean().describe("Staking token utility"),
-        fee_discount: z.boolean().describe("Fee discount token utility"),
-        collateral: z.boolean().describe("Collateral token utility")
-      }),
-    tokenomics_model: z.string().describe("Tokenomics model, distribution and value accrual mechanisms")
-  }).describe("Token utility functions"),
+  // Extend base tokenomics with DeFi-specific fields
+  tokenomics: BaseTokenomicsSchema.extend({
+    defi_specific: z.object({
+      yield_mechanisms: z.array(z.string()).describe("Yield generation mechanisms"),
+      liquidity_incentives: z.string().describe("Liquidity provision incentives"),
+      fee_sharing_model: z.string().nullable().describe("How fees are shared with token holders")
+    }).describe("DeFi-specific tokenomics")
+  }).nullable().describe("Token details if native token exists")
 };
 
 /**
@@ -178,26 +211,68 @@ const DeFiProtocolExtensions = {
 const GameFiProtocolExtensions = {
   identification: z.object({
     game_category: z.string().describe("Gaming category (MMORPG, Strategy, Casual, etc.)"),
-    platform_type: z.string().describe("Platform type (Mobile, Web, Desktop, VR)"),
+    platform_type: z.array(z.enum(['Mobile', 'Web', 'Desktop', 'VR', 'other'])).describe("Platform type (Mobile, Web, Desktop, VR, other)"),
     nft_integration: z.string().describe("NFT integration and asset ownership model")
-  }),
-  
-  marketPosition: z.object({
-    daily_active_players: z.number().nullable().describe("Daily active players"),
-    game_economy_health: z.string().describe("Overall game economy health assessment")
   }),
   
   coreMetrics: z.object({
     gameplay_features: z.array(z.string()).describe("Core gameplay features"),
-    play_to_earn_mechanics: z.string().describe("Play-to-earn model and reward structures"),
-    asset_ownership: z.string().describe("Player asset ownership and trading capabilities"),
   }),
   
-  tokenomics: z.object({
-    game_tokens: z.array(z.string()).describe("In-game tokens and their utilities"),
-    nft_assets: z.array(z.string()).describe("Types of NFT assets and their functions"),
-    economic_model: z.string().describe("Game economic model and sustainability mechanisms"),
-    reward_distribution: z.string().describe("Player reward distribution and earning potential")
+  // Extend base tokenomics with GameFi-specific fields
+  tokenomics: BaseTokenomicsSchema.extend({
+    gamefi_specific: z.object({
+      game_tokens: z.array(z.string()).nullable().describe("In-game tokens and their utilities"),
+      nft_assets: z.array(z.string()).nullable().describe("Types of NFT assets and their functions"),
+      play_to_earn_model: z.string().nullable().describe("Play-to-earn mechanics and sustainability"),
+      asset_trading: z.string().nullable().describe("In-game asset trading and marketplace mechanics")
+    }).describe("GameFi-specific tokenomics")
+  }).nullable().describe("Token details if native token exists")
+};
+
+/**
+ * Social Protocol Extensions - SocialFi and social infrastructure protocols
+ */
+const SocialProtocolExtensions = {
+  identification: z.object({
+    social_category: z.string().describe("Social protocol category (Content, Identity, Communication, etc.)"),
+    social_features: z.array(z.string()).describe("Core social features and capabilities")
+  }),
+  
+  marketPosition: z.object({
+    monthly_active_users: z.number().int().min(0).nullable().describe("Monthly active users"),
+    content_creators_count: z.number().int().min(0).nullable().describe("Number of content creators")
+  }),
+  
+  // Extend base tokenomics with Social-specific fields
+  tokenomics: BaseTokenomicsSchema.extend({
+    social_specific: z.object({
+      creator_monetization: z.string().describe("Creator monetization model"),
+      content_rewards: z.string().describe("Content creation and curation rewards"),
+      social_token_utility: z.array(z.string()).describe("Social token use cases")
+    }).describe("Social-specific tokenomics")
+  }).nullable().describe("Token details if native token exists")
+};
+
+/**
+ * General Protocol Extensions - For protocols that don't fit specific categories
+ */
+const GeneralProtocolExtensions = {
+  identification: z.object({
+    protocol_category: z.string().describe("Protocol category (Infrastructure, Social, Data, etc.)"),
+    technical_focus: z.string().describe("Primary technical focus and innovation area")
+  }),
+  
+  marketPosition: z.object({
+    user_count_estimate: z.number().int().min(0).nullable().describe("Estimated active users"),
+    integration_count: z.number().int().min(0).nullable().describe("Number of integrations or partnerships")
+  }),
+  
+  coreMetrics: z.object({
+    technical_metrics: z.object({
+      development_activity: z.string().describe("Development activity and momentum"),
+      network_effects: z.string().describe("Network effects and adoption metrics")
+    }).describe("Technical and adoption metrics")
   })
 };
 
@@ -206,47 +281,126 @@ const GameFiProtocolExtensions = {
  */
 const InvestmentFundExtensions = {
   identification: z.object({
-    fund_type: z.enum(['VC', 'Accelerator', 'Family Office', 'Corporate VC']).describe("Type of investment fund"),
-    investment_stage: z.enum(['Agnostic', 'Pre-seed', 'Seed', 'Series A']).describe("Primary investment stage focus"),
-    sector_focus: z.array(z.string()).describe("Primary sector and technology focus areas or Agnostic")
+    fund_type: z.enum(['Venture Capital', 'Accelerator', 'Family Office', 'Corporate VC', 'Other']).describe("Type of investment fund"),
+    investment_stage: z.enum(['Agnostic', 'Grants', 'Pre-seed', 'Seed', 'Series A', 'Series B', 'Institutional', 'ICO']).describe("Primary investment stage focus"),
+    sector_focus: z.array(z.string()).describe("Primary sector and technology focus areas or Agnostic"),
+    portfolio_link: z.string().nullable().describe("Portfolio companies listing URL")
   }),
   
   marketPosition: z.object({
-    fund_size_usd: z.number().nullable().describe("Total fund size in USD (if public)"),
-    portfolio_size: z.number().nullable().describe("Number of portfolio companies"),
-    investments: z.array(z.string()).describe("All portfolio investments. Only @usernames, no names or context"),
+    fund_size_usd: z.number().min(0).nullable().describe("Total fund size in USD (if public)"),
+    portfolio_size: z.number().int().min(0).nullable().describe("Number of portfolio companies"),
+    investments: z.array(z.string()).describe("All portfolio investments. X handles only (@username format)"),
     market_reputation: z.enum(['Tier S', 'Tier A', 'Tier B', 'Tier C']).nullable().describe("Market reputation in investments")
   }),
   
   tokenomics: z.object({
     fund_token: z.string().nullable().describe("Fund token or investment vehicle (if applicable)"),
-    investment_model: z.array(z.enum(['Equity', 'Debt', 'Tokens'])).describe("Investment deployment strategy"),
+    investment_model: z.array(z.enum(['Equity', 'Debt', 'Tokens', 'Hybrid', 'Other'])).describe("Investment deployment strategy"),
   })
 };
 
 /**
- * Business Service Extensions - Agencies, consultancies, and service providers
+ * Infrastructure Extensions - Blockchain infrastructure and developer tools
  */
-const BusinessServiceExtensions = {
+const InfrastructureExtensions = {
   identification: z.object({
-    service_category: z.array(z.enum(['Development', 'Marketing', 'Legal', 'PR', 'Audits', 'Community Management', 'Tokenomics', 'Design', 'Governance Advisory', 'Content', 'Partnerships', 'Education & Training', 'Localization', 'Event Management'])).describe("Primary service category"),
-    target_clients: z.array(z.string()).describe("Target client segments and industries")
+    infra_category: z.enum(['Layer1', 'Layer2', 'Rollup', 'Bridge', 'Oracle', 'Storage', 'Compute', 'Indexing', 'RPC', 'Node', 'Validator', 'Wallet', 'Account Abstraction', 'Interoperability', 'MEV', 'ZK', 'Data Availability', 'Sequencer', 'Security', 'Identity', 'Dev Tooling', 'Monitoring', 'Messaging', 'Governance', 'Other']).describe("Infrastructure category"),
+    technical_stack: z.array(z.string()).describe("Core technical components and architecture"),
+    chains_supported: z.number().int().min(0).nullable().describe("Number of blockchain networks supported"),
+    supported_chains: z.array(z.string()).describe("Blockchain network slugs (e.g., ethereum, polygon, arbitrum)"),
+    technical_links: z.object({
+      github_url: z.string().nullable().describe("GitHub repository URL"),
+      whitepaper_url: z.string().nullable().describe("Technical whitepaper URL"),
+      docs_url: z.string().nullable().describe("Developer documentation URL"),
+      explorer_url: z.string().nullable().describe("Block explorer or network dashboard URL")
+    }).describe("Technical development and monitoring links")
   }),
   
   marketPosition: z.object({
-    client_portfolio: z.array(z.string()).describe("All clients. Only @usernames, no names or context"),
-    team_size: z.number().nullable().describe("Team size and capacity"),
-    market_positioning: z.string().describe("Market positioning and competitive differentiation"),
-    client_retention: z.number().min(0).max(1).nullable().describe("Rating from reviews of posts")
+    network_usage_metrics: z.object({
+      daily_transactions: z.number().int().min(0).nullable().describe("Daily transaction count")
+    }).describe("Core network usage metrics"),
+    project_building: z.number().int().min(0).nullable().describe("Number of projects building on/with this infrastructure"),
+    market_share: z.number().min(0).max(1).nullable().describe("Market share in category (0-1)")
   }),
   
-  coreMetrics: z.object({
-    service_offerings: z.array(z.string()).describe("Comprehensive service offerings and capabilities"),
-    delivery_methodology: z.string().describe("Service delivery methodology and process")
+  coreMetrics: z.object(BaseAuditExtensions).extend({
+    performance_metrics: z.object({
+      throughput: z.string().nullable().describe("Transaction throughput (TPS)"),
+      cost_per_transaction: z.number().min(0).nullable().describe("Average cost per transaction in USD")
+    }).describe("Performance benchmarks"),
+    developer_tools: z.array(z.string()).describe("Developer tools and SDKs provided")
   }),
   
-  tokenomics: z.object({
-    business_growth: z.string().describe("Business growth strategy and expansion plans")
+  // Include base tokenomics with infrastructure-specific extensions
+  tokenomics: BaseTokenomicsSchema.extend({
+    infrastructure_specific: z.object({
+      validator_economics: z.string().nullable().describe("Validator/operator economics and requirements"),
+      staking_mechanics: z.string().nullable().describe("Staking requirements and rewards"),
+      network_fees: z.string().describe("Network fee structure and distribution")
+    }).describe("Infrastructure-specific tokenomics")
+  }).nullable().describe("Token details if native token exists")
+};
+
+/**
+ * Exchange Extensions - Centralized and decentralized exchanges
+ */
+const ExchangeExtensions = {
+  identification: z.object({
+    exchange_type: z.enum(['CEX', 'DEX', 'Hybrid', 'Aggregator']).describe("Exchange type"),
+    trading_pairs: z.number().int().min(0).nullable().describe("Number of trading pairs"),
+    supported_assets: z.array(z.string()).describe("Major supported asset categories"),
+    technical_links: z.object({
+      github_url: z.string().nullable().describe("GitHub repository URL (for DEXs)"),
+      api_docs_url: z.string().nullable().describe("API documentation URL"),
+      audit_report_url: z.string().nullable().describe("Security audit report URL")
+    }).describe("Technical and security documentation links")
+  }),
+  
+  marketPosition: z.object({
+    trading_volume_24h_usd: z.number().min(0).nullable().describe("24-hour trading volume in USD"),
+    market_rank: z.number().int().min(1).nullable().describe("Market ranking by volume"),
+    liquidity_depth: z.number().min(0).max(1).nullable().describe("Overall liquidity depth assessment")
+  }),
+  
+  coreMetrics: z.object(BaseAuditExtensions).extend({
+    trading_features: z.array(z.enum(['spot', 'futures', 'options', 'margin', 'derivatives', 'lending', 'staking', 'otc', 'p2p', 'perpetuals', 'swaps', 'orderbook', 'amm', 'other'])).describe("Trading features available on the exchange"),
+    security_measures: z.array(z.string()).describe("Security features and insurance"),
+    fiat_support: z.array(z.string()).describe("Supported fiat currencies"),
+    trading_fees: z.object({
+        maker_fee: z.number().min(0).nullable().describe("Maker fee percentage"),
+        taker_fee: z.number().min(0).nullable().describe("Taker fee percentage"),
+        withdrawal_fees: z.number().min(0).nullable().describe("Withdrawal fee percentage")
+      }).describe("Trading fee structure"),
+  }),
+  
+  // Include base tokenomics with exchange-specific extensions
+  tokenomics: BaseTokenomicsSchema.extend({
+    exchange_specific: z.object({
+      token_benefits: z.array(z.string()).describe("Benefits for exchange token holders"),
+      liquidity_incentives: z.string().describe("Liquidity provision incentives")
+    }).describe("Exchange-specific tokenomics")
+  }).nullable().describe("Token details if native token exists")
+};
+
+/**
+ * Service Extensions - Agencies, consultancies, and service providers
+ */
+const ServiceExtensions = {
+  identification: z.object({
+    service_category: z.array(z.enum(['Development', 'Marketing', 'Legal', 'PR', 'Audits', 'Community Management', 'Tokenomics', 'Design', 'Governance Advisory', 'Content', 'Partnerships', 'Education & Training', 'Localization', 'Event Management'])).describe("Primary service category"),
+    target_clients: z.array(z.string()).describe("Target client segments and industries"),
+    competitive_advantages: z.array(z.string()).describe("Key competitive advantages"),
+    service_links: z.object({
+      case_studies_url: z.string().nullable().describe("Case studies or portfolio URL"),
+      testimonials_url: z.string().nullable().describe("Client testimonials or reviews URL")
+    }).describe("Service documentation and portfolio links")
+  }),
+  
+  marketPosition: z.object({
+    client_portfolio: z.array(z.string()).describe("All clients. X handles only (@username format)"),
+    team_size: z.enum(['1-5', '6-15', '16-50', '51-100', '100+', 'undisclosed']).nullable().describe("Team size range")
   })
 };
 
@@ -262,23 +416,21 @@ const CommunityDAOExtensions = {
   }),
   
   marketPosition: z.object({
-    member_count: z.number().nullable().describe("Total community member count"),
-    community_health: z.number().min(0).max(1).nullable().describe("Overall community health and engagement assessment"),
+    member_count: z.number().int().min(0).nullable().describe("Total community member count"),
     influence_reach: z.number().min(0).max(1).nullable().describe("Community influence and reach within the ecosystem")
   }),
   
   coreMetrics: z.object({
     community_initiatives: z.array(z.string()).describe("Key community initiatives and programs"),
-    member_benefits: z.array(z.string()).describe("Benefits and value provided to members"),
-    participation_mechanisms: z.array(z.string()).describe("Ways members can participate and contribute"),
-    impact_metrics: z.string().describe("Community impact and achievement metrics")
+    member_benefits: z.array(z.string()).describe("Benefits and value provided to members")
   }),
   
-  tokenomics: z.object({
-    governance_token: z.string().nullable().describe("Governance token and voting mechanism"),
-    incentive_structure: z.string().describe("Member incentive and reward structure"),
-    treasury_management: z.string().describe("Treasury management and fund allocation")
-  })
+  // Include base tokenomics with DAO-specific extensions
+  tokenomics: BaseTokenomicsSchema.extend({
+    dao_specific: z.object({
+      treasury_management: z.string().describe("Treasury allocation and management")
+    }).describe("DAO-specific tokenomics")
+  }).nullable().describe("Token details if native token exists")
 };
 
 // ================================================================================================
@@ -300,10 +452,9 @@ const UniversalUserBehaviorInsightsSchema = z.object({
  * Demographic profile - universal user demographic characteristics
  */
 const UniversalDemographicProfileSchema = z.object({
-  age_demographics: z.string().describe("Age ranges or generational cohorts"),
-  experience_level: z.string().describe("Typical Web3/crypto experience level of users"),
-  professional_roles: z.array(z.string()).describe("Common professional roles of the users"),
-  geographic_distribution: z.string().describe("Geographic distribution of users")
+  age_demographics: z.array(z.enum(['Gen Z (18-26)', 'Millennials (27-42)', 'Gen X (43-58)', 'Boomers (59+)', 'Mixed Generational', 'Young Professionals (22-35)', 'Mid-Career (35-50)', 'Experienced (50+)', 'Institutions'])).describe("Age ranges or generational cohorts"),
+  experience_level: z.array(z.enum(['Beginner', 'Beginner to Intermediate', 'Intermediate', 'Intermediate to Advanced', 'Advanced', 'Expert', 'Mixed Experience'])).describe("Web3/crypto experience level ranges of users"),
+  professional_roles: z.array(z.string()).describe("Common professional roles of the users")
 });
 
 /**
@@ -330,7 +481,6 @@ const UniversalBehavioralIndicatorsSchema = z.object({
 const UniversalICPSynthesisSchema = z.object({
   user_archetypes: z.array(z.object({
     archetype_name: z.string().describe("Name/label for this user archetype"),
-    description: z.string().describe("Brief description of this user type"),
     size_estimate: z.enum(['small', 'medium', 'large']).describe("Relative size of this user segment"),
     priority_level: z.enum(['primary', 'secondary', 'tertiary']).describe("Strategic importance for targeting")
   })).describe("Different user archetypes (names and basic info only)"),
@@ -375,50 +525,51 @@ function getClassificationSpecificSchemas(classification?: {
 
   // Apply category-specific extensions based on classification
   if (orgType === 'protocol') {
+    // First apply common protocol extensions (includes technical_links, audit_info, and tge_status)
+    identificationSchema = identificationSchema.extend(ProtocolBaseExtensions.identification.shape)
+    coreMetricsSchema = coreMetricsSchema.extend(ProtocolBaseExtensions.coreMetrics.shape)
     
+    // Then apply subtype-specific extensions
     if (orgSubtype === 'defi') {
       identificationSchema = identificationSchema.extend(DeFiProtocolExtensions.identification.shape)
       marketPositionSchema = marketPositionSchema.extend(DeFiProtocolExtensions.marketPosition.shape)
-      coreMetricsSchema = coreMetricsSchema.extend(DeFiProtocolExtensions.coreMetrics.shape)
       tokenomicsSchema = DeFiProtocolExtensions.tokenomics
     } else if (orgSubtype === 'gaming') {
       identificationSchema = identificationSchema.extend(GameFiProtocolExtensions.identification.shape)
-      marketPositionSchema = marketPositionSchema.extend(GameFiProtocolExtensions.marketPosition.shape)
       coreMetricsSchema = coreMetricsSchema.extend(GameFiProtocolExtensions.coreMetrics.shape)
       tokenomicsSchema = GameFiProtocolExtensions.tokenomics
+    } else if (orgSubtype === 'social') {
+      identificationSchema = identificationSchema.extend(SocialProtocolExtensions.identification.shape)
+      marketPositionSchema = marketPositionSchema.extend(SocialProtocolExtensions.marketPosition.shape)
+      tokenomicsSchema = SocialProtocolExtensions.tokenomics
     } else {
-      // For general protocols, use minimal extensions
-      identificationSchema = identificationSchema.extend({
-        protocol_category: z.string().describe("Protocol category (Infrastructure, Social, Data, etc.)"),
-        technical_focus: z.string().describe("Primary technical focus and innovation area")
-      })
-      marketPositionSchema = marketPositionSchema.extend({
-        user_count_estimate: z.number().nullable().describe("Estimated active users"),
-        integration_count: z.number().nullable().describe("Number of integrations or partnerships")
-      })
-      coreMetricsSchema = coreMetricsSchema.extend({
-        technical_metrics: z.object({
-          development_activity: z.string().describe("Development activity and momentum"),
-          network_effects: z.string().describe("Network effects and adoption metrics")
-        }).describe("Technical and adoption metrics")
-      })
-      tokenomicsSchema = z.object({
-        description: z.string().describe("General description of economics and value model"),
-        native_token: z.string().nullable().describe("Native token symbol"),
-        token_utility: z.array(z.string()).describe("Token utility functions")
-      })
+      // For general protocols, use the GeneralProtocolExtensions
+      identificationSchema = identificationSchema.extend(GeneralProtocolExtensions.identification.shape)
+      marketPositionSchema = marketPositionSchema.extend(GeneralProtocolExtensions.marketPosition.shape)
+      coreMetricsSchema = coreMetricsSchema.extend(GeneralProtocolExtensions.coreMetrics.shape)
+      tokenomicsSchema = ProtocolBaseExtensions.tokenomics
     }
   } else if (orgType === 'investment') {
     identificationSchema = identificationSchema.extend(InvestmentFundExtensions.identification.shape)
     marketPositionSchema = marketPositionSchema.extend(InvestmentFundExtensions.marketPosition.shape)
-    // Investment funds don't have coreMetrics extensions in the defined schemas
-    // Keep the base coreMetricsSchema as-is
     tokenomicsSchema = InvestmentFundExtensions.tokenomics
-  } else if (orgType === 'business') {
-    identificationSchema = identificationSchema.extend(BusinessServiceExtensions.identification.shape)
-    marketPositionSchema = marketPositionSchema.extend(BusinessServiceExtensions.marketPosition.shape)
-    coreMetricsSchema = coreMetricsSchema.extend(BusinessServiceExtensions.coreMetrics.shape)
-    tokenomicsSchema = BusinessServiceExtensions.tokenomics
+  } else if (orgType === 'infrastructure') {
+    identificationSchema = identificationSchema.extend(InfrastructureExtensions.identification.shape)
+    marketPositionSchema = marketPositionSchema.extend(InfrastructureExtensions.marketPosition.shape)
+    coreMetricsSchema = coreMetricsSchema.extend(InfrastructureExtensions.coreMetrics.shape)
+    tokenomicsSchema = InfrastructureExtensions.tokenomics
+  } else if (orgType === 'exchange') {
+    identificationSchema = identificationSchema.extend(ExchangeExtensions.identification.shape)
+    marketPositionSchema = marketPositionSchema.extend(ExchangeExtensions.marketPosition.shape)
+    coreMetricsSchema = coreMetricsSchema.extend(ExchangeExtensions.coreMetrics.shape)
+    tokenomicsSchema = ExchangeExtensions.tokenomics
+  } else if (orgType === 'service') {
+    identificationSchema = identificationSchema.extend(ServiceExtensions.identification.shape)
+    marketPositionSchema = marketPositionSchema.extend(ServiceExtensions.marketPosition.shape)
+    // Service providers use base schemas only (no specific coreMetrics or tokenomics extensions)
+    tokenomicsSchema = z.object({
+      description: z.string().describe("General description of economics and value model")
+    })
   } else if (orgType === 'community') {
     identificationSchema = identificationSchema.extend(CommunityDAOExtensions.identification.shape)
     marketPositionSchema = marketPositionSchema.extend(CommunityDAOExtensions.marketPosition.shape)
@@ -466,7 +617,7 @@ function createClassificationSpecificSchema(classification?: {
     // Category-specific economics/tokenomics
     economics_tokenomics: z.object({
       tokenomics: schemas.TokenomicsSchema.nullable().describe("Economics and tokenomics information"),
-      organizational_structure: UniversalOrganizationalStructureSchema.describe("Organizational structure and governance")
+      organizational_structure: UniversalFundingStructureSchema.describe("Funding structure and investors")
     }).describe("Economic model and organizational structure"),
     
     // Universal user behavior and ICP insights
@@ -605,8 +756,61 @@ function getClassificationSpecificContext(classification?: {
     }
   }
 
-  // Business service context (includes professional services)
-  if (orgType === 'business') {
+  // Infrastructure-specific context
+  if (orgType === 'infrastructure') {
+    return {
+      analysisInstructions: "This is blockchain infrastructure. Focus on performance metrics, developer adoption, network usage, security, uptime, and technical architecture",
+      priorityDataSources: "l2beat.com, etherscan.io, dune.com",
+      
+      analysisDepth: `- Extract network performance metrics and uptime statistics
+- Analyze developer adoption and ecosystem growth
+- Research security audits and technical architecture`,
+      
+      userPrompt: `This is blockchain infrastructure - prioritize performance, adoption, and technical metrics.`,
+      
+      searchPlan: [
+        'Search "{} dune analytics network stats" for usage metrics',
+        'Search "{} github developers SDK" for developer adoption',
+        'Search "{} performance benchmark TPS" for performance data',
+        'Search "{} security audit infrastructure" for security analysis'
+      ],
+      
+      requiredData: `- Network performance metrics (TPS, latency, uptime)
+- Developer adoption and integration statistics
+- Security features and audit history
+- Fee structure and economic sustainability`
+    }
+  }
+
+  // Exchange-specific context
+  if (orgType === 'exchange') {
+    return {
+      analysisInstructions: "This is a crypto exchange. Focus on trading volume, liquidity, user base, security, regulatory compliance, and fee structures",
+      priorityDataSources: "coingecko.com, coinmarketcap.com, kaiko.com",
+      
+      analysisDepth: `- Extract 24h/7d/30d trading volumes and trends
+- Analyze liquidity depth and market maker programs
+- Research security incidents and insurance coverage`,
+      
+      userPrompt: `This is a crypto exchange - prioritize volume, liquidity, and user metrics.`,
+      
+      searchPlan: [
+        'Search "{} coingecko trading volume" for market metrics',
+        'Search "{} security audit insurance" for security measures',
+        'Search "{} regulatory license compliance" for regulatory status',
+        'Search "{} user reviews trustpilot" for user sentiment'
+      ],
+      
+      requiredData: `- Trading volume and market ranking
+- Liquidity metrics and trading pairs
+- Security measures and insurance coverage
+- Regulatory compliance and licensing
+- Fee structure and user benefits`
+    }
+  }
+
+  // Service provider context (includes professional services)
+  if (orgType === 'service') {
     return {
       analysisInstructions: "This is a Web3 service provider. Focus on services, clients, revenue model, team expertise, market positioning, service offerings, and client retention metrics",
       priorityDataSources: "linkedin.com",

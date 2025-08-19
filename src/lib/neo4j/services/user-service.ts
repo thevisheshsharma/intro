@@ -1,6 +1,14 @@
 import { runQuery, runBatchQuery } from '@/lib/neo4j'
 import { validateVibe, logValidationError } from '@/lib/validation'
 
+// Optimal batch sizes for different operations (performance optimized)
+const OPTIMAL_BATCH_SIZES = {
+  USER_UPSERT: 50,           // Reduced from 100 for faster commits
+  RELATIONSHIP_BATCH: 250,   // Reduced from 500 for memory efficiency  
+  LOOKUP_BATCH: 100,         // For existence checks
+  EXTERNAL_API: 10           // For SocialAPI calls
+} as const
+
 export interface Neo4jUser {
   userId: string
   screenName: string
@@ -26,7 +34,7 @@ export interface Neo4jUser {
   vibe?: string               // Primary entity classification: 'individual', 'organization', 'spam'
   department?: string         // current department/role from current_position.department
   // Organization classification fields (can be null for individuals/spam accounts)
-  org_type?: string           // Organization type: protocol, investment, business, community
+  org_type?: string           // Organization type: protocol, infrastructure, exchange, investment, service, community
   org_subtype?: string        // Organization subtype: defi, gaming, vc, etc.
   web3_focus?: string         // Web3 focus: native, adjacent, traditional
 }
@@ -100,7 +108,7 @@ export function transformToNeo4jUser(apiUser: TwitterApiUser, vibe?: string): Ne
   }
 }
 
-// Create or update a user in Neo4j
+// Create or update a user in Neo4j (optimized query)
 export async function createOrUpdateUser(user: Neo4jUser): Promise<void> {
   // Validate vibe field before saving
   const vibeValidation = validateVibe(user.vibe)
@@ -114,38 +122,51 @@ export async function createOrUpdateUser(user: Neo4jUser): Promise<void> {
     vibe: vibeValidation.sanitizedValue
   }
 
+  // Optimized query with better MERGE and SET patterns
   const query = `
     MERGE (u:User {userId: $userId})
-    SET u.screenName = $screenName,
-        u.name = $name,
-        u.profileImageUrl = COALESCE($profileImageUrl, ''),
-        u.description = COALESCE($description, ''),
-        u.location = COALESCE($location, ''),
-        u.url = COALESCE($url, ''),
-        u.followersCount = $followersCount,
-        u.followingCount = $followingCount,
-        u.verified = $verified,
-        u.lastUpdated = $lastUpdated,
-        u.createdAt = COALESCE($createdAt, ''),
-        u.listedCount = COALESCE($listedCount, 0),
-        u.statusesCount = COALESCE($statusesCount, 0),
-        u.favouritesCount = COALESCE($favouritesCount, 0),
-        u.protected = COALESCE($protected, false),
-        u.canDm = COALESCE($canDm, false),
-        u.profileBannerUrl = COALESCE($profileBannerUrl, ''),
-        u.verificationType = COALESCE($verificationType, ''),
-        u.verificationReason = COALESCE($verificationReason, ''),
-        u.vibe = COALESCE($vibe, ''),
-        u.department = COALESCE($department, ''),
-        u.org_type = COALESCE($org_type, ''),
-        u.org_subtype = COALESCE($org_subtype, ''),
-        u.web3_focus = COALESCE($web3_focus, '')
-    RETURN u
+    ON CREATE SET
+      u.screenName = $screenName,
+      u.name = $name,
+      u.createdAt = $createdAt,
+      u.lastUpdated = $lastUpdated
+    ON MATCH SET
+      u.lastUpdated = $lastUpdated
+    SET
+      u.profileImageUrl = $profileImageUrl,
+      u.description = $description,
+      u.location = $location,
+      u.url = $url,
+      u.followersCount = $followersCount,
+      u.followingCount = $followingCount,
+      u.verified = $verified,
+      u.listedCount = $listedCount,
+      u.statusesCount = $statusesCount,
+      u.favouritesCount = $favouritesCount,
+      u.protected = $protected,
+      u.canDm = $canDm,
+      u.profileBannerUrl = $profileBannerUrl,
+      u.verificationType = $verificationType,
+      u.verificationReason = $verificationReason,
+      u.vibe = $vibe,
+      u.department = $department,
+      u.org_type = $org_type,
+      u.org_subtype = $org_subtype,
+      u.web3_focus = $web3_focus
+    RETURN u.userId as userId
   `
   
-  // Ensure all parameters are defined to avoid Neo4j parameter errors
+  // Ensure all parameters are defined (remove COALESCE overhead)
   const finalUser = {
     ...validatedUser,
+    profileImageUrl: validatedUser.profileImageUrl || '',
+    description: validatedUser.description || '',
+    location: validatedUser.location || '',
+    url: validatedUser.url || '',
+    createdAt: validatedUser.createdAt || new Date().toISOString(),
+    profileBannerUrl: validatedUser.profileBannerUrl || '',
+    verificationType: validatedUser.verificationType || '',
+    verificationReason: validatedUser.verificationReason || '',
     department: validatedUser.department || '',
     org_type: validatedUser.org_type || '',
     org_subtype: validatedUser.org_subtype || '',
@@ -259,55 +280,72 @@ export async function batchCheckUserDataTypes(userIds: string[]): Promise<Array<
   }))
 }
 
-// Create or update multiple users in batch with improved batching
+// Create or update multiple users in batch with optimized batching
 export async function createOrUpdateUsers(users: Neo4jUser[]): Promise<void> {
   if (users.length === 0) return
   
-  // Process in batches of 100 to avoid large transaction issues
-  const batchSize = 100
+  // Use optimized batch size
+  const batchSize = OPTIMAL_BATCH_SIZES.USER_UPSERT
   for (let i = 0; i < users.length; i += batchSize) {
     const batch = users.slice(i, i + batchSize)
     
-    // Sanitize batch to ensure all parameters are defined
+    // Pre-sanitize batch to ensure all parameters are defined
     const sanitizedBatch = batch.map(user => ({
       ...user,
+      profileImageUrl: user.profileImageUrl || '',
+      description: user.description || '',
+      location: user.location || '',
+      url: user.url || '',
+      createdAt: user.createdAt || new Date().toISOString(),
+      profileBannerUrl: user.profileBannerUrl || '',
+      verificationType: user.verificationType || '',
+      verificationReason: user.verificationReason || '',
       department: user.department || '',
       org_type: user.org_type || '',
       org_subtype: user.org_subtype || '',
       web3_focus: user.web3_focus || ''
     }))
     
+    // Optimized bulk upsert query
     const query = `
       UNWIND $users AS userData
       MERGE (u:User {userId: userData.userId})
-      SET u.screenName = userData.screenName,
-          u.name = userData.name,
-          u.profileImageUrl = COALESCE(userData.profileImageUrl, ''),
-          u.description = COALESCE(userData.description, ''),
-          u.location = COALESCE(userData.location, ''),
-          u.url = COALESCE(userData.url, ''),
-          u.followersCount = userData.followersCount,
-          u.followingCount = userData.followingCount,
-          u.verified = userData.verified,
-          u.lastUpdated = userData.lastUpdated,
-          u.createdAt = COALESCE(userData.createdAt, ''),
-          u.listedCount = COALESCE(userData.listedCount, 0),
-          u.statusesCount = COALESCE(userData.statusesCount, 0),
-          u.favouritesCount = COALESCE(userData.favouritesCount, 0),
-          u.protected = COALESCE(userData.protected, false),
-          u.canDm = COALESCE(userData.canDm, false),
-          u.profileBannerUrl = COALESCE(userData.profileBannerUrl, ''),
-          u.verificationType = COALESCE(userData.verificationType, ''),
-          u.verificationReason = COALESCE(userData.verificationReason, ''),
-          u.vibe = COALESCE(userData.vibe, ''),
-          u.department = COALESCE(userData.department, ''),
-          u.org_type = COALESCE(userData.org_type, ''),
-          u.org_subtype = COALESCE(userData.org_subtype, ''),
-          u.web3_focus = COALESCE(userData.web3_focus, '')
+      ON CREATE SET
+        u.screenName = userData.screenName,
+        u.name = userData.name,
+        u.createdAt = userData.createdAt,
+        u.lastUpdated = userData.lastUpdated
+      ON MATCH SET
+        u.lastUpdated = userData.lastUpdated
+      SET
+        u.profileImageUrl = userData.profileImageUrl,
+        u.description = userData.description,
+        u.location = userData.location,
+        u.url = userData.url,
+        u.followersCount = userData.followersCount,
+        u.followingCount = userData.followingCount,
+        u.verified = userData.verified,
+        u.listedCount = userData.listedCount,
+        u.statusesCount = userData.statusesCount,
+        u.favouritesCount = userData.favouritesCount,
+        u.protected = userData.protected,
+        u.canDm = userData.canDm,
+        u.profileBannerUrl = userData.profileBannerUrl,
+        u.verificationType = userData.verificationType,
+        u.verificationReason = userData.verificationReason,
+        u.vibe = userData.vibe,
+        u.department = userData.department,
+        u.org_type = userData.org_type,
+        u.org_subtype = userData.org_subtype,
+        u.web3_focus = userData.web3_focus
     `
     
     await runQuery(query, { users: sanitizedBatch })
-    console.log(`Processed batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(users.length/batchSize)} (${batch.length} users)`)
+    
+    // Reduced logging for performance
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Processed batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(users.length/batchSize)} (${batch.length} users)`)
+    }
   }
 }
 
@@ -483,20 +521,38 @@ export function calculateConnectionDifferences(currentIds: string[], newIds: str
   return { toAdd, toRemove }
 }
 
-// Create FOLLOWS relationships for specific user IDs only
+// Pre-filter duplicate relationships before database operations
+function deduplicateRelationships<T extends {userId: string, orgUserId: string}>(relationships: T[]): T[] {
+  const seen = new Set<string>()
+  return relationships.filter(rel => {
+    const key = `${rel.userId}|${rel.orgUserId}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+// Create FOLLOWS relationships for specific user IDs only (optimized)
 export async function addFollowsRelationships(relationships: Array<{followerUserId: string, followingUserId: string}>): Promise<void> {
   if (relationships.length === 0) {
-    console.log('No new relationships to add')
-    return
+    return // Remove unnecessary logging
   }
   
-  console.log(`Adding ${relationships.length} new FOLLOWS relationships`)
+  // Deduplicate relationships first
+  const uniqueRelationships = Array.from(
+    new Map(relationships.map(rel => [`${rel.followerUserId}|${rel.followingUserId}`, rel])).values()
+  )
   
-  // Process in batches of 500 to avoid large transaction issues
-  const batchSize = 500
-  for (let i = 0; i < relationships.length; i += batchSize) {
-    const batch = relationships.slice(i, i + batchSize)
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`Adding ${uniqueRelationships.length} new FOLLOWS relationships (${relationships.length - uniqueRelationships.length} duplicates removed)`)
+  }
+  
+  // Use optimized batch size
+  const batchSize = OPTIMAL_BATCH_SIZES.RELATIONSHIP_BATCH
+  for (let i = 0; i < uniqueRelationships.length; i += batchSize) {
+    const batch = uniqueRelationships.slice(i, i + batchSize)
     
+    // Use MERGE for idempotent operations
     const query = `
       UNWIND $relationships AS rel
       MATCH (follower:User {userId: rel.followerUserId})
@@ -505,7 +561,10 @@ export async function addFollowsRelationships(relationships: Array<{followerUser
     `
     
     await runQuery(query, { relationships: batch })
-    console.log(`Added relationship batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(relationships.length/batchSize)} (${batch.length} relationships)`)
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Added relationship batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(uniqueRelationships.length/batchSize)} (${batch.length} relationships)`)
+    }
   }
 }
 
@@ -803,18 +862,22 @@ export async function createWorkedAtRelationship(userId: string, orgUserId: stri
   await runQuery(query, { userId, orgUserId })
 }
 
-// Create multiple WORKS_AT relationships in batch
+// Create multiple WORKS_AT relationships in batch (optimized)
 export async function addWorksAtRelationships(relationships: Array<{userId: string, orgUserId: string}>): Promise<void> {
   if (relationships.length === 0) {
-    console.log('No new WORKS_AT relationships to add')
-    return
+    return // Remove unnecessary logging
   }
   
-  console.log(`Adding ${relationships.length} new WORKS_AT relationships`)
+  // Deduplicate relationships
+  const uniqueRelationships = deduplicateRelationships(relationships)
   
-  const batchSize = 500
-  for (let i = 0; i < relationships.length; i += batchSize) {
-    const batch = relationships.slice(i, i + batchSize)
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`Adding ${uniqueRelationships.length} new WORKS_AT relationships`)
+  }
+  
+  const batchSize = OPTIMAL_BATCH_SIZES.RELATIONSHIP_BATCH
+  for (let i = 0; i < uniqueRelationships.length; i += batchSize) {
+    const batch = uniqueRelationships.slice(i, i + batchSize)
     
     const query = `
       UNWIND $relationships AS rel
@@ -825,22 +888,29 @@ export async function addWorksAtRelationships(relationships: Array<{userId: stri
     `
     
     await runQuery(query, { relationships: batch })
-    console.log(`Added WORKS_AT batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(relationships.length/batchSize)} (${batch.length} relationships)`)
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Added WORKS_AT batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(uniqueRelationships.length/batchSize)} (${batch.length} relationships)`)
+    }
   }
 }
 
-// Create multiple WORKED_AT relationships in batch
+// Create multiple WORKED_AT relationships in batch (optimized)
 export async function addWorkedAtRelationships(relationships: Array<{userId: string, orgUserId: string}>): Promise<void> {
   if (relationships.length === 0) {
-    console.log('No new WORKED_AT relationships to add')
-    return
+    return // Remove unnecessary logging
   }
   
-  console.log(`Adding ${relationships.length} new WORKED_AT relationships`)
+  // Deduplicate relationships
+  const uniqueRelationships = deduplicateRelationships(relationships)
   
-  const batchSize = 500
-  for (let i = 0; i < relationships.length; i += batchSize) {
-    const batch = relationships.slice(i, i + batchSize)
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`Adding ${uniqueRelationships.length} new WORKED_AT relationships`)
+  }
+  
+  const batchSize = OPTIMAL_BATCH_SIZES.RELATIONSHIP_BATCH
+  for (let i = 0; i < uniqueRelationships.length; i += batchSize) {
+    const batch = uniqueRelationships.slice(i, i + batchSize)
     
     const query = `
       UNWIND $relationships AS rel
@@ -851,7 +921,10 @@ export async function addWorkedAtRelationships(relationships: Array<{userId: str
     `
     
     await runQuery(query, { relationships: batch })
-    console.log(`Added WORKED_AT batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(relationships.length/batchSize)} (${batch.length} relationships)`)
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Added WORKED_AT batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(uniqueRelationships.length/batchSize)} (${batch.length} relationships)`)
+    }
   }
 }
 
@@ -879,6 +952,40 @@ export async function addAffiliateRelationships(relationships: Array<{orgUserId:
     await runQuery(query, { relationships: batch })
     console.log(`Added affiliate batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(relationships.length/batchSize)} (${batch.length} relationships)`)
   }
+}
+
+// Check if WORKS_AT relationships already exist (for deduplication)
+export async function checkExistingWorksAtRelationships(relationships: Array<{userId: string, orgUserId: string}>): Promise<Array<{userId: string, orgUserId: string}>> {
+  if (relationships.length === 0) return []
+  
+  const query = `
+    UNWIND $relationships AS rel
+    MATCH (u:User {userId: rel.userId})-[:WORKS_AT]->(o:User {userId: rel.orgUserId})
+    RETURN rel.userId as userId, rel.orgUserId as orgUserId
+  `
+  
+  const results = await runQuery(query, { relationships })
+  return results.map(record => ({
+    userId: record.userId,
+    orgUserId: record.orgUserId
+  }))
+}
+
+// Check if WORKED_AT relationships already exist (for deduplication)
+export async function checkExistingWorkedAtRelationships(relationships: Array<{userId: string, orgUserId: string}>): Promise<Array<{userId: string, orgUserId: string}>> {
+  if (relationships.length === 0) return []
+  
+  const query = `
+    UNWIND $relationships AS rel
+    MATCH (u:User {userId: rel.userId})-[:WORKED_AT]->(o:User {userId: rel.orgUserId})
+    RETURN rel.userId as userId, rel.orgUserId as orgUserId
+  `
+  
+  const results = await runQuery(query, { relationships })
+  return results.map(record => ({
+    userId: record.userId,
+    orgUserId: record.orgUserId
+  }))
 }
 
 // Check if AFFILIATED_WITH relationships already exist
@@ -960,7 +1067,7 @@ export async function fetchOrganizationFromSocialAPI(username: string): Promise<
   }
 }
 
-// Optimized: Process all employment data efficiently
+// Ultra-fast employment data processing with parallel operations
 export async function processEmploymentData(profiles: any[]): Promise<void> {
   if (!profiles.length) return
   
@@ -975,71 +1082,82 @@ export async function processEmploymentData(profiles: any[]): Promise<void> {
     return
   }
   
-  console.log(`� Found ${orgUsernames.length} unique organizations`)
+  console.log(`📊 Found ${orgUsernames.length} unique organizations`)
   
-  // Ensure all organizations exist in Neo4j with staleness check
-  const orgMap = await ensureOrganizationsExistOptimized(orgUsernames)
+  // Parallel execution of all operations that don't have dependencies
+  const operations = []
   
-  // Convert username-based relationships to userId-based relationships
-  const worksAtWithUserIds: Array<{userId: string, orgUserId: string}> = []
-  const workedAtWithUserIds: Array<{userId: string, orgUserId: string}> = []
-  
-  worksAtRelationships.forEach(({ userId, orgUsername }) => {
-    const orgUserId = orgMap.get(orgUsername.toLowerCase())
-    if (orgUserId) {
-      worksAtWithUserIds.push({ userId, orgUserId })
-    }
-  })
-  
-  workedAtRelationships.forEach(({ userId, orgUsername }) => {
-    const orgUserId = orgMap.get(orgUsername.toLowerCase())
-    if (orgUserId) {
-      workedAtWithUserIds.push({ userId, orgUserId })
-    }
-  })
-  
-  // Check for existing relationships to avoid duplicates
-  const allRelationships = [
-    ...worksAtWithUserIds,
-    ...workedAtWithUserIds
-  ]
-  
-  const { existingWorksAt, existingWorkedAt } = await checkExistingEmploymentRelationships(allRelationships)
-  
-  // Filter out existing relationships
-  const { newWorksAt, newWorkedAt } = filterOutExistingEmploymentRelationships(
-    worksAtWithUserIds,
-    workedAtWithUserIds,
-    existingWorksAt,
-    existingWorkedAt
+  // 1. Ensure organizations exist
+  operations.push(
+    ensureOrganizationsExistOptimized(orgUsernames).then(orgMap => {
+      // Convert username-based relationships to userId-based relationships
+      const worksAtWithUserIds: Array<{userId: string, orgUserId: string}> = []
+      const workedAtWithUserIds: Array<{userId: string, orgUserId: string}> = []
+      
+      worksAtRelationships.forEach(({ userId, orgUsername }) => {
+        const orgUserId = orgMap.get(orgUsername.toLowerCase())
+        if (orgUserId) {
+          worksAtWithUserIds.push({ userId, orgUserId })
+        }
+      })
+      
+      workedAtRelationships.forEach(({ userId, orgUsername }) => {
+        const orgUserId = orgMap.get(orgUsername.toLowerCase())
+        if (orgUserId) {
+          workedAtWithUserIds.push({ userId, orgUserId })
+        }
+      })
+      
+      // Check for existing relationships to avoid duplicates
+      return checkExistingEmploymentRelationships([...worksAtWithUserIds, ...workedAtWithUserIds])
+        .then(({ existingWorksAt, existingWorkedAt }) => {
+          // Filter out existing relationships
+          const { newWorksAt, newWorkedAt } = filterOutExistingEmploymentRelationships(
+            worksAtWithUserIds,
+            workedAtWithUserIds,
+            existingWorksAt,
+            existingWorkedAt
+          )
+          
+          // Execute relationship operations in parallel
+          const relationshipOps = []
+          
+          if (newWorksAt.length > 0) {
+            console.log(`   → Adding ${newWorksAt.length} WORKS_AT relationships...`)
+            relationshipOps.push(addWorksAtRelationships(newWorksAt))
+          }
+          
+          if (newWorkedAt.length > 0) {
+            console.log(`   → Adding ${newWorkedAt.length} WORKED_AT relationships...`)
+            relationshipOps.push(addWorkedAtRelationships(newWorkedAt))
+          }
+          
+          return Promise.all(relationshipOps).then(() => ({ newWorksAt, newWorkedAt, existingWorksAt, existingWorkedAt }))
+        })
+    })
   )
   
-  // Execute all operations sequentially to avoid deadlocks
-  console.log(`🔄 Executing employment operations sequentially to prevent deadlocks...`)
-  
-  if (newWorksAt.length > 0) {
-    console.log(`   → Adding ${newWorksAt.length} WORKS_AT relationships...`)
-    await addWorksAtRelationships(newWorksAt)
-  }
-  
-  if (newWorkedAt.length > 0) {
-    console.log(`   → Adding ${newWorkedAt.length} WORKED_AT relationships...`)
-    await addWorkedAtRelationships(newWorkedAt)
-  }
-  
+  // 2. Update departments in parallel
   if (departmentUpdates.length > 0) {
     console.log(`   → Updating ${departmentUpdates.length} user departments...`)
-    await updateUserDepartmentsOptimized(departmentUpdates)
+    operations.push(updateUserDepartmentsOptimized(departmentUpdates))
   }
+  
+  // Execute all operations in parallel
+  const results = await Promise.all(operations)
+  const relationshipResults = results[0] as any
   
   const duration = Date.now() - startTime
   console.log(`✅ Employment data processing complete in ${duration}ms`)
-  console.log(`   - New WORKS_AT: ${newWorksAt.length} (${existingWorksAt.length} already existed)`)
-  console.log(`   - New WORKED_AT: ${newWorkedAt.length} (${existingWorkedAt.length} already existed)`)
+  
+  if (relationshipResults) {
+    console.log(`   - New WORKS_AT: ${relationshipResults.newWorksAt?.length || 0} (${relationshipResults.existingWorksAt?.length || 0} already existed)`)
+    console.log(`   - New WORKED_AT: ${relationshipResults.newWorkedAt?.length || 0} (${relationshipResults.existingWorkedAt?.length || 0} already existed)`)
+  }
   console.log(`   - Department updates: ${departmentUpdates.length}`)
 }
 
-// Batch ensure multiple organizations exist as User nodes with vibe='organization'
+// Ultra-fast organization existence ensuring with optimized API calls
 export async function ensureOrganizationsExist(orgUsernames: string[]): Promise<Map<string, string>> {
   if (orgUsernames.length === 0) return new Map()
   
@@ -1064,30 +1182,43 @@ export async function ensureOrganizationsExist(orgUsernames: string[]): Promise<
   
   console.log(`🌐 Fetching ${orgsToFetch.length} missing organizations from SocialAPI`)
   
-  // Fetch missing organizations in parallel batches
+  // Fetch missing organizations with optimized batch size and parallel processing
   const newOrgs: Neo4jUser[] = []
-  const batchSize = 10
+  const batchSize = OPTIMAL_BATCH_SIZES.EXTERNAL_API
   
+  // Process in smaller batches with better error handling
+  const fetchPromises = []
   for (let i = 0; i < orgsToFetch.length; i += batchSize) {
     const batch = orgsToFetch.slice(i, i + batchSize)
     
-    const batchPromises = batch.map(async (username) => {
-      try {
-        const apiUser = await fetchOrganizationFromSocialAPI(username)
-        return apiUser ? transformToNeo4jOrganization(apiUser) : null
-      } catch (error: any) {
-        console.warn(`⚠️ Failed to fetch @${username}:`, error.message)
-        return null
-      }
-    })
+    const batchPromise = Promise.all(
+      batch.map(async (username) => {
+        try {
+          const apiUser = await fetchOrganizationFromSocialAPI(username)
+          return apiUser ? transformToNeo4jOrganization(apiUser) : null
+        } catch (error: any) {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`⚠️ Failed to fetch @${username}:`, error.message)
+          }
+          return null
+        }
+      })
+    )
     
-    const batchResults = await Promise.allSettled(batchPromises)
-    batchResults.forEach((result) => {
-      if (result.status === 'fulfilled' && result.value) {
-        newOrgs.push(result.value)
-      }
-    })
+    fetchPromises.push(batchPromise)
   }
+  
+  // Execute all batch promises in parallel
+  const batchResults = await Promise.allSettled(fetchPromises)
+  
+  // Flatten results and filter out nulls
+  batchResults.forEach((result) => {
+    if (result.status === 'fulfilled') {
+      result.value.forEach(org => {
+        if (org) newOrgs.push(org)
+      })
+    }
+  })
   
   // Store new organizations in single batch
   if (newOrgs.length > 0) {
@@ -1131,8 +1262,8 @@ export function extractOrganizationData(profiles: any[]): {
       })
     }
     
-    // Current organizations
-    if (grokAnalysis.current_position?.organizations) {
+    // Current organizations - handle null organizations array
+    if (grokAnalysis.current_position?.organizations && Array.isArray(grokAnalysis.current_position.organizations)) {
       grokAnalysis.current_position.organizations.forEach((org: string) => {
         const cleanOrg = org.replace(/^@/, '').toLowerCase()
         if (cleanOrg && cleanOrg.length > 0) {
@@ -1354,22 +1485,24 @@ export async function createOrUpdateUsersOptimized(users: Neo4jUser[], maxAgeHou
 export async function updateUserVibesOptimized(updates: Array<{userId: string, vibe: string}>): Promise<number> {
   if (updates.length === 0) return 0
   
-  // Validate all vibe values before processing
+  // Validate all vibe values before processing (batch validation)
   const { validUsers, invalidUsers } = await import('@/lib/validation').then(mod => 
     mod.validateVibesBatch(updates)
   )
   
-  // Log any validation errors
-  if (invalidUsers.length > 0) {
-    console.warn(`� Found ${invalidUsers.length} invalid vibe values in optimized batch update:`)
+  // Log any validation errors (only in development)
+  if (invalidUsers.length > 0 && process.env.NODE_ENV === 'development') {
+    console.warn(`🚨 Found ${invalidUsers.length} invalid vibe values in optimized batch update:`)
     invalidUsers.forEach(({ userId, originalVibe, error }) => {
       logValidationError('vibe', originalVibe, error, `updateUserVibesOptimized batch for user ${userId}`)
     })
   }
   
-  console.log(`🔍 Checking vibe updates for ${validUsers.length} users (${invalidUsers.length} had invalid values)...`)
+  if (validUsers.length === 0) {
+    return 0
+  }
   
-  // First, check which users actually need vibe updates
+  // Bulk check which users actually need vibe updates
   const userIds = validUsers.map(u => u.userId)
   const query = `
     UNWIND $userIds AS userId
@@ -1391,13 +1524,14 @@ export async function updateUserVibesOptimized(updates: Array<{userId: string, v
   })
   
   if (actualUpdates.length === 0) {
-    console.log(`✅ All vibes are already up-to-date`)
     return 0
   }
   
-  console.log(`📝 Updating vibe for ${actualUpdates.length} users (${validUsers.length - actualUpdates.length} already correct, ${invalidUsers.length} had validation errors)`)
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`📝 Updating vibe for ${actualUpdates.length} users (${validUsers.length - actualUpdates.length} already correct, ${invalidUsers.length} had validation errors)`)
+  }
   
-  const batchSize = 500
+  const batchSize = OPTIMAL_BATCH_SIZES.USER_UPSERT * 10 // Larger batch for simple updates
   for (let i = 0; i < actualUpdates.length; i += batchSize) {
     const batch = actualUpdates.slice(i, i + batchSize)
     
@@ -1584,6 +1718,100 @@ export async function getUsersWithExistingEmploymentRelationships(userIds: strin
   console.log(`✅ Found ${usersWithRelationships.length} users with existing employment relationships`)
   
   return usersWithRelationships
+}
+
+// Get all users who have WORKS_AT relationship with the organization
+export async function getOrganizationEmployees(orgUserId: string): Promise<Array<{
+  userId: string,
+  screenName: string,
+  name: string,
+  profileImageUrl?: string,
+  description?: string,
+  location?: string,
+  url?: string,
+  followersCount: number,
+  followingCount: number,
+  verified: boolean,
+  createdAt?: string,
+  listedCount?: number,
+  statusesCount?: number,
+  favouritesCount?: number,
+  protected?: boolean,
+  canDm?: boolean,
+  profileBannerUrl?: string,
+  verificationType?: string,
+  verificationReason?: string,
+  vibe?: string,
+  department?: string,
+  position?: string,
+  startDate?: string,
+  endDate?: string
+}>> {
+  console.log(`👥 Fetching all employees for organization ${orgUserId}...`)
+  
+  const query = `
+    MATCH (org:User {userId: $orgUserId})
+    MATCH (u:User)-[works:WORKS_AT]->(org)
+    RETURN 
+      u.userId as userId,
+      u.screenName as screenName,
+      u.name as name,
+      u.profileImageUrl as profileImageUrl,
+      u.description as description,
+      u.location as location,
+      u.url as url,
+      u.followersCount as followersCount,
+      u.followingCount as followingCount,
+      u.verified as verified,
+      u.createdAt as createdAt,
+      u.listedCount as listedCount,
+      u.statusesCount as statusesCount,
+      u.favouritesCount as favouritesCount,
+      u.protected as protected,
+      u.canDm as canDm,
+      u.profileBannerUrl as profileBannerUrl,
+      u.verificationType as verificationType,
+      u.verificationReason as verificationReason,
+      u.vibe as vibe,
+      u.department as department,
+      works.position as position,
+      works.startDate as startDate,
+      works.endDate as endDate
+    ORDER BY u.screenName
+  `
+  
+  const results = await runQuery(query, { orgUserId })
+  
+  const employees = results.map(record => ({
+    userId: record.userId,
+    screenName: record.screenName,
+    name: record.name,
+    profileImageUrl: record.profileImageUrl,
+    description: record.description,
+    location: record.location,
+    url: record.url,
+    followersCount: record.followersCount || 0,
+    followingCount: record.followingCount || 0,
+    verified: record.verified || false,
+    createdAt: record.createdAt,
+    listedCount: record.listedCount,
+    statusesCount: record.statusesCount,
+    favouritesCount: record.favouritesCount,
+    protected: record.protected,
+    canDm: record.canDm,
+    profileBannerUrl: record.profileBannerUrl,
+    verificationType: record.verificationType,
+    verificationReason: record.verificationReason,
+    vibe: record.vibe,
+    department: record.department,
+    position: record.position,
+    startDate: record.startDate,
+    endDate: record.endDate
+  }))
+  
+  console.log(`✅ Found ${employees.length} employees for organization`)
+  
+  return employees
 }
 
 // Update organization classification data for existing organizations
