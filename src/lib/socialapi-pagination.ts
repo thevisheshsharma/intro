@@ -1,5 +1,59 @@
 import { TwitterApiUser } from '@/lib/neo4j/services/user-service'
 
+// Fetch user data from SocialAPI by screen name (for protocols)
+export async function fetchUserFromSocialAPI(
+  screenName: string,
+  retryCount = 0
+): Promise<TwitterApiUser | null> {
+  if (!process.env.SOCIALAPI_BEARER_TOKEN) {
+    throw new Error('API configuration error')
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.socialapi.me/twitter/user/${screenName}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
+          'Accept': 'application/json',
+        },
+      }
+    )
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        // User not found, return null
+        return null
+      }
+      
+      if (response.status === 429 && retryCount < 3) {
+        // Rate limited, wait and retry with exponential backoff
+        const delay = Math.pow(2, retryCount) * 1000 // 1s, 2s, 4s
+        console.log(`Rate limited fetching user ${screenName}, retrying in ${delay}ms...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        return fetchUserFromSocialAPI(screenName, retryCount + 1)
+      }
+      
+      throw new Error(`Failed to fetch user ${screenName}: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    if (!data.id) {
+      return null
+    }
+
+    return data
+  } catch (error) {
+    if (retryCount < 3) {
+      console.log(`Error fetching user ${screenName}, retrying (${retryCount + 1}/3):`, error)
+      await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)))
+      return fetchUserFromSocialAPI(screenName, retryCount + 1)
+    }
+    console.error(`Failed to fetch user ${screenName} after ${retryCount + 1} attempts:`, error)
+    return null
+  }
+}
+
 // Helper function to fetch a single page of followers
 export async function fetchFollowersPage(
   userId: string, 

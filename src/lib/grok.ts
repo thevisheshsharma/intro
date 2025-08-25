@@ -89,7 +89,7 @@ const UniversalSocialLinksSchema = z.object({
  * Used in: DeFi, GameFi, Social, Infrastructure, Exchange
  */
 const UniversalTechnicalSchema = z.object({
-  github_url: z.string().nullable().describe("GitHub repository URL"),
+  github_url: z.array(z.string()).nullable().describe("GitHub repository URLs"),
   whitepaper_url: z.string().nullable().describe("Whitepaper or documentation URL"),
   docs_url: z.string().nullable().describe("Developer documentation URL"),
   explorer_url: z.string().nullable().describe("Block explorer or network dashboard URL"),
@@ -398,11 +398,11 @@ const UniversalUserBehaviorInsightsSchema = z.object({
  */
 export function createClassificationSpecificSchema(classification?: {
   org_type?: string
-  org_subtype?: string
+  org_subtype?: string[]
   web3_focus?: string
 }) {
   const orgType = classification?.org_type || 'protocol'
-  const orgSubtype = classification?.org_subtype || 'general'
+  const orgSubtype = classification?.org_subtype?.[0] || 'general'
   
   console.log(`📋 Building modular schema for: orgType="${orgType}", orgSubtype="${orgSubtype}"`);
   
@@ -474,7 +474,7 @@ export function createClassificationSpecificSchema(classification?: {
     timestamp_utc: z.string().describe("UTC timestamp of when the analysis was performed"),
     classification_used: z.object({
       org_type: z.string().describe("Organization type used for analysis"),
-      org_subtype: z.string().describe("Organization subtype used for analysis"),
+      org_subtype: z.array(z.string()).describe("Organization subtypes used for analysis"),
       web3_focus: z.string().describe("Web3 focus classification")
     }).describe("Classification parameters used for this analysis"),
     
@@ -504,11 +504,11 @@ export const ICPAnalysisSchema = createClassificationSpecificSchema();
  */
 function getClassificationSpecificContext(classification?: {
   org_type?: string
-  org_subtype?: string
+  org_subtype?: string[]
   web3_focus?: string
 }) {
   const orgType = classification?.org_type || 'protocol'
-  const orgSubtype = classification?.org_subtype || 'general'
+  const orgSubtype = classification?.org_subtype?.[0] || 'general'
   const web3Focus = classification?.web3_focus || 'native'
 
   // Protocol-specific context
@@ -765,7 +765,7 @@ export async function createStructuredICPAnalysis(
   config: ICPAnalysisConfig = ICPAnalysisConfig.FULL,
   classification?: {
     org_type?: string
-    org_subtype?: string
+    org_subtype?: string[]
     web3_focus?: string
   }
 ): Promise<z.infer<ReturnType<typeof createClassificationSpecificSchema>>> {
@@ -936,8 +936,8 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
         if (flatAnalysis.medium_url) comprehensiveProperties.medium = flatAnalysis.medium_url;
         if (flatAnalysis.blog_url) comprehensiveProperties.blog = flatAnalysis.blog_url;
         
-        // Technical links (flattened)
-        if (flatAnalysis.github_url) comprehensiveProperties.github_url = flatAnalysis.github_url;
+        // Technical links (flattened) - Handle arrays properly
+        if (flatAnalysis.github_url) comprehensiveProperties.github_url = Array.isArray(flatAnalysis.github_url) ? JSON.stringify(flatAnalysis.github_url) : flatAnalysis.github_url;
         if (flatAnalysis.whitepaper_url) comprehensiveProperties.whitepaper_url = flatAnalysis.whitepaper_url;
         if (flatAnalysis.docs_url) comprehensiveProperties.docs_url = flatAnalysis.docs_url;
         if (flatAnalysis.explorer_url) comprehensiveProperties.explorer_url = flatAnalysis.explorer_url;
@@ -1102,7 +1102,7 @@ Execute comprehensive live search across Web3 data platforms, official sources, 
         comprehensiveProperties.last_icp_analysis = new Date().toISOString();
         comprehensiveProperties.classification_used = JSON.stringify({
           org_type: classification?.org_type || 'protocol',
-          org_subtype: classification?.org_subtype || 'general',
+          org_subtype: classification?.org_subtype || ['general'],
           web3_focus: classification?.web3_focus || 'native'
         });
 

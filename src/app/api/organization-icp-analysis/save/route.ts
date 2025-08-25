@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { logAPIError } from '@/lib/error-utils'
-import { getOrganizationForUI, updateOrganizationProperties } from '@/lib/neo4j/services/user-service'
+import { getOrganizationProperties, getOrganizationForUI, updateOrganizationProperties, getUserByScreenName } from '@/lib/neo4j/services/user-service'
 import { 
   saveOrganization, 
   getOrganizationByTwitter,
   trackUserOrganizationAccess,
+  cleanupDuplicateOrganizations,
   type Organization
 } from '@/lib/organization'
 
@@ -29,13 +30,43 @@ export async function GET(request: NextRequest) {
     twitter_username = twitter_username.replace(/^@/, '').toLowerCase()
     console.log('🔍 Normalized twitter_username:', twitter_username)
     
-    // Get organization globally (not user-specific)
-    console.log('🏢 Fetching organization by twitter username...')
+    // FIRST: Check Neo4j for existing user with this screenName
+    console.log('🔍 Checking Neo4j for user with screenName:', twitter_username)
+    const existingNeo4jUser = await getUserByScreenName(twitter_username)
+    
+    if (existingNeo4jUser) {
+      console.log('✅ Found existing user in Neo4j:', existingNeo4jUser.userId)
+      
+      // Get ICP data from Neo4j
+      const icp = await getOrganizationForUI(twitter_username)
+      console.log('📊 ICP found in Neo4j:', icp ? 'YES' : 'NO')
+      
+      // For consistency, also check Supabase for organization record
+      const organization = await getOrganizationByTwitter(twitter_username)
+      
+      // Track user access if authenticated and organization exists in Supabase
+      if (userId && organization?.id) {
+        console.log('👤 Tracking user access:', userId, 'to org:', organization.id)
+        await trackUserOrganizationAccess(userId, organization.id)
+      }
+      
+      return NextResponse.json({ 
+        organization: organization || {
+          id: existingNeo4jUser.userId,
+          name: existingNeo4jUser.name || twitter_username,
+          twitter_username: twitter_username
+        }, 
+        icp 
+      })
+    }
+    
+    // SECOND: Fallback to Supabase-only lookup (legacy behavior)
+    console.log('🏢 Fallback: Fetching organization from Supabase only...')
     const organization = await getOrganizationByTwitter(twitter_username)
-    console.log('📊 Organization found:', organization)
+    console.log('📊 Organization found in Supabase:', organization)
     
     if (!organization) {
-      console.log('ℹ️ No organization found, returning null')
+      console.log('ℹ️ No organization found in either Neo4j or Supabase, returning null')
       return NextResponse.json({ organization: null, icp: null })
     }
     
@@ -91,8 +122,38 @@ export async function POST(request: NextRequest) {
     twitter_username = twitter_username.replace(/^@/, '').toLowerCase()
     console.log('📝 Normalized twitter_username for POST:', twitter_username)
     
-    // Check if organization already exists globally
-    console.log('🏢 Checking if organization exists globally...')
+    // FIRST: Check if user exists in Neo4j with this screenName
+    console.log('🔍 Checking Neo4j for existing user with screenName:', twitter_username)
+    const existingNeo4jUser = await getUserByScreenName(twitter_username)
+    
+    if (existingNeo4jUser) {
+      console.log('✅ Found existing user in Neo4j:', existingNeo4jUser.userId)
+      
+      // Update the existing Neo4j user with ICP data
+      if (body.basic_identification && body.icp_synthesis) {
+        console.log('📊 Updating existing Neo4j user with Grok response')
+        await updateOrganizationProperties(existingNeo4jUser.userId, body)
+      }
+      
+      // Get the updated ICP data
+      const icp = await getOrganizationForUI(twitter_username)
+      console.log('📊 Updated ICP data retrieved:', icp ? 'YES' : 'NO')
+      
+      // For consistency, also check if organization exists in Supabase
+      const organization = await getOrganizationByTwitter(twitter_username)
+      
+      return NextResponse.json({ 
+        organization: organization || {
+          id: existingNeo4jUser.userId,
+          name: existingNeo4jUser.name || twitter_username,
+          twitter_username: twitter_username
+        }, 
+        icp 
+      })
+    }
+    
+    // SECOND: Check if organization exists in Supabase (legacy behavior)
+    console.log('🏢 Checking if organization exists in Supabase...')
     let organization = await getOrganizationByTwitter(twitter_username)
     console.log('📊 Existing organization found:', organization ? 'YES' : 'NO')
     

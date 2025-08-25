@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { createStructuredICPAnalysis, ICPAnalysisConfig } from '@/lib/grok'
-import { logAPIError } from '@/lib/error-utils'
-import { getOrganizationForUI } from '@/lib/neo4j/services/user-service'
+import { logAPIError, logExternalServiceError } from '@/lib/error-utils'
+import { getOrganizationProperties, getOrganizationForUI } from '@/lib/neo4j/services/user-service'
 import { 
   saveOrganization, 
   updateOrganizationSocialInsights,
@@ -28,6 +28,32 @@ function extractSocialInsights(icpAnalysis: any) {
     recent_developments: icpAnalysis.ecosystem_analysis?.recent_developments?.join('; '),
     key_partnerships: icpAnalysis.ecosystem_analysis?.notable_partnerships || [],
     funding_info: icpAnalysis.governance_tokenomics?.organizational_structure?.funding_info
+  }
+}
+
+// Helper function to create detailed response format - optimized to reduce redundant copying
+function createDetailedResponse(icpAnalysis: any): any {
+  return {
+    twitter_username: icpAnalysis.twitter_username,
+    timestamp_utc: icpAnalysis.timestamp_utc,
+    // Pass structured objects directly - no need to reconstruct
+    basic_identification: icpAnalysis.basic_identification,
+    core_metrics: icpAnalysis.core_metrics,
+    ecosystem_analysis: icpAnalysis.ecosystem_analysis,
+    governance_tokenomics: {
+      ...icpAnalysis.governance_tokenomics,
+      // Only add default tokenomics if missing
+      tokenomics: icpAnalysis.governance_tokenomics?.tokenomics || {
+        native_token: '',
+        utility: { governance: false, staking: false, fee_discount: false, collateral: false },
+        description: ''
+      }
+    },
+    user_behavior_insights: icpAnalysis.user_behavior_insights,
+    icp_synthesis: icpAnalysis.icp_synthesis,
+    messaging_strategy: icpAnalysis.messaging_strategy,
+    confidence_score: icpAnalysis.confidence_score,
+    research_sources: icpAnalysis.research_sources
   }
 }
 
@@ -193,7 +219,7 @@ export async function POST(request: NextRequest) {
       ICPAnalysisConfig.FULL,
       classification ? {
         org_type: classification.org_type,
-        org_subtype: classification.org_subtype,
+        org_subtype: classification.org_subtype ? [classification.org_subtype] : undefined,
         web3_focus: classification.web3_focus
       } : undefined
     )
@@ -209,6 +235,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Convert to expected format and save
+    console.log('💾 Saving ICP analysis...')
+    const detailedResponse = createDetailedResponse(icpAnalysis)
+    
     // ✅ ICP analysis is now saved to Neo4j by createStructuredICPAnalysis
     // No need for separate Supabase save operation
     console.log('✅ ICP analysis saved to Neo4j via createStructuredICPAnalysis')

@@ -281,7 +281,7 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
             ? safeJsonParse(icp.classification_used, {})
             : {
                 org_type: icp.org_type || 'protocol',
-                org_subtype: icp.org_subtype || 'general', 
+                org_subtype: icp.org_subtype || ['general'], 
                 web3_focus: icp.web3_focus || 'native'
               },
           
@@ -300,8 +300,32 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
           medium_url: icp.medium || null, // Neo4j stores as 'medium'
           blog_url: icp.blog || null, // Neo4j stores as 'blog'
           
-          // Technical links (flattened)
-          github_url: icp.github_url || null,
+          // Technical links (flattened) - Handle arrays for harmonized fields  
+          github_url: (() => {
+            // Handle array format
+            if (Array.isArray(icp.github_url)) {
+              return icp.github_url[0] || null;
+            }
+            
+            // Handle JSON string format from Neo4j
+            if (typeof icp.github_url === 'string') {
+              // Check if it's a JSON array string
+              if (icp.github_url.startsWith('[') && icp.github_url.endsWith(']')) {
+                try {
+                  const parsed = JSON.parse(icp.github_url);
+                  return Array.isArray(parsed) && parsed.length > 0 ? parsed[0] : null;
+                } catch {
+                  return null;
+                }
+              }
+              // Handle regular URL string
+              if (icp.github_url.startsWith('http')) {
+                return icp.github_url;
+              }
+            }
+            
+            return null;
+          })(),
           whitepaper_url: icp.whitepaper_url || null,
           docs_url: icp.docs_url || null,
           explorer_url: icp.explorer_url || null,
@@ -537,7 +561,9 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
 
   // Extract classification info for conditional rendering
   const orgType = comprehensiveData.classification_used?.org_type || 'protocol'
-  const orgSubtype = comprehensiveData.classification_used?.org_subtype || 'general'
+  const orgSubtype = Array.isArray(comprehensiveData.classification_used?.org_subtype) 
+    ? comprehensiveData.classification_used.org_subtype[0] || 'general'
+    : comprehensiveData.classification_used?.org_subtype || 'general'
 
   // 🎯 DEBUG: Check section rendering conditions
   console.log('🎯 Section 1 - Organization Overview check:', {
