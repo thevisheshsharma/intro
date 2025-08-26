@@ -13,9 +13,16 @@ import { ErrorDisplay } from '@/components/ui/error-display'
 import { EnhancedICPDisplay } from '@/components/icp/enhanced-icp-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { lookupTwitterUser, transformTwitterUser } from '../../lib/twitter-helpers'
-import type { Organization } from '@/lib/organization'
 import SearchForm from '@/app/SearchForm'
-import { isICPAnalysisStale } from '@/lib/utils'
+
+// Organization type definition (moved from deleted organization.ts)
+interface Organization {
+  id: string
+  name: string
+  twitter_username: string
+  created_at?: string
+  updated_at?: string
+}
 
 export default function ManageOrgPanel() {
   const { user, isLoaded } = useUser()
@@ -28,6 +35,21 @@ export default function ManageOrgPanel() {
   const [orgTwitterProfile, setOrgTwitterProfile] = useState<any | null>(null)
   const [searchValue, setSearchValue] = useState('')
   const [searching, setSearching] = useState(false)
+
+  // ✅ Helper function to check if ICP analysis is stale (older than 60 days)
+  const isICPAnalysisStale = (icp: Record<string, any> | null): boolean => {
+    if (!icp?.last_icp_analysis) {
+      console.log('📅 No last_icp_analysis timestamp found - considering stale')
+      return true
+    }
+    
+    const lastAnalysis = new Date(icp.last_icp_analysis)
+    const now = new Date()
+    const daysDiff = (now.getTime() - lastAnalysis.getTime()) / (1000 * 60 * 60 * 24)
+    
+    console.log(`📅 ICP analysis age: ${daysDiff.toFixed(1)} days (stale if > 60)`)
+    return daysDiff > 60
+  }
 
   useEffect(() => {
     if (isLoaded && user) {
@@ -192,6 +214,9 @@ export default function ManageOrgPanel() {
       // Load org data (now checks globally, not user-specific)
       console.log('🏢 Fetching organization data...')
       
+      // First check for duplicates (debug)
+      await checkForDuplicates()
+      
       const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${normalizedUsername}`)
       const data = await response.json()
       
@@ -235,9 +260,9 @@ export default function ManageOrgPanel() {
     }
   }
 
-  // Debug function to check for duplicates (development only)
+  // Debug function to check for duplicates
   const checkForDuplicates = async () => {
-    if (process.env.NODE_ENV !== 'development' || !searchValue.trim()) return
+    if (!searchValue.trim()) return
     
     console.log('🔍 Checking for duplicate organizations...')
     try {

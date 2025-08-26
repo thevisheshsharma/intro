@@ -1,7 +1,6 @@
 /**
  * API error handling utilities
  */
-import { DatabaseUtils } from '@/lib/organization';
 
 export class APIError extends Error {
   constructor(
@@ -49,7 +48,7 @@ export function createSuccessResponse<T>(data: T): APIResponse<T> {
   return {
     success: true,
     data,
-    timestamp: DatabaseUtils.timestamp(),
+    timestamp: new Date().toISOString(),
   };
 }
 
@@ -79,7 +78,7 @@ export function createErrorResponse(
       code,
       details,
     },
-    timestamp: DatabaseUtils.timestamp(),
+    timestamp: new Date().toISOString(),
   };
 }
 

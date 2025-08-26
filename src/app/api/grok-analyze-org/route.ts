@@ -2,14 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { createStructuredICPAnalysis, ICPAnalysisConfig } from '@/lib/grok'
 import { logAPIError, logExternalServiceError } from '@/lib/error-utils'
-import { getOrganizationProperties, getOrganizationForUI } from '@/lib/neo4j/services/user-service'
-import { 
-  saveOrganization, 
-  updateOrganizationSocialInsights,
-  getOrganizationByTwitter,
-  trackUserOrganizationAccess,
-  DatabaseUtils
-} from '@/lib/organization'
+import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, createOrganizationUser, updateOrganizationProperties } from '@/lib/neo4j/services/user-service'
 import { 
   classifyOrganization, 
   fetchTwitterProfile,
@@ -156,54 +149,47 @@ export async function POST(request: NextRequest) {
 
     // Step 2: Check if organization already exists with ICP
     console.log('🔍 Step 2: Checking for existing organization and ICP...')
-    let organization = await getOrganizationByTwitter(sanitizedUsername)
+    let user = await getUserByScreenName(sanitizedUsername)
     
-    if (organization?.id) {
-      console.log('✅ Organization found:', organization)
-      // ✅ Check Neo4j for existing ICP analysis
+    if (user) {
+      console.log('✅ User found:', user.userId)
+      // Check Neo4j for existing ICP analysis
       const existingProperties = await getOrganizationForUI(twitterUsername)
       
       if (existingProperties?.icp_synthesis && existingProperties?.confidence_score) {
         console.log('✅ Existing ICP found in Neo4j, returning from cache')
-        // Track user access
-        await trackUserOrganizationAccess(userId, organization.id)
         
         // Return existing ICP analysis from Neo4j (already inflated for UI)
         return NextResponse.json({
           success: true,
-          organization,
+          organization: {
+            id: user.userId,
+            name: user.name || sanitizedUsername,
+            twitter_username: sanitizedUsername
+          },
           icp: existingProperties, // Inflated structure ready for UI
           fromCache: true
         })
       } else {
-        console.log('ℹ️ Organization exists but no ICP found in Neo4j')
+        console.log('ℹ️ User exists but no ICP found in Neo4j')
       }
     } else {
-      console.log('ℹ️ No organization found')
+      console.log('ℹ️ No user found')
     }
 
     // No existing ICP, create new analysis
-    if (!organization) {
-      console.log('🆕 Creating new organization...')
-      // Save the organization with created_by tracking
-      organization = await saveOrganization({
-        created_by_user_id: userId,
-        twitter_username: sanitizedUsername
-      })
+    if (!user) {
+      console.log('🆕 Creating new organization user...')
+      // Create the organization user
+      user = await createOrganizationUser(sanitizedUsername, sanitizedUsername)
 
-      if (!organization) {
-        console.log('❌ Failed to save organization')
+      if (!user) {
+        console.log('❌ Failed to create organization user')
         return NextResponse.json({ 
-          error: 'Failed to save organization' 
+          error: 'Failed to create organization' 
         }, { status: 500 })
       }
-      console.log('✅ New organization created:', organization)
-    }
-
-    // Track user access
-    if (organization.id) {
-      console.log('👤 Tracking user access...')
-      await trackUserOrganizationAccess(userId, organization.id)
+      console.log('✅ New organization user created:', user.userId)
     }
 
     // Create comprehensive ICP analysis
@@ -225,12 +211,12 @@ export async function POST(request: NextRequest) {
     )
     console.log('✅ Grok analysis completed')
 
-    // Update organization with social insights
-    if (organization.id) {
-      console.log('🔄 Updating organization with social insights...')
+    // Update user with social insights (store in Neo4j properties)
+    if (user.userId) {
+      console.log('🔄 Updating user with social insights...')
       const socialInsights = extractSocialInsights(icpAnalysis)
       if (Object.keys(socialInsights).length > 0) {
-        await updateOrganizationSocialInsights(organization.id, socialInsights)
+        await updateOrganizationProperties(user.userId, socialInsights)
         console.log('✅ Social insights updated')
       }
     }
@@ -239,8 +225,7 @@ export async function POST(request: NextRequest) {
     console.log('💾 Saving ICP analysis...')
     const detailedResponse = createDetailedResponse(icpAnalysis)
     
-    // ✅ ICP analysis is now saved to Neo4j by createStructuredICPAnalysis
-    // No need for separate Supabase save operation
+    // ICP analysis is now saved to Neo4j by createStructuredICPAnalysis
     console.log('✅ ICP analysis saved to Neo4j via createStructuredICPAnalysis')
 
     // Fetch canonical ICP from Neo4j to ensure consistency
@@ -250,7 +235,11 @@ export async function POST(request: NextRequest) {
     console.log('✅ Grok analysis complete - returning response')
     return NextResponse.json({
       success: true,
-      organization,
+      organization: {
+        id: user.userId,
+        name: user.name || sanitizedUsername,
+        twitter_username: sanitizedUsername
+      },
       icp: canonicalICP,
       usage: undefined,
       fromCache: false
@@ -278,7 +267,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       error: errorMessage,
       details: error.message || 'Unknown error',
-      timestamp: DatabaseUtils.timestamp()
+      timestamp: new Date().toISOString()
     }, { status: 500 })
   }
 }

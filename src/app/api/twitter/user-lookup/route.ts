@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { getCachedTwitterUser, setCachedTwitterUser } from '@/lib/twitter-cache'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -7,12 +6,6 @@ export async function GET(request: Request) {
 
   if (!screen_name) {
     return NextResponse.json({ error: 'Username is required' }, { status: 400 })
-  }
-
-  // Check cache first
-  const cached = await getCachedTwitterUser(screen_name)
-  if (cached) {
-    return NextResponse.json({ ...cached.user_data, _cached: true, _fetched_at: cached.fetched_at })
   }
 
   if (!process.env.SOCIALAPI_BEARER_TOKEN) {
@@ -30,9 +23,6 @@ export async function GET(request: Request) {
       }
     )
     const data = await response.json()
-    if (response.ok && data.id) {
-      await setCachedTwitterUser(screen_name, data)
-    }
     return NextResponse.json(data, { status: response.status })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

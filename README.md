@@ -20,8 +20,7 @@ A sophisticated Next.js application that leverages Grok AI and advanced graph da
 - **Frontend**: Next.js 13 with App Router, React 18, TypeScript
 - **Styling**: Tailwind CSS with Radix UI primitives and Lucide React icons
 - **Authentication**: Clerk with role-based access control
-- **Graph Database**: Neo4j (relationships, connections, organizational hierarchies)
-- **Primary Database**: Supabase PostgreSQL (structured data, analysis results, caching)
+- **Graph Database**: Neo4j (relationships, connections, organizational hierarchies, ICP analysis storage)
 - **AI/ML**: Grok AI (X.AI API) with OpenAI-compatible interface
 - **External APIs**: SocialAPI for Twitter data, live search integration
 - **Package Manager**: pnpm with optimized dependency management
@@ -32,7 +31,6 @@ A sophisticated Next.js application that leverages Grok AI and advanced graph da
 - Node.js 18+
 - pnpm package manager
 - Neo4j database (local or cloud instance)
-- Supabase account and project
 - Clerk authentication application
 - Grok API key from X.AI
 - SocialAPI bearer token for Twitter data access
@@ -46,10 +44,6 @@ Create a `.env.local` file in the root directory:
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your_neo4j_password
-
-# Supabase Database
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # Authentication
 CLERK_SECRET_KEY=your_clerk_secret_key
@@ -146,11 +140,8 @@ src/
 │   ├── constants.ts            # Application constants and enums
 │   ├── error-utils.ts          # Error handling utilities
 │   ├── grok.ts                 # Grok AI client and analysis functions
-│   ├── grok-database.ts        # Grok analysis result management
 │   ├── neo4j.ts               # Neo4j driver configuration
 │   ├── socialapi-pagination.ts # SocialAPI integration utilities
-│   ├── supabase.ts            # Supabase client configuration
-│   ├── twitter-cache.ts       # Twitter data caching layer
 │   └── validation.ts          # Data validation schemas
 └── middleware.ts               # Next.js middleware for auth and routing
 ```
@@ -226,19 +217,20 @@ src/
 - **Organizational Hierarchies**: Company structures and team relationships
 - **Mutual Discovery**: Efficient graph traversal for connection analysis
 
-#### Supabase PostgreSQL
-- **Structured Data**: User profiles, organizations, and analysis metadata
-- **Grok Analysis Cache**: AI analysis results with configurable TTL
+#### Neo4j Graph Database
+- **Relationship Storage**: Social connections, employment relationships, affiliations
+- **ICP Analysis Storage**: Comprehensive organizational profiling data with flattened properties
+- **User Profiles**: Twitter profile data with entity classification
 - **Authentication Data**: User sessions and application preferences
-- **Analytics Storage**: Performance metrics and usage statistics
+- **Real-time Analytics**: Performance metrics and usage statistics
 
 ### Data Processing Pipeline
 
 1. **Profile Discovery**: SocialAPI fetches Twitter profile and connection data
-2. **Classification**: AI-powered entity detection and categorization
+2. **Classification**: AI-powered entity detection and categorization  
 3. **Relationship Mapping**: Graph database storage of connections and employment
-4. **ICP Analysis**: Comprehensive organizational profiling using live search
-5. **Result Caching**: Multi-layer caching with intelligent invalidation
+4. **ICP Analysis**: Comprehensive organizational profiling stored as Neo4j properties
+5. **Real-time Processing**: Live data processing with intelligent caching
 
 ### Performance Optimizations
 
@@ -295,8 +287,7 @@ src/
 ## Deployment
 
 ### Production Requirements
-- Neo4j database with appropriate memory allocation
-- Supabase project with optimized connection pooling
+- Neo4j database with appropriate memory allocation for relationship traversals
 - Environment variables configured for production
 - Clerk authentication properly configured
 - SocialAPI rate limits configured for production usage

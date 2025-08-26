@@ -1,7 +1,6 @@
 import { auth } from '@clerk/nextjs'
 import { NextResponse } from 'next/server'
 import type { Profile } from '@/lib/profile'
-import { DatabaseUtils } from '@/lib/organization'
 import { logAPIError } from '@/lib/error-utils'
 
 export async function GET(
@@ -24,7 +23,7 @@ export async function GET(
       full_name: null,
       email: null,
       bio: null,
-      updated_at: DatabaseUtils.timestamp(),
+      updated_at: new Date().toISOString(),
     }
 
     return NextResponse.json(profile)
@@ -56,7 +55,7 @@ export async function PATCH(
       full_name: updates.full_name || null,
       email: null,
       bio: updates.bio || null,
-      updated_at: DatabaseUtils.timestamp(),
+      updated_at: new Date().toISOString(),
     }
 
     return NextResponse.json(updatedProfile)

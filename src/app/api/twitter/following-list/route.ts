@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { getCachedTwitterFollowings, setCachedTwitterFollowings } from '@/lib/twitter-cache'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -9,13 +8,6 @@ export async function GET(request: Request) {
 
   if (!user_id) {
     return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
-  }
-
-  // Try to get from cache using user_id (more reliable) or username
-  const cached = await getCachedTwitterFollowings(user_id) || 
-                (username ? await getCachedTwitterFollowings(username) : null)
-  if (cached) {
-    return NextResponse.json({ ...cached.followings, _cached: true, _fetched_at: cached.fetched_at })
   }
 
   if (!process.env.SOCIALAPI_BEARER_TOKEN) {
@@ -45,11 +37,6 @@ export async function GET(request: Request) {
       nextCursor = data.next_cursor_str || data.next_cursor
       firstPage = false
     } while (nextCursor && nextCursor !== '0')
-
-    // Save to cache with both username and user_id if available
-    if (allFollowings.length > 0) {
-      await setCachedTwitterFollowings(username || user_id, { users: allFollowings }, user_id)
-    }
 
     return NextResponse.json({ users: allFollowings })
   } catch (error: any) {

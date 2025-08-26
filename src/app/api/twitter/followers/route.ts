@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { logExternalServiceError, logParsingError } from '@/lib/error-utils'
-import { getCachedTwitterFollowers, setCachedTwitterFollowers, getCachedTwitterUser, setCachedTwitterUser } from '@/lib/twitter-cache'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -10,13 +9,6 @@ export async function GET(request: NextRequest) {
 
   if (!username && !user_id) {
     return NextResponse.json({ error: 'Username or User ID is required' }, { status: 400 })
-  }
-
-  // Try cache first
-  const cacheKey = user_id || username
-  const cached = await getCachedTwitterFollowers(cacheKey!)
-  if (cached) {
-    return NextResponse.json({ ...cached.followers, _cached: true, _fetched_at: cached.fetched_at })
   }
 
   if (!process.env.SOCIALAPI_BEARER_TOKEN) {
@@ -28,16 +20,11 @@ export async function GET(request: NextRequest) {
     let resolvedUsername = username
     if (!resolvedUserId && resolvedUsername) {
       // Lookup user id if only username is provided
-      let userObj = (await getCachedTwitterUser(resolvedUsername))?.user_data
-      if (!userObj) {
-        const userRes = await fetch(`https://api.socialapi.me/twitter/user/${resolvedUsername}`,
-          { headers: { 'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`, 'Accept': 'application/json' } })
-        userObj = await userRes.json()
-        if (userRes.ok && userObj?.id) {
-          await setCachedTwitterUser(resolvedUsername, userObj)
-        }
-      }
-      if (!userObj?.id) {
+      const userRes = await fetch(`https://api.socialapi.me/twitter/user/${resolvedUsername}`,
+        { headers: { 'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`, 'Accept': 'application/json' } })
+      const userObj = await userRes.json()
+      
+      if (!userRes.ok || !userObj?.id) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 })
       }
       resolvedUserId = userObj.id_str || userObj.id
@@ -75,8 +62,6 @@ export async function GET(request: NextRequest) {
       firstPage = false
     } while (nextCursor && nextCursor !== '0')
 
-    // Save all followers to cache
-    await setCachedTwitterFollowers(resolvedUsername || resolvedUserId!, { users: allFollowers }, resolvedUserId || undefined)
     return NextResponse.json({ users: allFollowers })
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to fetch Twitter data', details: error.toString() }, { status: 500 })
