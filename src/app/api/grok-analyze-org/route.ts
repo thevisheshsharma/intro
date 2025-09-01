@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { createStructuredICPAnalysis, ICPAnalysisConfig } from '@/lib/grok'
 import { logAPIError, logExternalServiceError } from '@/lib/error-utils'
-import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, createOrganizationUser, updateOrganizationProperties } from '@/lib/neo4j/services/user-service'
+import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, createOrganizationUser, updateOrganizationProperties } from '@/services'
 import { 
   classifyOrganization, 
   fetchTwitterProfile,

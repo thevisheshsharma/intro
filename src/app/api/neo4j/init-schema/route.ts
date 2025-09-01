@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { initializeSchema } from '@/lib/neo4j'
+import { initializeSchema } from '@/services'
 
 export async function POST(request: NextRequest) {
   try {

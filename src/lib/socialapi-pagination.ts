@@ -1,4 +1,4 @@
-import { TwitterApiUser } from '@/lib/neo4j/services/user-service'
+import { TwitterApiUser } from '@/services'
 
 // Fetch user data from SocialAPI by screen name (for protocols)
 export async function fetchUserFromSocialAPI(
@@ -114,7 +114,7 @@ export async function fetchFollowingsPage(
     throw new Error('API configuration error')
   }
 
-  let url = `https://api.socialapi.me/twitter/friends/list?user_id=${userId}&count=200`
+  let url = `https://api.socialapi.me/twitter/friends/list?user_id=${userId}&limit=200`
   if (cursor && cursor !== '0') {
     url += `&cursor=${cursor}`
   }
@@ -140,6 +140,11 @@ export async function fetchFollowingsPage(
 
     const data = await response.json()
     
+    // Validate response structure
+    if (!Array.isArray(data.users)) {
+      console.warn(`Unexpected API response structure for followings:`, data)
+    }
+    
     return {
       users: Array.isArray(data.users) ? data.users : [],
       nextCursor: data.next_cursor_str || data.next_cursor
@@ -154,90 +159,60 @@ export async function fetchFollowingsPage(
   }
 }
 
-// Optimized parallel pagination for any connection type
-async function fetchConnectionsWithParallelPagination<T extends TwitterApiUser>(
+// Sequential pagination for any connection type - reliable and efficient
+async function fetchConnectionsSequentially<T extends TwitterApiUser>(
   firstPageFetcher: () => Promise<{ users: T[], nextCursor?: string }>,
   pageFetcher: (cursor: string) => Promise<{ users: T[], nextCursor?: string }>,
   connectionType: string
 ): Promise<T[]> {
+  const allConnections: T[] = []
+  let pageCount = 0
+  let totalFetched = 0
+  
   // Start with the first page
   const firstPage = await firstPageFetcher()
-  let allConnections: T[] = [...firstPage.users]
+  allConnections.push(...firstPage.users)
+  pageCount++
+  totalFetched += firstPage.users.length
+  
+  console.log(`Page ${pageCount}: +${firstPage.users.length} ${connectionType} (total: ${totalFetched})`)
   
   if (!firstPage.nextCursor || firstPage.nextCursor === '0') {
-    console.log(`Fetched ${allConnections.length} ${connectionType} (single page)`)
+    console.log(`Fetched ${allConnections.length} ${connectionType} (${pageCount} total pages)`)
     return allConnections
   }
 
-  // For multiple pages, use hybrid approach:
-  // 1. Fetch a few pages sequentially to get cursors
-  // 2. Then fetch remaining pages in parallel batches
+  // Continue fetching pages sequentially
+  let cursor: string | undefined = firstPage.nextCursor
   
-  const cursors: string[] = [firstPage.nextCursor]
-  const maxSequentialPages = 3 // Get first few cursors sequentially
-  
-  // Fetch a few pages sequentially to collect cursors
-  for (let i = 0; i < maxSequentialPages && cursors[cursors.length - 1] !== '0'; i++) {
-    const page = await pageFetcher(cursors[cursors.length - 1])
-    allConnections.push(...page.users)
-    
-    if (page.nextCursor && page.nextCursor !== '0') {
-      cursors.push(page.nextCursor)
-    } else {
+  while (cursor && cursor !== '0') {
+    try {
+      const page = await pageFetcher(cursor)
+      allConnections.push(...page.users)
+      pageCount++
+      totalFetched += page.users.length
+      
+      console.log(`Page ${pageCount}: +${page.users.length} ${connectionType} (total: ${totalFetched})`)
+      
+      cursor = page.nextCursor
+      
+      // Small delay between requests to be respectful to the API
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // Progress logging every 10 pages
+      if (pageCount % 10 === 0) {
+        console.log(`Progress: ${pageCount} pages, ${totalFetched} ${connectionType} fetched...`)
+      }
+      
+    } catch (error) {
+      console.error(`Error fetching page ${pageCount + 1} of ${connectionType}:`, error)
+      // On error, log what we have so far and break
+      console.log(`Stopping pagination due to error. Fetched ${totalFetched} ${connectionType} from ${pageCount} pages.`)
       break
     }
-    
-    // Small delay between sequential requests
-    await new Promise(resolve => setTimeout(resolve, 50))
   }
 
-  // If we have more pages, fetch them in parallel batches
-  const remainingCursors = cursors.slice(maxSequentialPages)
-  if (remainingCursors.length > 0) {
-    const batchSize = 5 // Fetch 5 pages in parallel
-    
-    for (let i = 0; i < remainingCursors.length; i += batchSize) {
-      const batch = remainingCursors.slice(i, i + batchSize)
-      
-      try {
-        const pagePromises = batch.map(cursor => pageFetcher(cursor))
-        const pages = await Promise.all(pagePromises)
-        
-        // Add all users from this batch
-        for (const page of pages) {
-          allConnections.push(...page.users)
-          
-          // Collect any new cursors for potential future batches
-          if (page.nextCursor && page.nextCursor !== '0' && 
-              !cursors.includes(page.nextCursor) && 
-              !remainingCursors.includes(page.nextCursor)) {
-            remainingCursors.push(page.nextCursor)
-          }
-        }
-        
-        console.log(`Parallel batch ${Math.floor(i/batchSize) + 1} completed: +${pages.reduce((sum, p) => sum + p.users.length, 0)} ${connectionType}`)
-        
-        // Brief pause between batches to be respectful to the API
-        if (i + batchSize < remainingCursors.length) {
-          await new Promise(resolve => setTimeout(resolve, 100))
-        }
-      } catch (error) {
-        console.error(`Error in parallel batch ${Math.floor(i/batchSize) + 1}:`, error)
-        // Fall back to sequential for this batch
-        for (const cursor of batch) {
-          try {
-            const page = await pageFetcher(cursor)
-            allConnections.push(...page.users)
-            await new Promise(resolve => setTimeout(resolve, 100))
-          } catch (pageError) {
-            console.error(`Failed to fetch page with cursor ${cursor}:`, pageError)
-          }
-        }
-      }
-    }
-  }
-
-  console.log(`Fetched ${allConnections.length} ${connectionType} (${cursors.length + 1} total pages)`)
+  console.log(`Fetched ${allConnections.length} ${connectionType} (${pageCount} total pages)`)
   return allConnections
 }
 
@@ -265,18 +240,20 @@ export async function fetchFollowersFromSocialAPI(username: string): Promise<Twi
   const userData = await userResponse.json()
   const userId = userData.id_str || userData.id
 
-  return fetchConnectionsWithParallelPagination(
+  return fetchConnectionsSequentially(
     () => fetchFollowersPage(userId),
     (cursor: string) => fetchFollowersPage(userId, cursor),
     `followers for ${username}`
   )
 }
 
-// Fetch followings with optimized parallel pagination
+// Fetch followings with sequential pagination and validation
 export async function fetchFollowingsFromSocialAPI(userId: string): Promise<TwitterApiUser[]> {
-  return fetchConnectionsWithParallelPagination(
+  const connections = await fetchConnectionsSequentially(
     () => fetchFollowingsPage(userId),
     (cursor: string) => fetchFollowingsPage(userId, cursor),
     `followings for user ${userId}`
   )
+  
+  return connections
 }

@@ -5,9 +5,10 @@ import {
   transformToNeo4jUser,
   isUserDataStale,
   getUserFollowerCount,
+  hasSignificantCountDifference,
   incrementalUpdateFollowers,
   type TwitterApiUser
-} from '@/lib/neo4j/services/user-service'
+} from '@/services'
 import { fetchFollowersFromSocialAPI } from '@/lib/socialapi-pagination'
 
 interface SyncFollowersRequest {
@@ -64,9 +65,7 @@ async function syncUserFollowers(username: string): Promise<{ synced: boolean, r
   
   console.log(`${username}: Cached followers: ${cachedFollowerCount}, API followers: ${apiFollowerCount}`)
   
-  // Check if counts differ significantly (>10%) or user data is stale
-  const hasSignificantDifference = cachedFollowerCount === 0 || Math.abs(cachedFollowerCount - apiFollowerCount) / cachedFollowerCount > 0.1
-  const shouldFetch = hasSignificantDifference || 
+  const shouldFetch = hasSignificantCountDifference(cachedFollowerCount, apiFollowerCount) || 
                       !user || 
                       isUserDataStale(user, 1080) // 45 days = 1080 hours
 

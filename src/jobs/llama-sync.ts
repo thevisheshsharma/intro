@@ -12,7 +12,7 @@ import {
   deduplicateProtocolArrays,
   type Neo4jProtocol
   // calculateTvl, // Temporarily disabled due to BigInt conversion issues
-} from '../lib/neo4j/services/protocol-service'
+} from '@/services'
 
 export interface SyncStats {
   startTime: string

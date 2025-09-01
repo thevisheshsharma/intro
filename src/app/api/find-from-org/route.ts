@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOrgAffiliatesWithGrok } from '@/lib/grok'
 import { classifyProfilesWithGrok } from '@/lib/classifier'
-import { runQuery } from '@/lib/neo4j'
 import { validateVibe, logValidationError, VibeType } from '@/lib/validation'
 import { 
+  runQuery,
   createOrUpdateUser, 
   createOrUpdateUsers,
   createOrUpdateUsersOptimized,
@@ -24,7 +24,7 @@ import {
   getUsersWithExistingEmploymentRelationships,
   getOrganizationEmployees,
   updateOrganizationClassification
-} from '@/lib/neo4j/services/user-service'
+} from '@/services'
 
 export async function POST(request: NextRequest) {
   try {
@@ -1926,7 +1926,7 @@ export async function POST(request: NextRequest) {
         await new Promise(resolve => setTimeout(resolve, 100))
       }
       
-      const { processEmploymentData } = await import('@/lib/neo4j/services/user-service')
+      const { processEmploymentData } = await import('@/services/user')
       await processEmploymentData(finalIndividuals)
       console.log(`   → Employment data processing completed`)
       

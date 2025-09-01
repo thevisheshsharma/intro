@@ -1,8 +1,7 @@
-import { runQuery } from '@/lib/neo4j'
+import { runQuery, getUserByScreenName, transformToNeo4jUser, createOrUpdateUser, processEmploymentData } from '@/services'
 import OpenAI from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
-import { getUserByScreenName, transformToNeo4jUser, createOrUpdateUser, processEmploymentData } from '@/lib/neo4j/services/user-service'
 import { validateVibe, logValidationError, VibeType } from '@/lib/validation'
 import { GROK_CONFIGS } from './grok'
 

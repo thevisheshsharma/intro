@@ -76,26 +76,11 @@ type ComprehensiveICPAnalysis = z.infer<typeof ICPAnalysisSchema> & {
 
 interface EnhancedICPDisplayProps {
   icp: {
-    grok_response?: string
     confidence_score?: number
     [key: string]: any
   }
   onEdit?: () => void
   editable?: boolean
-}
-
-// Helper function to safely parse the comprehensive ICP analysis JSON
-function parseComprehensiveICPResponse(grokResponse?: string): ComprehensiveICPAnalysis | null {
-  if (!grokResponse) return null
-  
-  try {
-    const parsed = JSON.parse(grokResponse)
-    console.log('🔍 Parsed comprehensive ICP analysis:', parsed)
-    return parsed as ComprehensiveICPAnalysis
-  } catch (error) {
-    logParsingError(error, 'parsing comprehensive ICP response', 'JSON')
-    return null
-  }
 }
 
 // Helper function for safe JSON parsing
@@ -216,12 +201,6 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
   const comprehensiveData = useMemo(() => {
     console.log('🔍 Processing ICP data:', icp)
     console.log('🔍 ICP keys:', icp ? Object.keys(icp) : 'no icp')
-    
-    // If icp has grok_response (legacy Supabase format), parse it
-    if (icp?.grok_response) {
-      console.log('📄 Using legacy Supabase format (grok_response)')
-      return parseComprehensiveICPResponse(icp.grok_response)
-    }
     
     // ✅ Handle new flattened structure - fields are directly accessible
     console.log('🔍 Checking condition: project_name =', icp?.project_name)

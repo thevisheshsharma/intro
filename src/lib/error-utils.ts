@@ -213,11 +213,3 @@ export const quickLog = {
   external: (error: any, operation: string, service: string) => 
     logExternalServiceError(error, operation, service)
 }
-
-/**
- * Legacy compatibility - maintains existing function signature
- * @deprecated Use handleDatabaseError instead
- */
-export function handleError(error: any, operation: string, context?: string): null {
-  return handleDatabaseError(error, operation, context)
-}

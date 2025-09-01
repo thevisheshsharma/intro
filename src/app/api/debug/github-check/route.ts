@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getOrganizationProperties } from '@/lib/neo4j/services/user-service'
+import { getOrganizationProperties } from '@/services'
 
 export async function GET(request: NextRequest) {
   try {
