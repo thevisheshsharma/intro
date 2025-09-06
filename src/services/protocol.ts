@@ -1,6 +1,7 @@
 import { runQuery, runBatchQuery } from '@/lib/neo4j'
 import { GroupedProtocol } from '@/lib/llama-api'
 import { VibeType } from '@/lib/validation'
+import { categoryMapper, type OrgType } from './protocol-category-mapper'
 
 // Optimal batch sizes for protocol operations
 const PROTOCOL_BATCH_SIZES = {
@@ -21,7 +22,7 @@ export interface Neo4jProtocol {
   
   // Protocol-specific fields
   vibe: string             // Always 'organization' for protocols
-  org_type: string         // Always 'protocol'
+  org_type: OrgType        // Mapped based on categories
   org_subtype: string[]    // Array of categories
   web3_focus: string       // Always 'native'
   operational_status: string // Always 'mainnet'
@@ -30,16 +31,16 @@ export interface Neo4jProtocol {
   tvl?: number             // Calculated based on date logic
   gecko_id?: string       // Single value from first protocol
   cmcId?: string          // Single value from first protocol
-  token_symbol?: string   // Single value from first protocol
+  token?: string          // Single value from first protocol (renamed from token_symbol)
   
   // Arrays stored as JSON strings in Neo4j
   llama_id: string              // JSON array of protocol IDs
   contract_address: string      // JSON array of contract addresses
   about_array: string           // JSON array of descriptions
-  supported_chains: string      // JSON array of supported chains
+  chains: string                // JSON array of supported chains
   llama_slug: string            // JSON array of protocol slugs
-  audit_report_url: string      // JSON array of audit links
-  github_url: string            // JSON array of github URLs
+  audit_links: string           // JSON array of audit links (renamed from audit_report_url)
+  github: string               // JSON array of github URLs (renamed from github_url)
   governance_forum: string      // JSON array of governance forums
   recent_developments: string   // JSON array of important events/milestones
 }
@@ -61,6 +62,9 @@ export function transformProtocolToNeo4j(groupedProtocol: GroupedProtocol): Neo4
   // Location should be geographic, not blockchain networks - leave empty for protocols
   const location = ''
 
+  // ✅ Use optimized mapper - single call, handles all logic
+  const orgType = categoryMapper.mapCategoriesToOrgType(groupedProtocol.org_subType)
+
   return {
     protocolId,
     name: groupedProtocol.name,
@@ -74,7 +78,7 @@ export function transformProtocolToNeo4j(groupedProtocol: GroupedProtocol): Neo4
     
     // Static classification fields
     vibe: VibeType.ORGANIZATION,
-    org_type: 'protocol',
+    org_type: orgType, // ✅ Efficiently mapped
     org_subtype: groupedProtocol.org_subType || [], // Array of categories
     web3_focus: 'native',
     operational_status: 'mainnet',
@@ -83,16 +87,16 @@ export function transformProtocolToNeo4j(groupedProtocol: GroupedProtocol): Neo4
     tvl: groupedProtocol.totalTvl || undefined,
     gecko_id: shouldStore(groupedProtocol.gecko_id) ? groupedProtocol.gecko_id : undefined,
     cmcId: shouldStore(groupedProtocol.cmcId) ? groupedProtocol.cmcId : undefined,
-    token_symbol: shouldStore(groupedProtocol.token_symbol) ? groupedProtocol.token_symbol : undefined,
+    token: shouldStore(groupedProtocol.token) ? groupedProtocol.token : undefined,
     
     // Arrays as JSON strings
     llama_id: JSON.stringify(groupedProtocol.llama_id),
     contract_address: JSON.stringify(groupedProtocol.contract_address),
     about_array: JSON.stringify(groupedProtocol.about),
-    supported_chains: JSON.stringify(groupedProtocol.supported_chains),
+    chains: JSON.stringify(groupedProtocol.chains),
     llama_slug: JSON.stringify(groupedProtocol.llama_slug),
-    audit_report_url: JSON.stringify(groupedProtocol.audit_report_url),
-    github_url: JSON.stringify(groupedProtocol.github_url),
+    audit_links: JSON.stringify(groupedProtocol.audit_links),
+    github: JSON.stringify(groupedProtocol.github),
     governance_forum: JSON.stringify(groupedProtocol.governance_forum),
     recent_developments: JSON.stringify(groupedProtocol.recent_developments)
   }
@@ -153,40 +157,6 @@ export function calculateTvl(
     // Data is more than 1 day old, overwrite with new TVL
     return numericNewTvl
   }
-}
-
-/**
- * Map Llama category to our org_subtype values (no longer needed but keeping for compatibility)
- */
-function mapCategoryToSubtype(category?: string): string {
-  if (!category) return ''
-  
-  const categoryLower = category.toLowerCase()
-  
-  // Map common DeFi categories
-  const categoryMap: Record<string, string> = {
-    'dexes': 'defi',
-    'lending': 'defi',
-    'yield': 'defi',
-    'derivatives': 'defi',
-    'payments': 'defi',
-    'assets': 'defi',
-    'staking': 'defi',
-    'indexes': 'defi',
-    'synthetics': 'defi',
-    'options': 'defi',
-    'insurance': 'defi',
-    'cross chain': 'infrastructure',
-    'bridge': 'infrastructure',
-    'gaming': 'gaming',
-    'nft': 'nft',
-    'social': 'social',
-    'metaverse': 'gaming',
-    'dao': 'dao',
-    'governance': 'dao'
-  }
-  
-  return categoryMap[categoryLower] || 'defi' // Default to defi for unknown categories
 }
 
 /**
@@ -263,14 +233,14 @@ export async function createOrUpdateProtocol(protocol: Neo4jProtocol): Promise<v
       p.tvl = $tvl,
       p.gecko_id = $gecko_id,
       p.cmcId = $cmcId,
-      p.token_symbol = $token_symbol,
+      p.token = $token,
       p.llama_id = $llama_id,
       p.contract_address = $contract_address,
       p.about_array = $about_array,
-      p.supported_chains = $supported_chains,
+      p.chains = $chains,
       p.llama_slug = $llama_slug,
-      p.audit_report_url = $audit_report_url,
-      p.github_url = $github_url,
+      p.audit_links = $audit_links,
+      p.github = $github,
       p.governance_forum = $governance_forum,
       p.recent_developments = $recent_developments
     RETURN p.userId as protocolId
@@ -294,14 +264,14 @@ export async function createOrUpdateProtocol(protocol: Neo4jProtocol): Promise<v
     tvl: protocol.tvl || null,
     gecko_id: protocol.gecko_id || '',
     cmcId: protocol.cmcId || '',
-    token_symbol: protocol.token_symbol || '',
+    token: protocol.token || '',
     llama_id: protocol.llama_id,
     contract_address: protocol.contract_address,
     about_array: protocol.about_array,
-    supported_chains: protocol.supported_chains,
+    chains: protocol.chains,
     llama_slug: protocol.llama_slug,
-    audit_report_url: protocol.audit_report_url,
-    github_url: protocol.github_url,
+    audit_links: protocol.audit_links,
+    github: protocol.github,
     governance_forum: protocol.governance_forum,
     recent_developments: protocol.recent_developments
   }
@@ -386,16 +356,16 @@ export async function createOrUpdateProtocolsOptimized(protocols: Neo4jProtocol[
           p.tvl = CASE WHEN protocolData.tvl IS NOT NULL THEN protocolData.tvl ELSE p.tvl END,
           p.gecko_id = CASE WHEN protocolData.gecko_id IS NOT NULL AND protocolData.gecko_id <> '' AND protocolData.gecko_id <> '-' THEN protocolData.gecko_id ELSE COALESCE(p.gecko_id, '') END,
           p.cmcId = CASE WHEN protocolData.cmcId IS NOT NULL AND protocolData.cmcId <> '' AND protocolData.cmcId <> '-' THEN protocolData.cmcId ELSE COALESCE(p.cmcId, '') END,
-          p.token_symbol = CASE WHEN protocolData.token_symbol IS NOT NULL AND protocolData.token_symbol <> '' AND protocolData.token_symbol <> '-' THEN protocolData.token_symbol ELSE COALESCE(p.token_symbol, '') END,
+          p.token = CASE WHEN protocolData.token IS NOT NULL AND protocolData.token <> '' AND protocolData.token <> '-' THEN protocolData.token ELSE COALESCE(p.token, '') END,
           
           // Array fields - always update these
           p.llama_id = protocolData.llama_id,
           p.contract_address = protocolData.contract_address,
           p.about_array = protocolData.about_array,
-          p.supported_chains = protocolData.supported_chains,
+          p.chains = protocolData.chains,
           p.llama_slug = protocolData.llama_slug,
-          p.audit_report_url = protocolData.audit_report_url,
-          p.github_url = protocolData.github_url,
+          p.audit_links = protocolData.audit_links,
+          p.github = protocolData.github,
           p.governance_forum = protocolData.governance_forum,
           p.recent_developments = protocolData.recent_developments
         RETURN p.userId as protocolId
@@ -447,55 +417,224 @@ export async function getProtocolStats(): Promise<{
 }
 
 /**
- * Clean up duplicate protocols with the same screenName
- * Keep the most recently updated one
+ * Clean up duplicate screenNames across ALL user types
+ * Keep the one with the most complete data (most non-null fields)
+ * Prioritize protocols over regular users when scores are close
  */
 export async function cleanupDuplicateProtocols(): Promise<{
   duplicatesFound: number
   duplicatesRemoved: number
+  details: Array<{
+    screenName: string
+    duplicatesCount: number
+    removedNodes: string[]
+    keptNode: string
+  }>
 }> {
-  console.log('Cleaning up duplicate protocols...')
+  console.log('Cleaning up duplicate screenNames across all user types...')
   
-  // Find duplicate screenNames
+  // Find all nodes with duplicate screenNames (case-insensitive) - not just protocols
   const findDuplicatesQuery = `
-    MATCH (p:User {vibe: 'organization', org_type: 'protocol'})
+    MATCH (p:User)
     WHERE p.screenName IS NOT NULL AND p.screenName <> ''
-    WITH p.screenName as screenName, collect(p) as nodes
+    WITH toLower(p.screenName) as lowerScreenName, collect(p) as nodes
     WHERE size(nodes) > 1
-    RETURN screenName, nodes
+    RETURN lowerScreenName, nodes
+    ORDER BY lowerScreenName
   `
   
   const duplicates = await runBatchQuery(findDuplicatesQuery, {})
   let duplicatesRemoved = 0
+  const details: Array<{
+    screenName: string
+    duplicatesCount: number
+    removedNodes: string[]
+    keptNode: string
+  }> = []
   
   for (const record of duplicates) {
-    const screenName = record.screenName
+    const lowerScreenName = record.lowerScreenName
     const nodes = record.nodes
     
-    console.log(`Found ${nodes.length} duplicates for screenName: ${screenName}`)
+    console.log(`Found ${nodes.length} duplicates for screenName: ${lowerScreenName}`)
     
-    // Sort by lastUpdated (keep the most recent)
-    const sortedNodes = nodes.sort((a: any, b: any) => {
-      const aDate = new Date(a.lastUpdated || 0)
-      const bDate = new Date(b.lastUpdated || 0)
-      return bDate.getTime() - aDate.getTime()
-    })
+    // Score each node based on data completeness and user type
+    const scoredNodes = nodes.map((node: any) => {
+      let score = 0
+      
+      // Handle both neo4j node format (with .properties) and plain object
+      const props = node.properties || node
+      
+      // User type priority bonus (protocols get priority)
+      if (props.vibe === 'organization' && props.org_type === 'protocol') {
+        score += 10 // High priority for protocols
+      } else if (props.vibe === 'organization') {
+        score += 5 // Medium priority for other organizations
+      } else {
+        score += 0 // Regular users get no bonus
+      }
+      
+      // Basic fields (1 point each)
+      if (props.name && props.name !== '') score += 1
+      if (props.description && props.description !== '') score += 1
+      if (props.profileImageUrl && props.profileImageUrl !== '') score += 1
+      if (props.location && props.location !== '') score += 1
+      if (props.url && props.url !== '' && props.url !== '[]') score += 1
+      
+      // Protocol-specific fields (2 points each - more important)
+      if (props.tvl && props.tvl > 0) score += 2
+      if (props.gecko_id && props.gecko_id !== '' && props.gecko_id !== '-') score += 2
+      if (props.cmcId && props.cmcId !== '' && props.cmcId !== '-') score += 2
+      if (props.token && props.token !== '' && props.token !== '-') score += 2
+      
+      // Array fields (3 points each - most important for protocols)
+      const arrayFields = [
+        'llama_id', 'contract_address', 'about_array', 'chains', 
+        'llama_slug', 'audit_links', 'github', 'governance_forum', 'recent_developments'
+      ]
+      
+      for (const field of arrayFields) {
+        if (props[field] && props[field] !== '' && props[field] !== '[]') {
+          try {
+            const parsed = JSON.parse(props[field])
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              score += 3
+            }
+          } catch (e) {
+            // If it's not JSON but has content, still give some points
+            if (props[field].length > 2) score += 1
+          }
+        }
+      }
+      
+      // Social media fields (1 point each)
+      if (props.followersCount && props.followersCount > 0) score += 1
+      if (props.followingCount && props.followingCount > 0) score += 1
+      
+      // Recency bonus (prefer more recently updated)
+      if (props.lastUpdated) {
+        const lastUpdate = new Date(props.lastUpdated)
+        const now = new Date()
+        const daysSinceUpdate = (now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24)
+        
+        // Bonus points for recent updates (max 2 points)
+        if (daysSinceUpdate < 1) score += 2
+        else if (daysSinceUpdate < 7) score += 1
+        else if (daysSinceUpdate < 30) score += 0.5
+      }
+      
+      // Generate a unique identifier for deletion - prefer userId, fallback to screenName
+      const identifier = props.userId || props.screenName
+      
+      return {
+        node,
+        score,
+        identifier,
+        userId: props.userId,
+        screenName: props.screenName,
+        name: props.name || 'Unknown',
+        userType: `${props.vibe || 'user'}${props.org_type ? ':' + props.org_type : ''}`,
+        lastUpdated: props.lastUpdated || 'Unknown'
+      }
+    }).sort((a: any, b: any) => b.score - a.score) // Sort by score descending
     
-    // Remove all but the first (most recent)
-    const nodesToRemove = sortedNodes.slice(1)
+    // Keep the highest scoring node, remove the rest
+    const nodeToKeep = scoredNodes[0]
+    const nodesToRemove = scoredNodes.slice(1)
     
-    for (const node of nodesToRemove) {
-      await runQuery(`MATCH (p:User {userId: $userId}) DELETE p`, { userId: node.userId })
-      duplicatesRemoved++
-      console.log(`Removed duplicate protocol: ${node.name} (${node.userId})`)
+    console.log(`Keeping node ${nodeToKeep.identifier} (score: ${nodeToKeep.score}) for screenName: ${lowerScreenName}`)
+    
+    const removedNodeIds: string[] = []
+    
+    for (const nodeInfo of nodesToRemove) {
+      try {
+        // Delete by userId if available, otherwise by screenName with additional safety
+        if (nodeInfo.userId) {
+          await runQuery(`
+            MATCH (p:User {userId: $userId}) 
+            DETACH DELETE p
+          `, { userId: nodeInfo.userId })
+          removedNodeIds.push(nodeInfo.userId)
+        } else {
+          // Fallback deletion by screenName and name for nodes without userId
+          await runQuery(`
+            MATCH (p:User {screenName: $screenName, name: $name})
+            WHERE p.userId IS NULL
+            WITH p LIMIT 1
+            DETACH DELETE p
+          `, { 
+            screenName: nodeInfo.screenName, 
+            name: nodeInfo.name 
+          })
+          removedNodeIds.push(`${nodeInfo.screenName}_${nodeInfo.name}`)
+        }
+        
+        duplicatesRemoved++
+        console.log(`✅ Removed duplicate: ${nodeInfo.name} (${nodeInfo.userType}) - Score: ${nodeInfo.score}, ID: ${nodeInfo.identifier}`)
+      } catch (error) {
+        console.error(`Failed to remove duplicate ${nodeInfo.identifier}:`, error)
+      }
     }
+    
+    details.push({
+      screenName: lowerScreenName,
+      duplicatesCount: nodes.length,
+      removedNodes: removedNodeIds,
+      keptNode: nodeToKeep.identifier
+    })
   }
   
-  console.log(`Cleanup complete: ${duplicatesRemoved} duplicates removed`)
+  console.log(`Cleanup complete: ${duplicatesRemoved} duplicates removed from ${duplicates.length} screenName conflicts`)
+  
   return {
     duplicatesFound: duplicates.length,
-    duplicatesRemoved
+    duplicatesRemoved,
+    details
   }
+}
+
+/**
+ * Validate screenName uniqueness across the database
+ */
+export async function validateScreenNameUniqueness(): Promise<{
+  isUnique: boolean
+  duplicates: Array<{
+    screenName: string
+    count: number
+    userIds: string[]
+  }>
+}> {
+  console.log('Validating screenName uniqueness...')
+  
+  const query = `
+    MATCH (u:User)
+    WHERE u.screenName IS NOT NULL AND u.screenName <> ''
+    WITH toLower(u.screenName) as lowerScreenName, collect({userId: u.userId, screenName: u.screenName}) as users
+    WHERE size(users) > 1
+    RETURN lowerScreenName as screenName, size(users) as count, users
+    ORDER BY count DESC, lowerScreenName
+  `
+  
+  const results = await runBatchQuery(query, {})
+  
+  const duplicates = results.map(record => ({
+    screenName: record.screenName,
+    count: Number(record.count),
+    userIds: record.users.map((u: any) => u.userId)
+  }))
+  
+  const isUnique = duplicates.length === 0
+  
+  if (!isUnique) {
+    console.log(`Found ${duplicates.length} screenNames with duplicates:`)
+    duplicates.forEach(dup => {
+      console.log(`  ${dup.screenName}: ${dup.count} duplicates (${dup.userIds.join(', ')})`)
+    })
+  } else {
+    console.log('All screenNames are unique ✓')
+  }
+  
+  return { isUnique, duplicates }
 }
 
 /**
@@ -509,10 +648,10 @@ export async function deduplicateProtocolArrays(): Promise<{
   // Get all protocol nodes with array fields
   const query = `
     MATCH (p:User {vibe: 'organization', org_type: 'protocol'})
-    WHERE p.contract_address IS NOT NULL OR p.supported_chains IS NOT NULL OR p.about_array IS NOT NULL
-    RETURN p.userId as userId, p.contract_address as contract_address, p.supported_chains as supported_chains, 
+    WHERE p.contract_address IS NOT NULL OR p.chains IS NOT NULL OR p.about_array IS NOT NULL
+    RETURN p.userId as userId, p.contract_address as contract_address, p.chains as chains, 
            p.about_array as about_array, p.llama_slug as llama_slug,
-           p.audit_report_url as audit_report_url, p.github_url as github_url,
+           p.audit_links as audit_links, p.github as github,
            p.governance_forum as governance_forum
   `
   
@@ -547,8 +686,8 @@ export async function deduplicateProtocolArrays(): Promise<{
     
     // Check each array field
     const arrayFields = [
-      'contract_address', 'supported_chains', 'about_array', 
-      'llama_slug', 'audit_report_url', 'github_url', 'governance_forum'
+      'contract_address', 'chains', 'about_array', 
+      'llama_slug', 'audit_links', 'github', 'governance_forum'
     ]
     
     for (const field of arrayFields) {

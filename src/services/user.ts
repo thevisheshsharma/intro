@@ -34,7 +34,7 @@ export interface Neo4jUser {
   vibe?: string               // Primary entity classification: 'individual', 'organization', 'spam'
   department?: string         // current department/role from current_position.department
   // Organization classification fields (can be null for individuals/spam accounts)
-  org_type?: string           // Organization type: protocol, infrastructure, exchange, investment, service, community
+  org_type?: string           // Organization type: protocol, infrastructure, exchange, investment, service, community, nft
   org_subtype?: string        // Organization subtype: defi, gaming, vc, etc.
   web3_focus?: string         // Web3 focus: native, adjacent, traditional
 }
@@ -454,6 +454,29 @@ export async function createOrganizationUser(screenName: string, name: string): 
   })
   
   return results[0].u.properties
+}
+
+/**
+ * Ensure single user exists for screen name - prevents duplicates
+ */
+export async function ensureUserExists(
+  screenName: string, 
+  name?: string
+): Promise<Neo4jUser> {
+  // Check if user already exists
+  let user = await getUserByScreenName(screenName)
+  
+  if (user) {
+    console.log(`✅ User exists: ${user.userId}`)
+    return user
+  }
+  
+  // Create new user
+  console.log(`🆕 Creating user for @${screenName}`)
+  user = await createOrganizationUser(screenName, name || screenName)
+  console.log(`✅ User created: ${user.userId}`)
+  
+  return user
 }
 
 // Check if user data is stale (older than specified hours)

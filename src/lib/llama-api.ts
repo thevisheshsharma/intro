@@ -46,7 +46,7 @@ export interface GroupedProtocol {
   
   // Single entry fields (only from first/main protocol)
   name: string
-  token_symbol?: string
+  token?: string
   gecko_id?: string
   cmcId?: string
   screenName?: string
@@ -54,11 +54,11 @@ export interface GroupedProtocol {
   // Array fields (merged from all protocols)
   recent_developments: Array<[number, string]>  // hallmarks
   governance_forum: string[]                    // governanceID
-  audit_report_url: string[]                    // audit_links
+  audit_links: string[]                         // audit_links -> renamed from audit_report_url
   org_subType: string[]                         // category
-  github_url: string[]                          // github
+  github: string[]                              // github -> renamed from github_url
   llama_slug: string[]                          // slug
-  supported_chains: string[]                    // chains
+  chains: string[]                              // chains
   about: string[]                               // description
   url: string[]                                 // url
   contract_address: string[]                    // address
@@ -148,10 +148,10 @@ function mergeProtocolGroup(protocols: LlamaProtocol[], parentSlug?: string): Gr
   const contract_address: string[] = []
   const about: string[] = []
   const url: string[] = []
-  const supported_chains: string[] = []
+  const chains: string[] = []
   const llama_slug: string[] = []
-  const audit_report_url: string[] = []
-  const github_url: string[] = []
+  const audit_links: string[] = []
+  const github: string[] = []
   const org_subType: string[] = []
   const governance_forum: string[] = []
   const recent_developments: Array<[number, string]> = []
@@ -167,17 +167,17 @@ function mergeProtocolGroup(protocols: LlamaProtocol[], parentSlug?: string): Gr
     if (protocol.url && !url.includes(protocol.url)) url.push(protocol.url)
     if (protocol.slug && !llama_slug.includes(protocol.slug)) llama_slug.push(protocol.slug)
     if (protocol.category && !org_subType.includes(protocol.category)) org_subType.push(protocol.category)
-    if (protocol.github && !github_url.includes(protocol.github)) github_url.push(protocol.github)
+    if (protocol.github && !github.includes(protocol.github)) github.push(protocol.github)
     
     // Merge arrays from protocol with deduplication
     if (protocol.chains) {
       for (const chain of protocol.chains) {
-        if (!supported_chains.includes(chain)) supported_chains.push(chain)
+        if (!chains.includes(chain)) chains.push(chain)
       }
     }
     if (protocol.audit_links) {
       for (const link of protocol.audit_links) {
-        if (!audit_report_url.includes(link)) audit_report_url.push(link)
+        if (!audit_links.includes(link)) audit_links.push(link)
       }
     }
     if (protocol.governanceID) {
@@ -230,7 +230,7 @@ function mergeProtocolGroup(protocols: LlamaProtocol[], parentSlug?: string): Gr
     
     // Single entry fields (from base protocol only)
     name: baseProtocol.name,
-    token_symbol: baseProtocol.symbol,
+    token: baseProtocol.symbol,
     gecko_id: baseProtocol.gecko_id,
     cmcId: baseProtocol.cmcId,
     screenName,
@@ -240,10 +240,10 @@ function mergeProtocolGroup(protocols: LlamaProtocol[], parentSlug?: string): Gr
     contract_address,
     about,
     url,
-    supported_chains,
+    chains,
     llama_slug,
-    audit_report_url,
-    github_url,
+    audit_links,
+    github,
     org_subType,
     governance_forum,
     recent_developments,

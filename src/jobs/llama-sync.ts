@@ -9,10 +9,12 @@ import {
   createOrUpdateProtocolsOptimized,
   getProtocolStats,
   cleanupDuplicateProtocols,
+  validateScreenNameUniqueness,
   deduplicateProtocolArrays,
   type Neo4jProtocol
   // calculateTvl, // Temporarily disabled due to BigInt conversion issues
 } from '@/services'
+import { analyzeCategoryMapping, logCategoryAnalytics, type CategoryAnalytics } from '@/services/llama-sync-analytics'
 
 export interface SyncStats {
   startTime: string
@@ -24,8 +26,65 @@ export interface SyncStats {
   newProtocols: number
   updatedProtocols: number
   neo4jUpserts: number
+  duplicatesFound: number
+  duplicatesRemoved: number
+  cleanupDetails: Array<{
+    screenName: string
+    duplicatesCount: number
+    removedNodes: string[]
+    keptNode: string
+  }>
+  arrayDeduplicationsCount: number
+  finalUniquenessValidation: {
+    isUnique: boolean
+    remainingDuplicates: number
+  }
+  // ✅ Add mapping analytics
+  categoryAnalytics: CategoryAnalytics
+  performanceMetrics: {
+    mappingTimeMs: number
+    totalSyncTimeMs: number
+    protocolsPerSecond: number
+  }
   errors: string[]
   duration?: number
+}
+
+/**
+ * Clean recent_developments data by removing timestamps and handling various formats
+ */
+function cleanRecentDevelopments(recentDevelopments: any): string[] {
+  if (!recentDevelopments) return []
+  
+  try {
+    let parsed = recentDevelopments
+    
+    // Handle string format - parse JSON first
+    if (typeof recentDevelopments === 'string') {
+      parsed = JSON.parse(recentDevelopments)
+    }
+    
+    // Handle array format
+    if (Array.isArray(parsed)) {
+      return parsed.map(item => {
+        // Format 1: [timestamp, description] arrays - extract description
+        if (Array.isArray(item) && item.length >= 2 && typeof item[0] === 'number') {
+          return item[1]
+        }
+        // Format 2: Direct string descriptions
+        if (typeof item === 'string') {
+          return item
+        }
+        // Fallback
+        return String(item)
+      }).filter(item => typeof item === 'string' && item.trim() !== '')
+    }
+    
+    return []
+  } catch (error) {
+    console.warn('Error cleaning recent_developments:', error, 'Data:', recentDevelopments)
+    return []
+  }
 }
 
 /**
@@ -107,6 +166,7 @@ async function matchProtocolsWithExisting(
  * Main sync function
  */
 export async function syncLlamaProtocols(): Promise<SyncStats> {
+  const startTime = Date.now()
   const stats: SyncStats = {
     startTime: new Date().toISOString(),
     totalProtocols: 0,
@@ -116,6 +176,20 @@ export async function syncLlamaProtocols(): Promise<SyncStats> {
     newProtocols: 0,
     updatedProtocols: 0,
     neo4jUpserts: 0,
+    duplicatesFound: 0,
+    duplicatesRemoved: 0,
+    cleanupDetails: [],
+    arrayDeduplicationsCount: 0,
+    finalUniquenessValidation: {
+      isUnique: false,
+      remainingDuplicates: 0
+    },
+    categoryAnalytics: {} as CategoryAnalytics,
+    performanceMetrics: {
+      mappingTimeMs: 0,
+      totalSyncTimeMs: 0,
+      protocolsPerSecond: 0
+    },
     errors: []
   }
   
@@ -134,6 +208,17 @@ export async function syncLlamaProtocols(): Promise<SyncStats> {
     stats.groupedProtocols = groupedProtocols.length
     console.log(`Grouped into ${groupedProtocols.length} protocols`)
     
+    // Step 2.5: OPTIMIZED category analysis
+    console.log('Step 2.5: Analyzing category mapping (optimized)...')
+    const mappingStart = Date.now()
+    
+    stats.categoryAnalytics = analyzeCategoryMapping(groupedProtocols)
+    logCategoryAnalytics(stats.categoryAnalytics)
+    
+    const mappingTime = Date.now() - mappingStart
+    stats.performanceMetrics.mappingTimeMs = mappingTime
+    console.log(`Category mapping analysis completed in ${mappingTime}ms`)
+    
     // Step 3: Match with existing Neo4j nodes
     console.log('Step 3: Matching with existing Neo4j nodes...')
     const { toUpdate, toCreate, stats: matchStats } = await matchProtocolsWithExisting(groupedProtocols)
@@ -150,6 +235,12 @@ export async function syncLlamaProtocols(): Promise<SyncStats> {
     for (const protocol of toCreate) {
       const neo4jProtocol = transformProtocolToNeo4j(protocol)
       
+      // Clean recent_developments data
+      if (neo4jProtocol.recent_developments) {
+        const cleanedData = cleanRecentDevelopments(neo4jProtocol.recent_developments)
+        neo4jProtocol.recent_developments = JSON.stringify(cleanedData)
+      }
+      
       // TODO: Remove tvl temporarily to avoid BigInt issues
       neo4jProtocol.tvl = undefined
       
@@ -162,6 +253,12 @@ export async function syncLlamaProtocols(): Promise<SyncStats> {
       
       // Use existing userId to update the same node
       neo4jProtocol.protocolId = existingUserId
+      
+      // Clean recent_developments data
+      if (neo4jProtocol.recent_developments) {
+        const cleanedData = cleanRecentDevelopments(neo4jProtocol.recent_developments)
+        neo4jProtocol.recent_developments = JSON.stringify(cleanedData)
+      }
       
       // TODO: TVL calculation temporarily disabled due to BigInt conversion issues
       // Calculate TVL based on date logic - ensure no BigInt values
@@ -204,15 +301,45 @@ export async function syncLlamaProtocols(): Promise<SyncStats> {
     stats.neo4jUpserts = upsertResult.processed
     stats.errors.push(...upsertResult.errors)
     
-    // Step 6: Clean up any remaining duplicates
-    console.log('Step 6: Cleaning up duplicate protocols...')
+    // Step 6: Enhanced cleanup of duplicate protocols with detailed scoring
+    console.log('Step 6: Enhanced cleanup of duplicate protocols...')
     const cleanupResult = await cleanupDuplicateProtocols()
+    stats.duplicatesFound = cleanupResult.duplicatesFound
+    stats.duplicatesRemoved = cleanupResult.duplicatesRemoved
+    stats.cleanupDetails = cleanupResult.details
+    
+    // Log detailed cleanup results
+    if (cleanupResult.details.length > 0) {
+      console.log('Detailed cleanup results:')
+      cleanupResult.details.forEach(detail => {
+        console.log(`  ${detail.screenName}: kept ${detail.keptNode}, removed ${detail.removedNodes.length} duplicates`)
+      })
+    }
     
     // Step 6.5: Deduplicate array fields in existing protocols
     console.log('Step 6.5: Deduplicating array fields...')
     const dedupeResult = await deduplicateProtocolArrays()
+    stats.arrayDeduplicationsCount = dedupeResult.protocolsUpdated
     
-    // Step 7: Get final stats
+    // Step 7: Final validation of screenName uniqueness
+    console.log('Step 7: Validating screenName uniqueness...')
+    const validationResult = await validateScreenNameUniqueness()
+    stats.finalUniquenessValidation = {
+      isUnique: validationResult.isUnique,
+      remainingDuplicates: validationResult.duplicates.length
+    }
+    
+    if (!validationResult.isUnique) {
+      console.warn(`⚠️  WARNING: ${validationResult.duplicates.length} screenNames still have duplicates after cleanup:`)
+      validationResult.duplicates.forEach(dup => {
+        console.warn(`    ${dup.screenName}: ${dup.count} nodes`)
+        stats.errors.push(`Remaining duplicates for ${dup.screenName}: ${dup.count} nodes`)
+      })
+    } else {
+      console.log('✅ All screenNames are now unique!')
+    }
+    
+    // Step 8: Get final stats
     const finalStats = await getProtocolStats()
     
     stats.endTime = new Date().toISOString()
@@ -220,12 +347,19 @@ export async function syncLlamaProtocols(): Promise<SyncStats> {
     const endTime = new Date(stats.endTime).getTime()
     stats.duration = endTime - startTime
     
+    // Final performance metrics
+    const totalTime = Date.now() - startTime
+    stats.performanceMetrics.totalSyncTimeMs = totalTime
+    stats.performanceMetrics.protocolsPerSecond = Math.round(groupedProtocols.length / (totalTime / 1000))
+    
     console.log('=== LLAMA PROTOCOL SYNC COMPLETE ===')
+    console.log(`⚡ Performance: Processed ${groupedProtocols.length} protocols in ${totalTime}ms (${stats.performanceMetrics.protocolsPerSecond}/sec)`)
     console.log(`Duration: ${Math.round(stats.duration / 1000)}s`)
     console.log(`Protocols processed: ${stats.neo4jUpserts}/${stats.groupedProtocols}`)
     console.log(`New: ${stats.newProtocols}, Updated: ${stats.updatedProtocols}`)
-    console.log(`Duplicates cleaned: ${cleanupResult.duplicatesRemoved}`)
-    console.log(`Arrays deduplicated: ${dedupeResult.protocolsUpdated} protocols`)
+    console.log(`Duplicates found: ${stats.duplicatesFound}, removed: ${stats.duplicatesRemoved}`)
+    console.log(`Array deduplications: ${stats.arrayDeduplicationsCount} protocols`)
+    console.log(`Final uniqueness: ${stats.finalUniquenessValidation.isUnique ? 'PASS' : 'FAIL'}`)
     console.log(`Total protocols in database: ${finalStats.total}`)
     console.log(`Errors: ${stats.errors.length}`)
     

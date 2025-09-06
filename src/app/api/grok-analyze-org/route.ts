@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { createStructuredICPAnalysis, ICPAnalysisConfig } from '@/lib/grok'
 import { logAPIError, logExternalServiceError } from '@/lib/error-utils'
-import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, createOrganizationUser, updateOrganizationProperties } from '@/services'
+import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, createOrganizationUser, updateOrganizationProperties, ensureUserExists } from '@/services'
 import { 
   classifyOrganization, 
   fetchTwitterProfile,
@@ -44,9 +44,7 @@ function createDetailedResponse(icpAnalysis: any): any {
     },
     user_behavior_insights: icpAnalysis.user_behavior_insights,
     icp_synthesis: icpAnalysis.icp_synthesis,
-    messaging_strategy: icpAnalysis.messaging_strategy,
-    confidence_score: icpAnalysis.confidence_score,
-    research_sources: icpAnalysis.research_sources
+    messaging_strategy: icpAnalysis.messaging_strategy
   }
 }
 
@@ -83,8 +81,13 @@ export async function POST(request: NextRequest) {
     const sanitizedUsername = twitterUsername.replace('@', '').toLowerCase()
     console.log('🤖 Sanitized username:', sanitizedUsername)
 
-    // Step 1: Classification Pipeline
-    console.log('🔍 Step 1: Starting organization classification pipeline...')
+    // Step 1: Ensure organization user exists (prevents duplicates)
+    console.log('🔍 Step 1: Ensuring organization user exists...')
+    const user = await ensureUserExists(sanitizedUsername, sanitizedUsername)
+    console.log('✅ Organization user ready:', user.userId)
+
+    // Step 2: Classification Pipeline with existing user coordination
+    console.log('🔍 Step 2: Starting organization classification pipeline...')
     let classification: ClassificationResult | undefined; // Declare classification variable
     
     try {
@@ -93,9 +96,9 @@ export async function POST(request: NextRequest) {
       const profileData = await fetchTwitterProfile(sanitizedUsername)
       console.log('  → ✅ Twitter profile fetched')
       
-      // Run classification
+      // Run classification with existing user ID to prevent duplicate creation
       console.log('  → Running classification analysis...')
-      classification = await classifyOrganization(sanitizedUsername, profileData)
+      classification = await classifyOrganization(sanitizedUsername, profileData, user.userId)
       console.log('  → ✅ Classification complete:', classification)
       
       // Handle different classification results
@@ -130,16 +133,6 @@ export async function POST(request: NextRequest) {
       console.log(`  → Organization type: ${classification.org_type || 'general'}`)
       console.log(`  → Organization subtype: ${classification.org_subtype || 'general'}`)
       
-      // Save classification to Neo4j
-      console.log('  → Saving classification to Neo4j...')
-      try {
-        await saveClassificationToNeo4j(sanitizedUsername, profileData, classification)
-        console.log('  → ✅ Classification saved to Neo4j')
-      } catch (neo4jError: any) {
-        console.warn('  → ⚠️ Failed to save classification to Neo4j:', neo4jError.message)
-        // Continue with analysis even if Neo4j save fails
-      }
-      
     } catch (classificationError: any) {
       console.error('❌ Classification error:', classificationError)
       // For now, continue with analysis if classification fails
@@ -147,49 +140,26 @@ export async function POST(request: NextRequest) {
       classification = undefined; // Ensure undefined for fallback schema
     }
 
-    // Step 2: Check if organization already exists with ICP
-    console.log('🔍 Step 2: Checking for existing organization and ICP...')
-    let user = await getUserByScreenName(sanitizedUsername)
+    // Step 3: Check for existing ICP analysis (using coordinated user)
+    console.log('🔍 Step 3: Checking for existing ICP analysis...')
+    const existingProperties = await getOrganizationForUI(twitterUsername)
     
-    if (user) {
-      console.log('✅ User found:', user.userId)
-      // Check Neo4j for existing ICP analysis
-      const existingProperties = await getOrganizationForUI(twitterUsername)
+    if (existingProperties?.icp_synthesis) {
+      console.log('✅ Existing ICP found in Neo4j, returning from cache')
       
-      if (existingProperties?.icp_synthesis && existingProperties?.confidence_score) {
-        console.log('✅ Existing ICP found in Neo4j, returning from cache')
-        
-        // Return existing ICP analysis from Neo4j (already inflated for UI)
-        return NextResponse.json({
-          success: true,
-          organization: {
-            id: user.userId,
-            name: user.name || sanitizedUsername,
-            twitter_username: sanitizedUsername
-          },
-          icp: existingProperties, // Inflated structure ready for UI
-          fromCache: true
-        })
-      } else {
-        console.log('ℹ️ User exists but no ICP found in Neo4j')
-      }
+      // Return existing ICP analysis from Neo4j (already inflated for UI)
+      return NextResponse.json({
+        success: true,
+        organization: {
+          id: user.userId,
+          name: user.name || sanitizedUsername,
+          twitter_username: sanitizedUsername
+        },
+        icp: existingProperties, // Inflated structure ready for UI
+        fromCache: true
+      })
     } else {
-      console.log('ℹ️ No user found')
-    }
-
-    // No existing ICP, create new analysis
-    if (!user) {
-      console.log('🆕 Creating new organization user...')
-      // Create the organization user
-      user = await createOrganizationUser(sanitizedUsername, sanitizedUsername)
-
-      if (!user) {
-        console.log('❌ Failed to create organization user')
-        return NextResponse.json({ 
-          error: 'Failed to create organization' 
-        }, { status: 500 })
-      }
-      console.log('✅ New organization user created:', user.userId)
+      console.log('ℹ️ User exists but no ICP found in Neo4j')
     }
 
     // Create comprehensive ICP analysis

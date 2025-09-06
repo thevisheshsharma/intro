@@ -214,9 +214,6 @@ export default function ManageOrgPanel() {
       // Load org data (now checks globally, not user-specific)
       console.log('🏢 Fetching organization data...')
       
-      // First check for duplicates (debug)
-      await checkForDuplicates()
-      
       const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${normalizedUsername}`)
       const data = await response.json()
       
@@ -257,23 +254,6 @@ export default function ManageOrgPanel() {
       setError(err.message)
     } finally {
       setSearching(false)
-    }
-  }
-
-  // Debug function to check for duplicates
-  const checkForDuplicates = async () => {
-    if (!searchValue.trim()) return
-    
-    console.log('🔍 Checking for duplicate organizations...')
-    try {
-      // This is a debug query - in production you'd remove this
-      const response = await fetch(`/api/debug/check-duplicates?username=${searchValue.replace(/^@/, '').toLowerCase()}`)
-      if (response.ok) {
-        const data = await response.json()
-        console.log('🔍 Duplicate check result:', data)
-      }
-    } catch (error) {
-      console.log('⚠️ Could not check for duplicates:', error)
     }
   }
 

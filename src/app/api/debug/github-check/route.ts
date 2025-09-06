@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       userId: orgData.userId,
       screenName: orgData.screenName,
-      github_url: (orgData as any).github_url,
-      github_url_type: typeof (orgData as any).github_url,
+      github: (orgData as any).github,
+      github_type: typeof (orgData as any).github,
       allKeys: Object.keys(orgData).sort(),
       urlKeys: Object.keys(orgData).filter(k => k.includes('github') || k.includes('url')),
       protocolKeys: Object.keys(orgData).filter(k => k.includes('llama') || k.includes('protocol'))

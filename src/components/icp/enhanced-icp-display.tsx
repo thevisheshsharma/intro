@@ -56,27 +56,21 @@ import {
   Truck,
   Handshake,
   Medal,
-  Info
+  Info,
+  Hash,
+  Percent,
+  Palette,
+  Image as ImageIcon
 } from 'lucide-react'
 
 // Use the flattened schema type directly - all fields are now at root level
 type ComprehensiveICPAnalysis = z.infer<typeof ICPAnalysisSchema> & {
-  // Legacy fields for backward compatibility with existing data
-  basic_identification?: any
-  market_position?: any  
-  core_metrics?: any
-  economics_tokenomics?: any
-  ecosystem_analysis?: any
-  user_behavior_insights?: any
-  icp_synthesis?: any
-  
   // Extended fields that might exist in database
   [key: string]: any
 }
 
 interface EnhancedICPDisplayProps {
   icp: {
-    confidence_score?: number
     [key: string]: any
   }
   onEdit?: () => void
@@ -203,22 +197,19 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
     console.log('🔍 ICP keys:', icp ? Object.keys(icp) : 'no icp')
     
     // ✅ Handle new flattened structure - fields are directly accessible
-    console.log('🔍 Checking condition: project_name =', icp?.project_name)
     console.log('🔍 Checking condition: twitter_username =', icp?.twitter_username) 
     console.log('🔍 Checking condition: screenName =', icp?.screenName)
     console.log('🔍 Checking condition: name =', icp?.name)
     
-    if (icp && (icp.project_name || icp.twitter_username || icp.screenName || icp.name)) {
+    if (icp && (icp.twitter_username || icp.screenName || icp.name)) {
       console.log('🔍 ✅ CONDITION MATCHED - Processing flattened Neo4j data structure')
       console.log('🔍 Available Neo4j fields:', Object.keys(icp))
       console.log('🔍 Sample field values:', {
-        project_name: icp.project_name,
+        name: icp.name,
         url: icp.url,
-        website_url: icp.website_url,
+        website: icp.website,
         discord: icp.discord,
-        discord_url: icp.discord_url,
-        blog: icp.blog,
-        blog_url: icp.blog_url
+        blog: icp.blog
       })
       
       try {
@@ -249,228 +240,217 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
         }
         
         // Create flattened analysis object - spread raw data first, then override with normalized fields
-        const flatAnalysis: ComprehensiveICPAnalysis = {
+        const flatAnalysis: Partial<ComprehensiveICPAnalysis> = {
           // Spread raw first so our normalized fields override problematic JSON strings
           ...icp,
 
           // Core analysis fields
           twitter_username: icp.twitter_username || icp.screenName || '',
           timestamp_utc: icp.timestamp_utc || new Date().toISOString(),
-          classification_used: typeof icp.classification_used === 'string' 
-            ? safeJsonParse(icp.classification_used, {})
-            : {
-                org_type: icp.org_type || 'protocol',
-                org_subtype: icp.org_subtype || ['general'], 
-                web3_focus: icp.web3_focus || 'native'
-              },
           
-          // Basic identification fields - Fixed field mapping
-          project_name: icp.project_name || icp.name || icp.screenName || '',
-          website_url: icp.website_url || icp.url || null, // Neo4j stores as 'url'
-          industry_classification: icp.industry_classification || '',
+          // ✅ FIXED: Use individual classification fields directly
+          classification_used: {
+            org_type: icp.org_type || 'protocol',
+            org_subtype: typeof icp.org_subtype === 'string' 
+              ? safeJsonParse(icp.org_subtype, ['general'])
+              : (Array.isArray(icp.org_subtype) ? icp.org_subtype : ['general']),
+            web3_focus: icp.web3_focus || 'native'
+          },
           
-          // Social platform links (flattened) - Map to actual Neo4j field names
-          discord_url: icp.discord || null, // Neo4j stores as 'discord'
-          farcaster_url: icp.farcaster || null, // Neo4j stores as 'farcaster' 
-          telegram_url: icp.telegram || null, // Neo4j stores as 'telegram'
-          governance_forum_url: icp.governance_forum || null, // Neo4j stores as 'governance_forum'
-          linkedin_url: icp.linkedin || null, // Neo4j stores as 'linkedin'
-          youtube_url: icp.youtube || null, // Neo4j stores as 'youtube'
-          medium_url: icp.medium || null, // Neo4j stores as 'medium'
-          blog_url: icp.blog || null, // Neo4j stores as 'blog'
+          // Basic identification fields - Direct Neo4j field mapping
+          name: icp.name || '',
+          website: icp.website || null,
+          industry_classification: icp.industry || '',
           
-          // Technical links (flattened) - Handle arrays for harmonized fields  
+          // Social platform links (direct Neo4j field names)
+          discord_url: icp.discord || null,
+          farcaster_url: icp.farcaster || null,
+          telegram_url: icp.telegram || null,
+          governance_forum_url: icp.governance_forum || null,
+          linkedin_url: icp.linkedin || null,
+          youtube_url: icp.youtube || null,
+          medium_url: icp.medium || null,
+          blog_url: icp.blog || null,
+          
+          // Technical links (direct Neo4j field names)
           github_url: (() => {
             // Handle array format
-            if (Array.isArray(icp.github_url)) {
-              return icp.github_url[0] || null;
+            if (Array.isArray(icp.github)) {
+              return icp.github[0] || null;
             }
             
             // Handle JSON string format from Neo4j
-            if (typeof icp.github_url === 'string') {
+            if (typeof icp.github === 'string') {
               // Check if it's a JSON array string
-              if (icp.github_url.startsWith('[') && icp.github_url.endsWith(']')) {
+              if (icp.github.startsWith('[') && icp.github.endsWith(']')) {
                 try {
-                  const parsed = JSON.parse(icp.github_url);
+                  const parsed = JSON.parse(icp.github);
                   return Array.isArray(parsed) && parsed.length > 0 ? parsed[0] : null;
                 } catch {
                   return null;
                 }
               }
               // Handle regular URL string
-              if (icp.github_url.startsWith('http')) {
-                return icp.github_url;
+              if (icp.github.startsWith('http')) {
+                return icp.github;
               }
             }
             
             return null;
           })(),
-          whitepaper_url: icp.whitepaper_url || null,
-          docs_url: icp.docs_url || null,
-          explorer_url: icp.explorer_url || null,
-          api_docs_url: icp.api_docs_url || null,
-          audit_report_url: icp.audit_report_url || null,
+          whitepaper_url: icp.whitepaper || null,
+          docs_url: icp.docs || null,
+          explorer_url: icp.explorer || null,
+          api_docs_url: icp.api_docs || null,
+          audit_report_url: icp.audit_links || null,
           
-          // Market position fields (flattened)
+          // Market position fields (direct Neo4j field names)
           sentiment_score: icp.sentiment_score || null,
           market_presence: icp.market_presence || null,
           competitors: ensureArray<string>(icp.competitors, []),
           
-          // Strategic Intelligence Parameters (NEW)
-          monetization_readiness: icp.monetization_readiness || null,
-          market_maturity: icp.market_maturity || null,
-          product_lifecycle_stage: icp.product_lifecycle_stage || null,
+          // Strategic Intelligence Parameters (direct Neo4j field names)
+          monetization_readiness: icp.monetization_stage || null,
+          market_maturity: icp.maturity || null,
+          product_lifecycle_stage: icp.product_stage || null,
           community_health_score: icp.community_health_score || null,
           
-          // Core operational metrics (flattened)
+          // Core operational metrics (direct Neo4j field names)
           key_features: ensureArray<string>(icp.key_features, []),
-          target_audience: icp.target_audience || null,
-          geographic_focus: ensureArray<any>(icp.geographic_focus, []),
-          operational_status: icp.operational_status || null,
+          target_audience: ensureArray<string>(icp.audience, []),
+          geographic_focus: ensureArray<any>(icp.geography, []),
+          operational_status: icp.status || null,
           
-          // Ecosystem analysis (flattened)
-          market_narratives: ensureArray<string>(icp.market_narratives, []),
-          notable_partnerships: ensureArray<string>(icp.notable_partnerships, []),
-          recent_developments: ensureArray<string>(icp.recent_developments, []),
+          // Ecosystem analysis (direct Neo4j field names)
+          market_narratives: ensureArray<string>(icp.narratives, []),
+          notable_partnerships: ensureArray<string>(icp.partners, []),
+          recent_developments: ensureArray<string>(icp.recent_updates, []),
           
-          // Funding structure (flattened)
-          funding_status: icp.funding_status || null,
+          // Funding structure (direct Neo4j field names)
+          funding_status: icp.funding_stage || null,
           funding_amount: icp.funding_amount || null,
           investors: ensureArray<string>(icp.investors, []),
           
-          // Universal tokenomics (flattened)
-          tge_status: icp.tge_status || null,
-          token_symbol: icp.token_symbol || null,
-          token_utilities: ensureArray<any>(icp.token_utilities, []),
+          // Universal tokenomics (direct Neo4j field names)
+          tge_status: icp.tge || null,
+          token: icp.token || null,
+          token_utilities: ensureArray<any>(icp.utilities, []),
           tokenomics_model: icp.tokenomics_model || null,
-          governance_structure: icp.governance_structure || null,
+          governance_structure: icp.governance || null,
           
-          // Universal audit/security (flattened) - Fixed field mapping
-          auditor: icp.audit_auditor || icp.auditor || null, // Neo4j stores as 'audit_auditor'
+          // Universal audit/security (direct Neo4j field names)
+          auditor: ensureArray<string>(icp.auditor, []),
           audit_date: icp.audit_date || null,
-          security_measures: ensureArray<string>(icp.security_measures, []),
           
-          // Technical infrastructure (flattened)
-          chains_supported: typeof icp.chains_supported === 'number' ? icp.chains_supported : Number(icp.chains_supported) || null,
-          supported_chains: ensureArray<string>(icp.supported_chains, []),
-          technical_stack: ensureArray<string>(icp.technical_stack, []),
-          developer_tools: ensureArray<string>(icp.developer_tools, []),
+          // Technical infrastructure (direct Neo4j field names)
+          chains_supported: typeof icp.chains_supported === 'number' ? icp.chains_supported : (Number(icp.chains_supported) || null),
+          chains: ensureArray<string>(icp.chains, []),
+          technical_stack: ensureArray<string>(icp.tech_stack, []),
+          developer_tools: ensureArray<string>(icp.dev_tools, []),
           
-          // User behavior and ICP fields (flattened)
+          // User behavior and ICP fields (direct Neo4j field names)
           engagement_patterns: ensureArray<string>(icp.engagement_patterns, []),
           user_journey: icp.user_journey || null,
           retention_factors: ensureArray<string>(icp.retention_factors, []),
           engagement_depth: icp.engagement_depth || null,
           
-          // Demographics (flattened)
-          age_demographics: ensureArray<any>(icp.age_demographics, []),
-          experience_level: ensureArray<any>(icp.experience_level, []),
-          professional_roles: ensureArray<any>(icp.professional_roles, []),
+          // Demographics (direct Neo4j field names)
+          age_demographics: ensureArray<any>(icp.age_groups, []),
+          experience_level: ensureArray<any>(icp.experience, []),
+          professional_roles: ensureArray<any>(icp.roles, []),
           
-          // Psychographics (flattened)
-          core_motivations: ensureArray<string>(icp.core_motivations, []),
-          decision_drivers: ensureArray<string>(icp.decision_drivers, []),
+          // Psychographics (direct Neo4j field names)
+          core_motivations: ensureArray<string>(icp.motivations, []),
+          decision_drivers: ensureArray<string>(icp.decision_factors, []),
           
-          // Behavioral indicators (flattened)
+          // Behavioral indicators (direct Neo4j field names)
           interaction_preferences: ensureArray<string>(icp.interaction_preferences, []),
           activity_patterns: ensureArray<string>(icp.activity_patterns, []),
           conversion_factors: ensureArray<string>(icp.conversion_factors, []),
           loyalty_indicators: ensureArray<string>(icp.loyalty_indicators, []),
           
-          // User behavior insights (flattened)
+          // User behavior insights (direct Neo4j field names)
           user_archetypes: ensureArray<any>(icp.user_archetypes, []),
-          unified_messaging_approach: typeof icp.unified_messaging_approach === 'string' 
-            ? safeJsonParse(icp.unified_messaging_approach, {}) 
-            : icp.unified_messaging_approach || {},
+          unified_messaging_approach: typeof icp.messaging_strategy === 'string' 
+            ? safeJsonParse(icp.messaging_strategy, {}) 
+            : (icp.messaging_strategy || {}),
           
-          // DeFi Protocol Extensions
-          defi_protocol_category: icp.defi_protocol_category || null,
-          defi_total_value_locked_usd: icp.defi_total_value_locked_usd || null,
-          defi_yield_mechanisms: ensureArray<string>(icp.defi_yield_mechanisms, []),
-          defi_liquidity_incentives: icp.defi_liquidity_incentives || null,
-          defi_fee_sharing_model: icp.defi_fee_sharing_model || null,
+          // DeFi Protocol Extensions (direct Neo4j field names)
+          defi_protocol_category: icp.category || null,
+          defi_total_value_locked_usd: icp.tvl || null,
+          defi_yield_mechanisms: ensureArray<string>(icp.yield, []),
+          defi_liquidity_incentives: icp.liquidity_incentives || null,
+          defi_fee_sharing_model: icp.fee_model || null,
           
-          // GameFi Protocol Extensions
-          gamefi_game_category: icp.gamefi_game_category || null,
-          gamefi_platform_type: ensureArray<string>(icp.gamefi_platform_type, []),
-          gamefi_nft_integration: icp.gamefi_nft_integration || null,
-          gamefi_gameplay_features: ensureArray<string>(icp.gamefi_gameplay_features, []),
-          gamefi_game_tokens: ensureArray<string>(icp.gamefi_game_tokens, []),
-          gamefi_nft_assets: ensureArray<string>(icp.gamefi_nft_assets, []),
-          gamefi_play_to_earn_model: icp.gamefi_play_to_earn_model || null,
-          gamefi_asset_trading: icp.gamefi_asset_trading || null,
+          // GameFi Protocol Extensions (direct Neo4j field names)
+          gamefi_game_category: icp.category || null,
+          gamefi_platform_type: ensureArray<string>(icp.platforms, []),
+          gamefi_nft_integration: icp.nft_model || null,
+          gamefi_gameplay_features: ensureArray<string>(icp.gameplay, []),
+          gamefi_game_tokens: ensureArray<string>(icp.game_token, []),
+          gamefi_nft_assets: ensureArray<string>(icp.nft_assets, []),
+          gamefi_play_to_earn_model: icp.p2e_model || null,
+          gamefi_asset_trading: icp.trading || null,
           
-          // Social Protocol Extensions
-          social_category: icp.social_category || null,
-          social_features: ensureArray<string>(icp.social_features, []),
-          social_monthly_active_users: icp.social_monthly_active_users || null,
-          social_content_creators_count: icp.social_content_creators_count || null,
-          social_creator_monetization: icp.social_creator_monetization || null,
-          social_content_rewards: icp.social_content_rewards || null,
-          social_token_utility: ensureArray<string>(icp.social_token_utility, []),
+          // Social Protocol Extensions (direct Neo4j field names)
+          social_category: icp.category || null,
+          social_monthly_active_users: icp.monthly_users || null,
+          social_content_creators_count: icp.creators || null,
+          social_creator_monetization: icp.monetization || null,
+          social_content_rewards: icp.rewards || null,
           
-          // Infrastructure Extensions
-          infra_category: icp.infra_category || null,
-          infra_daily_transactions: icp.infra_daily_transactions || null,
-          infra_projects_building: icp.infra_projects_building || null,
-          infra_market_share: icp.infra_market_share || null,
-          infra_throughput: icp.infra_throughput || null,
-          infra_cost_per_transaction: icp.infra_cost_per_transaction || null,
-          infra_validator_economics: icp.infra_validator_economics || null,
-          infra_staking_mechanics: icp.infra_staking_mechanics || null,
-          infra_network_fees: icp.infra_network_fees || null,
+          // Infrastructure Extensions (direct Neo4j field names)
+          infra_category: icp.category || null,
+          infra_daily_transactions: icp.tx_per_day || null,
+          infra_projects_building: icp.projects || null,
+          infra_market_share: icp.market_share || null,
+          infra_throughput: icp.throughput || null,
+          infra_cost_per_transaction: icp.cost_per_tx || null,
+          infra_validator_economics: icp.validator_economics || null,
+          infra_staking_mechanics: icp.staking || null,
+          infra_network_fees: icp.fee_model || null,
           
-          // Exchange Extensions
-          exchange_type: icp.exchange_type || null,
-          exchange_trading_pairs: icp.exchange_trading_pairs || null,
-          exchange_supported_assets: ensureArray<string>(icp.exchange_supported_assets, []),
-          exchange_trading_volume_24h_usd: icp.exchange_trading_volume_24h_usd || null,
-          exchange_market_rank: icp.exchange_market_rank || null,
-          exchange_liquidity_depth: icp.exchange_liquidity_depth || null,
-          exchange_trading_features: ensureArray<string>(icp.exchange_trading_features, []),
-          exchange_fiat_support: ensureArray<string>(icp.exchange_fiat_support, []),
-          exchange_maker_fee: icp.exchange_maker_fee || null,
-          exchange_taker_fee: icp.exchange_taker_fee || null,
-          exchange_withdrawal_fees: icp.exchange_withdrawal_fees || null,
-          exchange_token_benefits: ensureArray<string>(icp.exchange_token_benefits, []),
-          exchange_liquidity_incentives: icp.exchange_liquidity_incentives || null,
+          // Exchange Extensions (direct Neo4j field names)
+          exchange_type: icp.category || null,
+          exchange_trading_pairs: icp.trading_pairs || null,
+          exchange_supported_assets: ensureArray<string>(icp.assets, []),
+          exchange_trading_volume_24h_usd: icp.volume_24h || null,
+          exchange_market_rank: icp.rank || null,
+          exchange_liquidity_depth: icp.liquidity || null,
+          exchange_fiat_support: ensureArray<string>(icp.fiat, []),
+          exchange_maker_fee: icp.maker_fee || null,
+          exchange_taker_fee: icp.taker_fee || null,
+          exchange_withdrawal_fees: icp.withdrawal_fee || null,
+          exchange_liquidity_incentives: icp.liquidity_incentives || null,
           
-          // Investment Fund Extensions
-          fund_type: icp.fund_type || null,
-          fund_investment_stage: icp.fund_investment_stage || null,
-          fund_sector_focus: ensureArray<string>(icp.fund_sector_focus, []),
-          fund_portfolio_link: icp.fund_portfolio_link || null,
-          fund_size_usd: icp.fund_size_usd || null,
-          fund_portfolio_size: icp.fund_portfolio_size || icp.portfolio_size || null,
-          fund_investments: ensureArray<string>(icp.fund_investments || icp.investments, []), // ✅ Map both possible field names
-          fund_market_reputation: icp.fund_market_reputation || null,
-          fund_token: icp.fund_token || null,
-          fund_investment_model: ensureArray<string>(icp.fund_investment_model, []),
+          // Investment Fund Extensions (direct Neo4j field names)
+          fund_type: icp.category || null,
+          fund_investment_stage: icp.stage || null,
+          fund_sector_focus: ensureArray<string>(icp.sectors, []),
+          fund_portfolio_link: icp.portfolio || null,
+          fund_size_usd: icp.fund_size || null,
+          fund_portfolio_size: icp.portfolio_size || null,
+          fund_investments: ensureArray<string>(icp.investments, []),
+          fund_market_reputation: icp.reputation || null,
+          fund_token: icp.symbol || null,
+          fund_investment_model: ensureArray<string>(icp.model, []),
           
-          // Service Provider Extensions
-          service_category: ensureArray<string>(icp.service_category, []),
-          service_target_clients: ensureArray<string>(icp.service_target_clients, []),
-          service_competitive_advantages: ensureArray<string>(icp.service_competitive_advantages, []),
-          service_case_studies_url: icp.service_case_studies_url || null,
-          service_testimonials_url: icp.service_testimonials_url || null,
-          service_client_portfolio: ensureArray<string>(icp.service_client_portfolio, []),
-          service_team_size: icp.service_team_size || null,
+          // Service Provider Extensions (direct Neo4j field names)
+          service_category: ensureArray<string>(icp.category, []),
+          service_case_studies_url: icp.case_studies || null,
+          service_testimonials_url: icp.testimonials || null,
+          service_client_portfolio: ensureArray<string>(icp.clients, []),
+          service_team_size: icp.team_size || null,
           
-          // Community/DAO Extensions
-          community_type: ensureArray<string>(icp.community_type, []),
-          community_mission_focus: icp.community_mission_focus || null,
-          community_membership_model: icp.community_membership_model || null,
-          community_member_count: icp.community_member_count || null,
-          community_influence_reach: icp.community_influence_reach || null,
-          community_initiatives: ensureArray<string>(icp.community_initiatives, []),
-          community_member_benefits: ensureArray<string>(icp.community_member_benefits, []),
-          community_treasury_management: icp.community_treasury_management || null,
-
-          // Analysis metadata (flattened)
-          analysis_metadata: {
-            confidence_score: icp.confidence_score || 0,
-            research_sources: ensureArray<string>(icp.research_sources, []),
-          },
+          // Community/DAO Extensions (direct Neo4j field names)
+          community_type: ensureArray<string>(icp.category, []),
+          community_mission_focus: icp.mission || null,
+          community_membership_model: icp.membership || null,
+          community_member_count: icp.members || null,
+          community_influence_reach: icp.reach || null,
+          community_initiatives: ensureArray<string>(icp.initiatives, []),
+          community_member_benefits: ensureArray<string>(icp.benefits, []),
+          community_treasury_management: icp.treasury || null,
         }
         
         console.log('✅ Successfully processed flattened Neo4j data:', flatAnalysis)
@@ -482,13 +462,6 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
         console.log('Raw icp data:', icp)
         return null
       }
-    }
-    
-    // ✅ Legacy: If icp is already in object format (old nested structure), handle backward compatibility
-    console.log('🔍 Checking legacy nested format...')
-    if (icp?.icp_synthesis || icp?.basic_identification) {
-      console.log('🔍 Using legacy nested object format')
-      return icp as ComprehensiveICPAnalysis
     }
     
     // No comprehensive data available
@@ -546,10 +519,10 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
 
   // 🎯 DEBUG: Check section rendering conditions
   console.log('🎯 Section 1 - Organization Overview check:', {
-    project_name: comprehensiveData.project_name,
-    website_url: comprehensiveData.website_url,
+    name: comprehensiveData.name,
+    website: comprehensiveData.website,
     industry_classification: comprehensiveData.industry_classification,
-    shouldRender: !!(comprehensiveData.project_name || comprehensiveData.website_url || comprehensiveData.industry_classification)
+    shouldRender: !!(comprehensiveData.name || comprehensiveData.website || comprehensiveData.industry_classification)
   })
 
   console.log('🎯 Section 2 - Market Position check:', {
@@ -569,10 +542,10 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
   })
 
   console.log('🎯 Section 4 - Tokenomics check:', {
-    token_symbol: comprehensiveData.token_symbol,
+    token: comprehensiveData.token,
     tge_status: comprehensiveData.tge_status,
     governance_structure: comprehensiveData.governance_structure,
-    shouldRender: !!(comprehensiveData.token_symbol || comprehensiveData.tge_status || comprehensiveData.governance_structure)
+    shouldRender: !!(comprehensiveData.token || comprehensiveData.tge_status || comprehensiveData.governance_structure)
   })
 
   console.log('🎯 Section 5 - Funding check:', {
@@ -616,14 +589,14 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
         )}
       </div>
 
-      {/* Basic Information - Flattened */}
-      {(hasContent(comprehensiveData.project_name) || hasContent(comprehensiveData.website_url) || hasContent(comprehensiveData.industry_classification) || hasContent(comprehensiveData.tge_status)) && (
+      {/* Basic Information - Direct Neo4j field mapping */}
+      {(hasContent(comprehensiveData.name) || hasContent(comprehensiveData.website) || hasContent(comprehensiveData.industry_classification) || hasContent(comprehensiveData.tge_status)) && (
         <DetailedSection title="Organization Overview" icon={Building2} iconColor="text-blue-400">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {comprehensiveData.project_name && (
+            {comprehensiveData.name && (
               <InfoCard 
                 label="Project Name" 
-                value={comprehensiveData.project_name} 
+                value={comprehensiveData.name} 
                 highlight={true}
               />
             )}
@@ -633,10 +606,10 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
                 value={comprehensiveData.industry_classification} 
               />
             )}
-            {comprehensiveData.website_url && (
+            {comprehensiveData.website && (
               <InfoCard 
                 label="Website" 
-                value={comprehensiveData.website_url} 
+                value={comprehensiveData.website} 
                 link={true}
               />
             )}
@@ -811,14 +784,14 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
             {comprehensiveData.monetization_readiness && (
               <InfoCard 
                 label="Monetization Readiness" 
-                value={comprehensiveData.monetization_readiness.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                value={comprehensiveData.monetization_readiness.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
                 highlight={true}
               />
             )}
             {comprehensiveData.market_maturity && (
               <InfoCard 
                 label="Market Maturity" 
-                value={comprehensiveData.market_maturity.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                value={comprehensiveData.market_maturity.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
                 highlight={true}
               />
             )}
@@ -846,12 +819,17 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
       {(hasContent(comprehensiveData.key_features) || hasContent(comprehensiveData.target_audience) || hasContent(comprehensiveData.operational_status) || hasContent(comprehensiveData.geographic_focus)) && (
         <DetailedSection title="Core Features & Capabilities" icon={Target} iconColor="text-purple-400">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {comprehensiveData.target_audience && (
-              <InfoCard 
-                label="Target Audience" 
-                value={comprehensiveData.target_audience}
-                highlight={true}
-              />
+            {comprehensiveData.target_audience && comprehensiveData.target_audience.length > 0 && (
+              <div className="p-3 rounded-lg border bg-blue-900/20 border-blue-800/30">
+                <p className="text-blue-300 font-medium text-sm mb-1">Target Audience</p>
+                <div className="flex flex-wrap gap-1">
+                  {comprehensiveData.target_audience.map((audience: string, index: number) => (
+                    <span key={index} className="px-2 py-1 bg-blue-800/30 text-blue-200 text-xs rounded">
+                      {audience}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
             {comprehensiveData.operational_status && (
               <InfoCard 
@@ -878,13 +856,13 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
       )}
 
       {/* Tokenomics - Flattened */}
-      {(hasContent(comprehensiveData.token_symbol) || hasContent(comprehensiveData.tge_status) || hasContent(comprehensiveData.governance_structure) || hasContent(comprehensiveData.token_utilities) || hasContent(comprehensiveData.tokenomics_model)) && (
+      {(hasContent(comprehensiveData.token) || hasContent(comprehensiveData.tge_status) || hasContent(comprehensiveData.governance_structure) || hasContent(comprehensiveData.token_utilities) || hasContent(comprehensiveData.tokenomics_model)) && (
         <DetailedSection title="Tokenomics" icon={Coins} iconColor="text-yellow-400">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {comprehensiveData.token_symbol && (
+            {comprehensiveData.token && (
               <InfoCard 
                 label="Token Symbol" 
-                value={comprehensiveData.token_symbol} 
+                value={comprehensiveData.token} 
                 highlight={true}
               />
             )}
@@ -953,7 +931,7 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
       )}
 
       {/* Technical Infrastructure */}
-      {(hasContent(comprehensiveData.technical_stack) || hasContent(comprehensiveData.developer_tools) || hasContent(comprehensiveData.supported_chains) || hasContent(comprehensiveData.chains_supported) || hasContent(comprehensiveData.auditor) || hasContent(comprehensiveData.audit_date) || hasContent(comprehensiveData.security_measures)) && (
+      {(hasContent(comprehensiveData.technical_stack) || hasContent(comprehensiveData.developer_tools) || hasContent(comprehensiveData.chains) || hasContent(comprehensiveData.chains_supported) || hasContent(comprehensiveData.auditor) || hasContent(comprehensiveData.audit_date) || hasContent(comprehensiveData.security_measures)) && (
         <DetailedSection title="Technical Infrastructure" icon={Code} iconColor="text-cyan-400">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {comprehensiveData.chains_supported && (
@@ -964,10 +942,10 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
                 color="text-cyan-400"
               />
             )}
-            {comprehensiveData.auditor && (
+            {comprehensiveData.auditor && comprehensiveData.auditor.length > 0 && (
               <InfoCard 
-                label="Security Auditor" 
-                value={comprehensiveData.auditor}
+                label="Security Auditors" 
+                value={comprehensiveData.auditor.join(', ')}
               />
             )}
             {comprehensiveData.audit_date && (
@@ -992,10 +970,10 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
             </div>
           )}
 
-          {comprehensiveData.supported_chains && comprehensiveData.supported_chains.length > 0 && (
+          {comprehensiveData.chains && comprehensiveData.chains.length > 0 && (
             <div className="mt-4">
               <p className="text-gray-400 text-sm mb-2">Supported Blockchains</p>
-              <TagList items={comprehensiveData.supported_chains} colorClass="bg-blue-900/50 text-blue-300" />
+              <TagList items={comprehensiveData.chains} colorClass="bg-blue-900/50 text-blue-300" />
             </div>
           )}
 
@@ -1259,7 +1237,7 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
       )}
 
       {/* Social Protocol Specific Section */}
-      {orgSubtype === 'social' && (comprehensiveData.social_category || comprehensiveData.social_monthly_active_users || comprehensiveData.social_features) && (
+      {orgSubtype === 'social' && (comprehensiveData.social_category || comprehensiveData.social_monthly_active_users) && (
         <DetailedSection title="Social Protocol Metrics" icon={MessageSquare} iconColor="text-pink-400">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             {comprehensiveData.social_category && (
@@ -1286,20 +1264,6 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
               />
             )}
           </div>
-
-          {comprehensiveData.social_features && comprehensiveData.social_features.length > 0 && (
-            <div className="mb-6">
-              <p className="text-gray-400 text-sm mb-2">Social Features</p>
-              <TagList items={comprehensiveData.social_features} colorClass="bg-pink-900/50 text-pink-300" />
-            </div>
-          )}
-
-          {comprehensiveData.social_token_utility && comprehensiveData.social_token_utility.length > 0 && (
-            <div className="mb-6">
-              <p className="text-gray-400 text-sm mb-2">Social Token Utility</p>
-              <TagList items={comprehensiveData.social_token_utility} colorClass="bg-purple-900/50 text-purple-300" />
-            </div>
-          )}
 
           {comprehensiveData.social_creator_monetization && (
             <div className="mb-6">
@@ -1406,7 +1370,7 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
       )}
 
       {/* Exchange Specific Section */}
-      {orgType === 'exchange' && (comprehensiveData.exchange_type || comprehensiveData.exchange_trading_volume_24h_usd || comprehensiveData.exchange_trading_features) && (
+      {orgType === 'exchange' && (comprehensiveData.exchange_type || comprehensiveData.exchange_trading_volume_24h_usd) && (
         <DetailedSection title="Exchange Metrics" icon={BarChart3} iconColor="text-green-400">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             {comprehensiveData.exchange_type && (
@@ -1472,13 +1436,6 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
             )}
           </div>
 
-          {comprehensiveData.exchange_trading_features && comprehensiveData.exchange_trading_features.length > 0 && (
-            <div className="mb-6">
-              <p className="text-gray-400 text-sm mb-2">Trading Features</p>
-              <TagList items={comprehensiveData.exchange_trading_features} colorClass="bg-green-900/50 text-green-300" />
-            </div>
-          )}
-
           {comprehensiveData.exchange_supported_assets && comprehensiveData.exchange_supported_assets.length > 0 && (
             <div className="mb-6">
               <p className="text-gray-400 text-sm mb-2">Supported Assets</p>
@@ -1490,13 +1447,6 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
             <div className="mb-6">
               <p className="text-gray-400 text-sm mb-2">Fiat Support</p>
               <TagList items={comprehensiveData.exchange_fiat_support} colorClass="bg-yellow-900/50 text-yellow-300" />
-            </div>
-          )}
-
-          {comprehensiveData.exchange_token_benefits && comprehensiveData.exchange_token_benefits.length > 0 && (
-            <div className="mb-6">
-              <p className="text-gray-400 text-sm mb-2">Token Benefits</p>
-              <TagList items={comprehensiveData.exchange_token_benefits} colorClass="bg-purple-900/50 text-purple-300" />
             </div>
           )}
 
@@ -1593,7 +1543,7 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
       )}
 
       {/* Service Provider Specific Section */}
-      {orgType === 'service' && (comprehensiveData.service_category || comprehensiveData.service_target_clients || comprehensiveData.service_competitive_advantages) && (
+      {orgType === 'service' && (comprehensiveData.service_category) && (
         <DetailedSection title="Service Provider Metrics" icon={Handshake} iconColor="text-teal-400">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             {comprehensiveData.service_team_size && (
@@ -1623,20 +1573,6 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
             <div className="mb-6">
               <p className="text-gray-400 text-sm mb-2">Service Categories</p>
               <TagList items={comprehensiveData.service_category} colorClass="bg-teal-900/50 text-teal-300" />
-            </div>
-          )}
-
-          {comprehensiveData.service_target_clients && comprehensiveData.service_target_clients.length > 0 && (
-            <div className="mb-6">
-              <p className="text-gray-400 text-sm mb-2">Target Clients</p>
-              <TagList items={comprehensiveData.service_target_clients} colorClass="bg-blue-900/50 text-blue-300" />
-            </div>
-          )}
-
-          {comprehensiveData.service_competitive_advantages && comprehensiveData.service_competitive_advantages.length > 0 && (
-            <div className="mb-6">
-              <p className="text-gray-400 text-sm mb-2">Competitive Advantages</p>
-              <TagList items={comprehensiveData.service_competitive_advantages} colorClass="bg-green-900/50 text-green-300" />
             </div>
           )}
 
@@ -1722,6 +1658,80 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
         </DetailedSection>
       )}
 
+      {/* NFT/Digital Assets Specific Section */}
+      {orgType === 'nft' && (comprehensiveData.category || comprehensiveData.floor_price || comprehensiveData.collection_size) && (
+        <DetailedSection title="NFT & Digital Assets" icon={ImageIcon} iconColor="text-purple-400">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            {comprehensiveData.category && (
+              <InfoCard label="Category" value={comprehensiveData.category} highlight={true} />
+            )}
+            {comprehensiveData.collection_size && (
+              <MetricCard label="Collection Size" value={comprehensiveData.collection_size} suffix=" NFTs" icon={Hash} color="text-purple-400" />
+            )}
+            {comprehensiveData.floor_price && (
+              <MetricCard label="Floor Price" value={comprehensiveData.floor_price} icon={DollarSign} color="text-green-400" />
+            )}
+            {comprehensiveData.total_volume && (
+              <MetricCard label="Total Volume" value={comprehensiveData.total_volume} icon={TrendingUp} color="text-blue-400" />
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            {comprehensiveData.unique_holders && (
+              <MetricCard 
+                label="Unique Holders" 
+                value={comprehensiveData.unique_holders}
+                icon={Users}
+                color="text-indigo-400"
+              />
+            )}
+            {comprehensiveData.creator_royalties && (
+              <MetricCard 
+                label="Creator Royalties" 
+                value={comprehensiveData.creator_royalties}
+                suffix="%"
+                icon={Percent}
+                color="text-yellow-400"
+              />
+            )}
+            {comprehensiveData.launch_mechanism && (
+              <InfoCard 
+                label="Launch Mechanism" 
+                value={comprehensiveData.launch_mechanism}
+              />
+            )}
+          </div>
+
+          {comprehensiveData.utility_features && comprehensiveData.utility_features.length > 0 && (
+            <div className="mb-6">
+              <p className="text-gray-400 text-sm mb-2">Utility Features</p>
+              <TagList items={comprehensiveData.utility_features} colorClass="bg-purple-900/50 text-purple-300" />
+            </div>
+          )}
+
+          {comprehensiveData.marketplace_integrations && comprehensiveData.marketplace_integrations.length > 0 && (
+            <div className="mb-6">
+              <p className="text-gray-400 text-sm mb-2">Marketplace Integrations</p>
+              <TagList items={comprehensiveData.marketplace_integrations} colorClass="bg-green-900/50 text-green-300" />
+            </div>
+          )}
+
+          {comprehensiveData.asset_types && comprehensiveData.asset_types.length > 0 && (
+            <div className="mb-6">
+              <p className="text-gray-400 text-sm mb-2">Asset Types</p>
+              <TagList items={comprehensiveData.asset_types} colorClass="bg-indigo-900/50 text-indigo-300" />
+            </div>
+          )}
+
+          {comprehensiveData.community_features && comprehensiveData.community_features.length > 0 && (
+            <div className="mb-6">
+              <p className="text-gray-400 text-sm mb-2">Community Features</p>
+              <TagList items={comprehensiveData.community_features} colorClass="bg-rose-900/50 text-rose-300" />
+            </div>
+          )}
+        </DetailedSection>
+      )}
+
       {/* User Archetypes */}
       {comprehensiveData.user_archetypes && comprehensiveData.user_archetypes.length > 0 && (
         <DetailedSection title="User Archetypes" icon={User} iconColor="text-rose-400">
@@ -1762,28 +1772,28 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
             {Object.entries(comprehensiveData.unified_messaging_approach).map(([key, value]) => (
               <div key={key} className="p-4 bg-gray-800/30 border border-gray-700/30 rounded-lg">
                 <h5 className="text-white font-semibold mb-2 capitalize">{key.replace(/_/g, ' ')}</h5>
-                <p className="text-gray-300 text-sm">{String(value)}</p>
+                {key === 'primary_channels' && Array.isArray(value) ? (
+                  <div className="flex flex-wrap gap-2">
+                    {value.map((channel: string) => (
+                      <span 
+                        key={channel}
+                        className="px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full text-xs font-medium border border-amber-500/30"
+                      >
+                        {channel.replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                  </div>
+                ) : Array.isArray(value) ? (
+                  <div className="space-y-1">
+                    {value.map((item: any, index: number) => (
+                      <p key={index} className="text-gray-300 text-sm">• {String(item)}</p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-300 text-sm">{String(value)}</p>
+                )}
               </div>
             ))}
-          </div>
-        </DetailedSection>
-      )}
-
-      {/* Analysis Quality */}
-      {comprehensiveData.analysis_metadata && (
-        <DetailedSection title="Analysis Quality" icon={Info} iconColor="text-gray-400">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <MetricCard 
-              label="Confidence Score" 
-              value={Math.round(comprehensiveData.analysis_metadata.confidence_score * 100)}
-              suffix="%" 
-              icon={CheckCircle}
-              color="text-green-400"
-            />
-            <InfoCard 
-              label="Sources Count" 
-              value={comprehensiveData.analysis_metadata.research_sources?.length || 0}
-            />
           </div>
         </DetailedSection>
       )}

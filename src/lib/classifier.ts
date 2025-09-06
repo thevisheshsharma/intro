@@ -23,7 +23,7 @@ export interface ClassificationResult {
   employment_history?: Array<{
     organization: string
   }>
-  org_type?: 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community'
+  org_type?: 'defi' | 'gaming' | 'social' | 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community' | 'nft'
   org_subtype?: string
   web3_focus?: 'native' | 'adjacent' | 'traditional'
   last_updated: string
@@ -76,7 +76,7 @@ export type UnifiedClassificationResult = {
   }>;
   
   // Organization fields (optional)
-  org_type?: 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community';
+  org_type?: 'defi' | 'gaming' | 'social' | 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community' | 'nft';
   org_subtype?: string;
   web3_focus?: 'native' | 'adjacent' | 'traditional';
 };
@@ -100,7 +100,7 @@ const ClassificationSchema = z.object({
     })).nullable().optional(),
     
     // Organization fields (conditional) - nullable for OpenAI compatibility
-    org_type: z.enum(['protocol', 'infrastructure', 'exchange', 'investment', 'service', 'community']).nullable().optional(),
+    org_type: z.enum(['defi', 'gaming', 'social', 'protocol', 'infrastructure', 'exchange', 'investment', 'service', 'community', 'nft']).nullable().optional(),
     org_subtype: z.string().nullable().optional(),
     web3_focus: z.enum(['native', 'adjacent', 'traditional']).nullable().optional()
   }))
@@ -240,7 +240,7 @@ export async function classifyProfilesWithGrok(
       const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         {
           role: 'system',
-          content: `You are an expert Twitter profile classifier. You understand web3 degen and technical language. Analyze each profile to classify it.
+          content: `You are an expert Twitter profile classifier with live search capabilities. You understand web3 degen and technical language. Analyze each profile to classify it accurately.
 
 CLASSIFICATION RULES:
 - Classify each profile as either "individual" or "organization"
@@ -260,8 +260,19 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
         messages,
         response_format: zodResponseFormat(ClassificationSchema, "classification_results"),
         temperature: 0.1,
-        max_tokens: 3000  // Increased from 2000 to prevent truncation
-      });
+        max_tokens: 2000,  // Increased from 2000 to prevent truncation
+        // Enable live search with comprehensive data sources for better classification
+        search_parameters: {
+          mode: "on", // Force live search to be enabled
+          max_search_results: 20, // Reasonable limit for classification
+          sources: [
+            {
+              "type": "x",
+              "included_x_handles": profiles.map(p => p.screen_name) // Search specific Twitter handles
+            }
+          ]
+        }
+      } as any);
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
@@ -714,13 +725,14 @@ async function cleanConflictingFields(userId: string, vibe: string): Promise<voi
 }
 
 /**
- * Save classification result to Neo4j
+ * Save classification result to Neo4j - prevents duplicate creation
  */
 export async function saveClassificationToNeo4j(
   twitterUsername: string, 
   profileData: TwitterProfile,
-  classification: ClassificationResult
-): Promise<void> {
+  classification: ClassificationResult,
+  existingUserId?: string // NEW: Accept existing user ID
+): Promise<string> { // NEW: Return user ID
   try {
     // Validate vibe value before processing
     const vibeValidation = validateVibe(classification.vibe)
@@ -731,8 +743,24 @@ export async function saveClassificationToNeo4j(
     const apiUser = convertToTwitterApiUser(profileData)
     const neo4jUser = transformToNeo4jUser(apiUser, vibeValidation.sanitizedValue)
     
-    // Clean conflicting fields first to ensure data integrity
-    await cleanConflictingFields(apiUser.id, vibeValidation.sanitizedValue)
+    // NEW: Use existing user ID or find existing user
+    if (existingUserId) {
+      neo4jUser.userId = existingUserId
+      console.log(`  → Updating existing user: ${existingUserId}`)
+    } else {
+      // Check if user already exists before creating
+      const existingUser = await getUserByScreenName(twitterUsername)
+      if (existingUser) {
+        neo4jUser.userId = existingUser.userId
+        console.log(`  → Found existing user: ${existingUser.userId}`)
+      } else {
+        console.log(`  → Will create new user for @${twitterUsername}`)
+      }
+    }
+    
+    // Clean conflicting fields first (use userId if available, fallback to apiUser.id)
+    const userIdForCleanup = neo4jUser.userId || apiUser.id
+    await cleanConflictingFields(userIdForCleanup, vibeValidation.sanitizedValue)
     
     // Store ONLY the appropriate fields based on vibe
     if (vibeValidation.sanitizedValue === VibeType.INDIVIDUAL) {
@@ -774,6 +802,9 @@ export async function saveClassificationToNeo4j(
     
     await createOrUpdateUser(neo4jUser)
     console.log(`  → ✅ Neo4j updated for @${twitterUsername}: ${classification.vibe}`)
+    
+    // NEW: Return the user ID for coordination
+    return neo4jUser.userId
   } catch (error) {
     console.error(`  → ❌ Neo4j save failed for @${twitterUsername}:`, error)
     throw error
@@ -932,7 +963,8 @@ export async function classifyProfile(profile: TwitterProfile): Promise<Classifi
  */
 export async function classifyProfileComplete(
   twitterUsername: string,
-  profileData: TwitterProfile
+  profileData: TwitterProfile,
+  existingUserId?: string // NEW: Accept existing user ID
 ): Promise<ClassificationResult> {
   const normalizedUsername = twitterUsername.replace('@', '').toLowerCase()
   
@@ -993,11 +1025,16 @@ export async function classifyProfileComplete(
     finalClassification = classification
   }
   
-  // Always save the final classification to Neo4j
+  // Always save the final classification to Neo4j with coordination
   console.log('  → Saving classification to Neo4j...')
   try {
-    await saveClassificationToNeo4j(normalizedUsername, profileData, finalClassification)
-    console.log('  → ✅ Classification saved to Neo4j')
+    const updatedUserId = await saveClassificationToNeo4j(
+      normalizedUsername, 
+      profileData, 
+      finalClassification,
+      existingUserId // Pass existing user ID if provided
+    )
+    console.log('  → ✅ Classification saved to user:', updatedUserId)
     
     // Process employment relationships if individual with employment data
     if (finalClassification.vibe === 'individual' && 

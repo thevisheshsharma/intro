@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { testLlamaIntegration } from '@/lib/test-llama'
+import { syncLlamaProtocols } from '@/jobs/llama-sync'
 
 export async function GET(request: NextRequest) {
   try {
     console.log('Running Llama integration test...')
-    const result = await testLlamaIntegration()
+    const result = await syncLlamaProtocols()
     
     return NextResponse.json({
-      ...result,
+      success: true,
+      data: result,
       timestamp: new Date().toISOString()
     })
     
