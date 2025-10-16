@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { 
-  createOrUpdateUser, 
+  createOrUpdateUserWithScreenNameMerge, 
   getUserByScreenName,
   getUsersByScreenNames,
   findMutualConnections,
@@ -65,7 +65,7 @@ async function processUserConnections(username: string, fetchFollowers: boolean 
   const neo4jUser = transformToNeo4jUser(userData)
   
   const [, cachedCount] = await Promise.all([
-    createOrUpdateUser(neo4jUser),
+    createOrUpdateUserWithScreenNameMerge(neo4jUser),
     fetchFollowers ? getUserFollowerCount(userId) : getUserFollowingCount(userId)
   ])
 

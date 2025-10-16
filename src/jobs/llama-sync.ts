@@ -12,7 +12,6 @@ import {
   validateScreenNameUniqueness,
   deduplicateProtocolArrays,
   type Neo4jProtocol
-  // calculateTvl, // Temporarily disabled due to BigInt conversion issues
 } from '@/services'
 import { analyzeCategoryMapping, logCategoryAnalytics, type CategoryAnalytics } from '@/services/llama-sync-analytics'
 
@@ -241,7 +240,6 @@ export async function syncLlamaProtocols(): Promise<SyncStats> {
         neo4jProtocol.recent_developments = JSON.stringify(cleanedData)
       }
       
-      // TODO: Remove tvl temporarily to avoid BigInt issues
       neo4jProtocol.tvl = undefined
       
       allProtocols.push(neo4jProtocol)
@@ -259,13 +257,6 @@ export async function syncLlamaProtocols(): Promise<SyncStats> {
         const cleanedData = cleanRecentDevelopments(neo4jProtocol.recent_developments)
         neo4jProtocol.recent_developments = JSON.stringify(cleanedData)
       }
-      
-      // TODO: TVL calculation temporarily disabled due to BigInt conversion issues
-      // Calculate TVL based on date logic - ensure no BigInt values
-      // if (neo4jProtocol.tvl !== undefined) {
-      //   const currentTvl = typeof neo4jProtocol.tvl === 'bigint' ? Number(neo4jProtocol.tvl) : neo4jProtocol.tvl
-      //   neo4jProtocol.tvl = calculateTvl(currentTvl, existingTvl, lastUpdated)
-      // }
       
       // Remove tvl to avoid BigInt issues for now
       neo4jProtocol.tvl = undefined

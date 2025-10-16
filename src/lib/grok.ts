@@ -187,22 +187,6 @@ const UniversalCoreSchema = z.object({
 
 // ================================================================================================
 // LEGACY UNIVERSAL BASE SCHEMA - Composed from modular components
-// ================================================================================================
-
-/**
- * Legacy Universal Base Schema - Maintains backward compatibility
- * This is now composed from the modular schemas above
- * Contains ALL possible fields that ANY organization might have (flattened)
- */
-const UniversalBaseSchema = UniversalCoreSchema
-  .extend(UniversalSocialLinksSchema.shape)
-  .extend(UniversalTechnicalSchema.shape)
-  .extend(UniversalSecurityAuditSchema.shape)
-  .extend(UniversalTokenomicsSchema.shape)
-  .extend(UniversalFundingSchema.shape)
-  .extend(UniversalMarketMetricsSchema.shape)
-  .extend(UniversalUserBehaviorSchema.shape);
-
 /// ================================================================================================
 /// FLATTENED CATEGORY-SPECIFIC EXTENSION SCHEMAS
 /// ================================================================================================
@@ -1089,11 +1073,3 @@ Do not assume or build any made-up usernames. Do not include any explanations, j
  * The unified classification system has been moved to /src/lib/classifier.ts
  * Import from there for all classification needs
  */
-
-// Re-export types and functions for backward compatibility
-export type { 
-  UnifiedProfileInput, 
-  UnifiedClassificationResult 
-} from './classifier';
-
-export { classifyProfilesWithGrok } from './classifier';

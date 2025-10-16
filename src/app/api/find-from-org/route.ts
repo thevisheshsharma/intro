@@ -3,17 +3,13 @@ import { findOrgAffiliatesWithGrok } from '@/lib/grok'
 import { classifyProfilesWithGrok } from '@/lib/classifier'
 import { validateVibe, logValidationError, VibeType } from '@/lib/validation'
 import { 
-  runQuery,
-  createOrUpdateUser, 
-  createOrUpdateUsers,
   createOrUpdateUsersOptimized,
+  createOrUpdateUserWithScreenNameMerge,
   getUserByScreenName,
   getUsersByScreenNames,
   getUserFollowingCount,
-  getUserFollowingCounts,
   transformToNeo4jUser,
   hasFollowingData,
-  batchCheckUserDataTypes,
   getOrganizationFollowingUsers,
   addAffiliateRelationships,
   addFollowsRelationships,
@@ -23,7 +19,10 @@ import {
   filterOutExistingRelationships,
   getUsersWithExistingEmploymentRelationships,
   getOrganizationEmployees,
-  updateOrganizationClassification
+  getOrganizationEmployeesByScreenName,
+  updateOrganizationClassification,
+  consolidatedUserExistenceCheck,
+  batchCheckUserEmploymentData
 } from '@/services'
 
 export async function POST(request: NextRequest) {
@@ -155,16 +154,10 @@ export async function POST(request: NextRequest) {
       (async () => {
         console.log('   → Starting existing employees lookup...')
         try {
-          // Try to get org user ID from Neo4j first
-          const orgUser = await getUserByScreenName(orgUsername)
-          if (orgUser?.userId) {
-            const employees = await getOrganizationEmployees(orgUser.userId)
-            console.log(`   → ✅ Existing employees: Found ${employees.length} with WORKS_AT relationships`)
-            return employees
-          } else {
-            console.log('   → ✅ Existing employees: No org found in Neo4j, will check after org profile determined')
-            return null // Will be checked later when org profile is available
-          }
+          // Use screenName directly instead of looking up userId first
+          const employees = await getOrganizationEmployeesByScreenName(orgUsername)
+          console.log(`   → ✅ Existing employees: Found ${employees.length} with WORKS_AT relationships`)
+          return employees
         } catch (error: any) {
           console.warn(`   → ⚠️  Existing employees: ${error.message}`)
           return null
@@ -244,7 +237,7 @@ export async function POST(request: NextRequest) {
           results.orgProfile = freshOrgProfile
           shouldFetchFollowingsFromAPI = true
           try {
-            await createOrUpdateUser(transformToNeo4jUser(freshOrgProfile))
+            await createOrUpdateUserWithScreenNameMerge(transformToNeo4jUser(freshOrgProfile))
             console.log('     → Updated org in Neo4j with fresh data')
           } catch (updateError: any) {
             console.warn('     → Failed to update org in Neo4j:', updateError.message)
@@ -290,7 +283,7 @@ export async function POST(request: NextRequest) {
         results.orgProfile = freshOrgProfile
         shouldFetchFollowingsFromAPI = true
         try {
-          await createOrUpdateUser(transformToNeo4jUser(freshOrgProfile))
+          await createOrUpdateUserWithScreenNameMerge(transformToNeo4jUser(freshOrgProfile))
           console.log('     → Stored new org in Neo4j')
         } catch (storeError: any) {
           console.warn('     → Failed to store org in Neo4j:', storeError.message)
@@ -379,10 +372,10 @@ export async function POST(request: NextRequest) {
       }
       
       // Fetch existing employees if not already fetched and we now have org profile
-      if (results.orgProfile?.id_str && results.existingEmployees.length === 0) {
+      if (results.orgProfile?.screen_name && results.existingEmployees.length === 0) {
         try {
           console.log('   → Fetching existing employees now that org profile is available...')
-          const employees = await getOrganizationEmployees(results.orgProfile.id_str)
+          const employees = await getOrganizationEmployeesByScreenName(results.orgProfile.screen_name)
           results.existingEmployees = employees
           console.log(`   → ✅ Found ${employees.length} existing employees with WORKS_AT relationships`)
         } catch (employeesError: any) {
@@ -568,16 +561,16 @@ export async function POST(request: NextRequest) {
                 const followingUserIds = validFollowings.map(user => user.id_str || user.id)
                 let existingFollowingIds: Set<string>
                 
-                // If global check hasn't run yet, do individual check for following users
+                // Use consolidated existence check instead of individual check
                 if (globalExistingUserIds.size === 0) {
-                  console.log(`   → Checking ${followingUserIds.length} following users existence in Neo4j...`)
+                  console.log(`   → Running consolidated existence check for following users...`)
                   try {
-                    const existingIds = await checkUsersExist(followingUserIds)
-                    existingFollowingIds = new Set(existingIds)
-                    // Update global set with these results for later use
-                    existingIds.forEach(id => globalExistingUserIds.add(id))
+                    globalExistingUserIds = await consolidatedUserExistenceCheck({
+                      followingProfiles: validFollowings
+                    })
+                    existingFollowingIds = globalExistingUserIds
                   } catch (error: any) {
-                    console.warn(`   → Error checking following users existence:`, error.message)
+                    console.warn(`   → Error in consolidated existence check:`, error.message)
                     existingFollowingIds = new Set()
                   }
                 } else {
@@ -769,19 +762,19 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Batch existence check for all profiles with IDs
-    const allProfileUserIds = allProfiles
-      .filter(profile => profile.id_str || profile.id)
-      .map(profile => profile.id_str || profile.id)
-    
-    if (allProfileUserIds.length > 0) {
-      console.log(`   → Batch checking existence of ${allProfileUserIds.length} users in Neo4j...`)
+    // Use consolidated existence check for all collected profiles
+    if (allProfiles.length > 0 && globalExistingUserIds.size === 0) {
+      console.log(`   → Running consolidated existence check for all ${allProfiles.length} collected profiles...`)
       try {
-        const existingUserIds = await checkUsersExist(allProfileUserIds)
-        globalExistingUserIds = new Set(existingUserIds)
-        console.log(`   → Found ${existingUserIds.length} existing users in Neo4j`)
+        globalExistingUserIds = await consolidatedUserExistenceCheck({
+          memberProfiles: results.affiliatedUsers,
+          searchProfiles: results.searchedUsers,
+          followingProfiles: results.followingUsers,
+          additionalUserIds: allProfiles.map(p => p.id_str || p.id).filter(Boolean)
+        })
+        console.log(`   → Found ${globalExistingUserIds.size} existing users in Neo4j`)
       } catch (error: any) {
-        console.warn(`   → Error in batch existence check:`, error.message)
+        console.warn(`   → Error in consolidated existence check:`, error.message)
         // Fallback to treating all as non-existing
         globalExistingUserIds = new Set()
       }
@@ -875,45 +868,62 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // Fallback: Try individual requests for failed usernames
+        // Fallback: Use batch function for failed usernames instead of individual requests
         if (failedUsernames.length > 0) {
-          console.log(`🔄 Attempting individual requests for ${failedUsernames.length} failed usernames...`)
+          console.log(`🔄 Attempting batch fallback for ${failedUsernames.length} failed usernames...`)
           
-          const individualPromises = failedUsernames.map(async (username) => {
-            try {
-              const profileResponse = await fetch(`https://api.socialapi.me/twitter/user/${username}`, {
-                headers: {
-                  'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
-                  'Accept': 'application/json',
+          // Import and use the batch function from services/user.ts
+          const { fetchOrganizationsBatch } = await import('@/services/user')
+          
+          try {
+            const fallbackProfiles = await fetchOrganizationsBatch(failedUsernames)
+            allProfiles.push(...fallbackProfiles)
+            fetchedGrokProfiles.push(...fallbackProfiles)
+            fetchedProfilesCount += fallbackProfiles.length
+            
+            console.log(`   ✅ Batch fallback retrieved ${fallbackProfiles.length}/${failedUsernames.length} profiles`)
+          } catch (fallbackError: any) {
+            console.warn(`⚠️ Batch fallback failed, trying individual requests:`, fallbackError.message)
+            
+            // Only as absolute last resort for small numbers
+            if (failedUsernames.length <= 5) {
+              const individualPromises = failedUsernames.map(async (username) => {
+                try {
+                  const profileResponse = await fetch(`https://api.socialapi.me/twitter/user/${username}`, {
+                    headers: {
+                      'Authorization': `Bearer ${process.env.SOCIALAPI_BEARER_TOKEN}`,
+                      'Accept': 'application/json',
+                    }
+                  })
+
+                  if (profileResponse.ok) {
+                    const profileData = await profileResponse.json()
+                    return profileData
+                  }
+                  return null
+                } catch (error: any) {
+                  console.log(`⚠️ Individual request error for ${username}:`, error.message)
+                  return null
                 }
               })
 
-              if (profileResponse.ok) {
-                const profileData = await profileResponse.json()
-                return profileData
-              } else {
-                console.log(`⚠️ Individual request failed for ${username}: ${profileResponse.status}`)
-                return null
-              }
-            } catch (error: any) {
-              console.log(`⚠️ Individual request error for ${username}:`, error.message)
-              return null
+              const individualResults = await Promise.allSettled(individualPromises)
+              let individualSuccessCount = 0
+              
+              individualResults.forEach((result) => {
+                if (result.status === 'fulfilled' && result.value) {
+                  allProfiles.push(result.value)
+                  fetchedGrokProfiles.push(result.value)
+                  fetchedProfilesCount++
+                  individualSuccessCount++
+                }
+              })
+              
+              console.log(`   ✅ Individual fallback retrieved ${individualSuccessCount}/${failedUsernames.length} profiles`)
+            } else {
+              console.log(`   ⚠️ Too many failed usernames (${failedUsernames.length}), skipping individual requests`)
             }
-          })
-
-          const individualResults = await Promise.allSettled(individualPromises)
-          let individualSuccessCount = 0
-          
-          individualResults.forEach((result) => {
-            if (result.status === 'fulfilled' && result.value) {
-              allProfiles.push(result.value)
-              fetchedGrokProfiles.push(result.value)
-              fetchedProfilesCount++
-              individualSuccessCount++
-            }
-          })
-
-          console.log(`✅ Individual fallback: Fetched ${individualSuccessCount}/${failedUsernames.length} additional profiles`)
+          }
         }
 
         console.log(`✅ Total fetched: ${fetchedProfilesCount} profiles from ${grokUsernamesNeedingProfiles.length} Grok usernames`)
@@ -1224,15 +1234,10 @@ export async function POST(request: NextRequest) {
             reason: employee.verificationReason
           },
           _relevance_reason: 'existing_works_at_relationship',
-          _grok_analysis: {
-            current_position: {
-              position: employee.position || 'Employee',
-              organizations: [orgUsername],
-              department: employee.department || 'Unknown',
-              startDate: employee.startDate,
-              endDate: employee.endDate
-            },
-            employment_history: []
+          _employment_data: {
+            current_organizations: [orgUsername],
+            department: employee.department || 'other',
+            past_organizations: []
           }
         }
         
@@ -1260,105 +1265,47 @@ export async function POST(request: NextRequest) {
           .map(profile => profile.id_str || profile.id)
         
         if (userIds.length > 0) {
-          console.log(`   → Comprehensive data check for ${userIds.length} relevant individuals...`)
+          console.log(`   → Using optimized batch employment data check for ${userIds.length} relevant individuals...`)
           
-          // OPTIMIZATION: Single comprehensive query to get all user data at once
-          const comprehensiveUserDataQuery = `
-            UNWIND $userIds AS userId
-            OPTIONAL MATCH (u:User {userId: userId})
-            OPTIONAL MATCH (u)-[works:WORKS_AT]->(org:User {userId: $orgId})
-            OPTIONAL MATCH (u)-[worked:WORKED_AT]->(org2:User {userId: $orgId})
-            RETURN 
-              userId,
-              u.screenName as screenName,
-              u.vibe as vibe,
-              u IS NOT NULL as exists,
-              works IS NOT NULL as hasCurrentEmployment,
-              worked IS NOT NULL as hasEmploymentHistory,
-              works.position as currentPosition,
-              collect(DISTINCT worked.position) as pastPositions,
-              works.startDate as currentStartDate,
-              works.endDate as currentEndDate
-          `
+          // Use the new batch function instead of comprehensive query
+          const classificationResults = await batchCheckUserEmploymentData(userIds, results.orgProfile.id_str)
           
-          const comprehensiveUserData = await runQuery(comprehensiveUserDataQuery, { 
-            userIds, 
-            orgId: results.orgProfile.id_str 
-          })
+          // Process results and categorize users
+          const existingEmployeeUserIds = new Set(classificationResults.existingEmployees)
+          const hasEmploymentDataUserIds = new Set(classificationResults.hasEmploymentData) 
+          const needsGrokAnalysisUserIds = new Set(classificationResults.needsGrokAnalysis)
           
-          // Create lookup maps for efficient processing
-          const userDataMap = new Map()
-          comprehensiveUserData.forEach(record => {
-            userDataMap.set(record.userId, {
-              exists: record.exists,
-              vibe: record.vibe,
-              screenName: record.screenName,
-              hasEmploymentData: record.hasCurrentEmployment || record.hasEmploymentHistory,
-              employmentData: {
-                current_position: record.hasCurrentEmployment ? {
-                  position: record.currentPosition,
-                  organizations: [orgUsername], // They have a relationship with this org
-                  startDate: record.currentStartDate,
-                  endDate: record.currentEndDate
-                } : null,
-                employment_history: record.pastPositions.filter((p: any) => p).map((position: any) => ({
-                  position,
-                  organizations: [orgUsername]
-                }))
-              }
-            })
-          })
-          
-          console.log(`   → Processed comprehensive data for ${comprehensiveUserData.length} users`)
-          
-          // EARLY FILTERING: Classify users based on existing data
-          const classificationResults = {
-            skipGrok: 0,
-            needsGrok: 0,
-            organizations: 0,
-            existingEmployees: results.existingEmployees.length
-          }
-          
+          // Categorize profiles based on batch results
           relevantIndividualsToProcess.forEach(profile => {
             const userId = profile.id_str || profile.id
-            const userData = userDataMap.get(userId)
             
-            if (userData?.vibe === 'organization') {
-              // User is already identified as an organization - reject
-              profile._rejection_reason = 'already_identified_as_organization'
-              usersIdentifiedAsOrganizations.push(profile)
-              rejectedProfiles.push(profile)
-              totalOrgsFound++
-              classificationResults.organizations++
-              
-            } else if (userData?.hasEmploymentData) {
-              // User has existing employment relationship - skip Grok analysis
-              profile._grok_analysis = userData.employmentData
-              usersWithExistingRelationships.push(profile)
+            if (existingEmployeeUserIds.has(userId)) {
+              // Already an employee of this org
               finalIndividuals.push(profile)
-              classificationResults.skipGrok++
-              
-            } else {
-              // User needs Grok analysis
+              usersWithExistingRelationships.push(profile)
+            } else if (hasEmploymentDataUserIds.has(userId)) {
+              // Has employment data with other organizations
+              finalIndividuals.push(profile)
+              usersWithExistingRelationships.push(profile)
+            } else if (needsGrokAnalysisUserIds.has(userId)) {
+              // Needs Grok analysis
               usersNeedingGrokAnalysis.push(profile)
-              classificationResults.needsGrok++
             }
           })
           
-          console.log(`📊 Early filtering results:`)
-          console.log(`   👥 Existing employees (source of truth): ${classificationResults.existingEmployees}`)
-          console.log(`   🏢 Organizations (pre-identified): ${classificationResults.organizations}`)
-          console.log(`   ⚡ Skip Grok (has employment data): ${classificationResults.skipGrok}`)
-          console.log(`   🤖 Needs Grok analysis: ${classificationResults.needsGrok}`)
-          console.log(`   📈 Total Grok analysis reduction: ${Math.round(((classificationResults.existingEmployees + classificationResults.skipGrok) / (relevantIndividuals.length || 1)) * 100)}%`)
+          console.log(`   → ✅ Batch employment check complete:`)
+          console.log(`   🏢 Existing employees: ${classificationResults.existingEmployees.length}`)
+          console.log(`   ⚡ Skip Grok (has employment data): ${classificationResults.hasEmploymentData.length}`)
+          console.log(`   🤖 Needs Grok analysis: ${classificationResults.needsGrokAnalysis.length}`)
+          console.log(`   📈 Total Grok analysis reduction: ${Math.round(((classificationResults.existingEmployees.length + classificationResults.hasEmploymentData.length) / (relevantIndividualsToProcess.length || 1)) * 100)}%`)
           
         } else {
-          console.log('   → No valid user IDs found for comprehensive data check')
+          console.log('   → No valid user IDs found for batch employment check')
           usersNeedingGrokAnalysis = relevantIndividualsToProcess
         }
-      } catch (comprehensiveCheckError: any) {
-        console.warn(`⚠️ Error in comprehensive user data check:`, comprehensiveCheckError.message)
-        results.errors.push(`Comprehensive data check error: ${comprehensiveCheckError.message}`)
+      } catch (batchCheckError: any) {
+        console.warn(`⚠️ Error in batch employment check:`, batchCheckError.message)
+        results.errors.push(`Batch employment check error: ${batchCheckError.message}`)
         // Fallback: send all users (except existing employees) to Grok analysis
         usersNeedingGrokAnalysis = relevantIndividuals.filter(profile => {
           const userId = profile.id_str || profile.id
@@ -1366,7 +1313,7 @@ export async function POST(request: NextRequest) {
         })
       }
     } else {
-      console.log('   → No relevant individuals or org profile for comprehensive check')
+      console.log('   → No relevant individuals or org profile for batch check')
       // Exclude existing employees from fallback analysis
       usersNeedingGrokAnalysis = relevantIndividuals.filter(profile => {
         const userId = profile.id_str || profile.id
@@ -1417,13 +1364,14 @@ export async function POST(request: NextRequest) {
             // Analyze with Grok using unified function
             const analysisResults = await classifyProfilesWithGrok(batchProfiles) as any[]
             
-            // Convert to expected format
+            // Convert to expected format with flattened structure
             const analysis = {
               profiles: analysisResults.map(result => ({
                 screen_name: result.screen_name,
-                type: result.entity_type,
-                current_position: result.current_position,
-                employment_history: result.employment_history,
+                vibe: result.vibe,
+                current_organizations: result.current_organizations,
+                department: result.department,
+                past_organizations: result.past_organizations,
                 org_type: result.org_type,
                 org_subtype: result.org_subtype,
                 web3_focus: result.web3_focus
@@ -1467,7 +1415,7 @@ export async function POST(request: NextRequest) {
                 
                 if (!originalProfile || !analyzed) return
                 
-                if (analyzed.type === 'organization') {
+                if (analyzed.vibe === 'organization') {
                   // Grok identified this as an organization - handle appropriately
                   originalProfile._rejection_reason = 'grok_identified_organization'
                   rejectedProfiles.push(originalProfile)
@@ -1487,11 +1435,17 @@ export async function POST(request: NextRequest) {
                       web3_focus: analyzed.web3_focus
                     }
                   })
+                } else if (analyzed.vibe === 'spam') {
+                  // Mark as spam and reject
+                  originalProfile._rejection_reason = 'grok_identified_spam'
+                  rejectedProfiles.push(originalProfile)
+                  console.log(`     🚫 @${analyzed.screen_name || originalProfile.screen_name} - SPAM`)
                 } else {
-                  // Keep as individual and enrich with role/org data
-                  originalProfile._grok_analysis = {
-                    current_position: analyzed.current_position || null,
-                    employment_history: analyzed.employment_history || []
+                  // Keep as individual and store flattened employment data directly
+                  originalProfile._employment_data = {
+                    current_organizations: analyzed.current_organizations || [],
+                    department: analyzed.department || 'other',
+                    past_organizations: analyzed.past_organizations || []
                   }
                   finalIndividuals.push(originalProfile)
                   console.log(`     👤 @${analyzed.screen_name || originalProfile.screen_name} - INDIVIDUAL`)
@@ -1502,8 +1456,9 @@ export async function POST(request: NextRequest) {
               
               // Store batch metadata
               const validProfiles = batchResult.analysis.profiles.filter((p: any) => p != null)
-              const orgCount = validProfiles.filter((p: any) => p.type === 'organization').length
-              const indCount = validProfiles.filter((p: any) => p.type === 'individual').length
+              const orgCount = validProfiles.filter((p: any) => p.vibe === 'organization').length
+              const indCount = validProfiles.filter((p: any) => p.vibe === 'individual').length
+              const spamCount = validProfiles.filter((p: any) => p.vibe === 'spam').length
               
               grokAnalysisMetadata.push({
                 batch: batchResult.batchNumber || index + 1,
@@ -1518,9 +1473,10 @@ export async function POST(request: NextRequest) {
               if (batchResult && batchResult.originalProfiles && Array.isArray(batchResult.originalProfiles)) {
                 batchResult.originalProfiles.forEach(profile => {
                   if (profile && typeof profile === 'object') {
-                    profile._grok_analysis = {
-                      current_position: null,
-                      employment_history: []
+                    profile._employment_data = {
+                      current_organizations: null,
+                      department: 'other',
+                      past_organizations: []
                     }
                     finalIndividuals.push(profile)
                   }
@@ -1544,9 +1500,10 @@ export async function POST(request: NextRequest) {
               if (originalBatch && originalBatch.profiles && Array.isArray(originalBatch.profiles)) {
                 originalBatch.profiles.forEach((profile: any) => {
                   if (profile && typeof profile === 'object') {
-                    profile._grok_analysis = {
-                      current_position: null,
-                      employment_history: []
+                    profile._employment_data = {
+                      current_organizations: null,
+                      department: 'other',
+                      past_organizations: []
                     }
                     finalIndividuals.push(profile)
                   }
@@ -1568,9 +1525,10 @@ export async function POST(request: NextRequest) {
         // Fallback: use all users without enrichment
         usersNeedingGrokAnalysis.forEach(profile => {
           if (profile && typeof profile === 'object') {
-            profile._grok_analysis = {
-              current_position: null,
-              employment_history: []
+            profile._employment_data = {
+              current_organizations: null,
+              department: 'other',
+              past_organizations: []
             }
             finalIndividuals.push(profile)
           }
@@ -1619,16 +1577,27 @@ export async function POST(request: NextRequest) {
           const existingOrg = existingOrgMap.get(screenName.toLowerCase())
           
           if (existingOrg) {
-            // Organization exists - update vibe and classification if needed
-            if (existingOrg.vibe !== 'organization') {
+            // Organization exists - always update classification if we have new data from Grok
+            if (classification && (classification.org_type || classification.org_subtype || classification.web3_focus)) {
               orgsToUpdate.push({
                 screenName: existingOrg.screenName,
                 userId: existingOrg.userId,
                 classification
               })
+              console.log(`     🔄 @${screenName} - EXISTS, will update classification data`)
+            } else if (existingOrg.vibe !== 'organization') {
+              orgsToUpdate.push({
+                screenName: existingOrg.screenName,
+                userId: existingOrg.userId,
+                classification: {
+                  org_type: 'service',
+                  org_subtype: 'other',
+                  web3_focus: 'traditional'
+                }
+              })
               console.log(`     🔄 @${screenName} - EXISTS, will update vibe to 'organization'`)
             } else {
-              console.log(`     ✅ @${screenName} - EXISTS, already has 'organization' vibe`)
+              console.log(`     ✅ @${screenName} - EXISTS, no updates needed`)
             }
           } else {
             // Organization doesn't exist - fetch and store
@@ -1723,6 +1692,10 @@ export async function POST(request: NextRequest) {
                 orgUser.org_type = classification.org_type || 'service'
                 orgUser.org_subtype = classification.org_subtype || 'other'
                 orgUser.web3_focus = classification.web3_focus || 'traditional'
+              } else {
+                orgUser.org_type = 'service'
+                orgUser.org_subtype = 'other'
+                orgUser.web3_focus = 'traditional'
               }
               
               return orgUser
@@ -1756,6 +1729,10 @@ export async function POST(request: NextRequest) {
 
     // Step 5.8: Unified Batch Storage Operation (OPTIMIZED)
     console.log('💾 Step 5.8: Unified batch storage operation...')
+    
+    // Declare variables outside try block for accessibility in employment processing
+    let allUsersToStore: any[] = []
+    let finalIndividualsToStore: any[] = []
     
     try {
       // ===== PREPARE ALL DATA FOR BATCH STORAGE =====
@@ -1845,7 +1822,7 @@ export async function POST(request: NextRequest) {
       })
       
       // 2. Prepare final individuals (accepted users) - set vibe and extract roles
-      const finalIndividualsToStore = finalIndividuals
+      finalIndividualsToStore = finalIndividuals
         .filter(profile => profile.id_str || profile.id)
         .map(profile => {
           const neo4jUser = transformToNeo4jUser(profile)
@@ -1857,9 +1834,9 @@ export async function POST(request: NextRequest) {
           }
           neo4jUser.vibe = vibeValidation.sanitizedValue
           
-          // Extract department from Grok analysis if available
-          if (profile._grok_analysis?.current_position?.department) {
-            neo4jUser.department = profile._grok_analysis.current_position.department
+          // Extract department from flattened employment data if available
+          if (profile._employment_data?.department) {
+            neo4jUser.department = profile._employment_data.department
           }
           
           return neo4jUser
@@ -1880,7 +1857,7 @@ export async function POST(request: NextRequest) {
         : []
       
       // 5. Combine all users for batch storage
-      const allUsersToStore = [
+      allUsersToStore = [
         ...rejectedUsersToStore,
         ...finalIndividualsToStore,
         ...affiliatedUsersToStore,
@@ -1916,10 +1893,21 @@ export async function POST(request: NextRequest) {
         console.log(`   → No users to store in batch operation`)
       }
       
-      // ===== PROCESS EMPLOYMENT DATA =====
+      console.log(`✅ Unified batch storage operation completed successfully`)
       
-      console.log(`   → Processing employment data for ${finalIndividuals.length} individuals...`)
-      
+    } catch (batchStorageError: any) {
+      console.error('❌ Unified batch storage failed:', batchStorageError.message)
+      results.errors.push(`Unified batch storage error: ${batchStorageError.message}`)
+      // Continue with employment data processing even if batch storage failed
+      console.log(`🔄 Continuing with employment data processing despite batch storage failure...`)
+    }
+
+    // ===== PROCESS EMPLOYMENT DATA =====
+    // This runs regardless of batch storage success/failure
+    
+    console.log(`   → Processing employment data for ${finalIndividuals.length} individuals...`)
+    
+    try {
       // Add small delay to prevent deadlocks after batch storage
       if (allUsersToStore.length > 0) {
         console.log(`   → Adding brief delay to prevent transaction deadlocks...`)
@@ -1972,11 +1960,9 @@ export async function POST(request: NextRequest) {
         console.warn(`   → No organization profile ID available for relationship creation`)
       }
       
-      console.log(`✅ Unified batch storage operation completed successfully`)
-      
-    } catch (batchStorageError: any) {
-      console.error('❌ Unified batch storage failed:', batchStorageError.message)
-      results.errors.push(`Unified batch storage error: ${batchStorageError.message}`)
+    } catch (employmentError: any) {
+      console.error('❌ Employment data processing failed:', employmentError.message)
+      results.errors.push(`Employment processing error: ${employmentError.message}`)
     }
 
     // Step 5.9: Filter individuals by organization affiliation
@@ -1989,12 +1975,12 @@ export async function POST(request: NextRequest) {
     const otherIndividuals: any[] = []
     
     finalIndividuals.forEach((profile) => {
-      const grokAnalysis = profile._grok_analysis
+      const employmentData = profile._employment_data
       let hasOrgAffiliation = false
       
-      if (grokAnalysis?.current_position?.organizations && Array.isArray(grokAnalysis.current_position.organizations)) {
+      if (employmentData?.current_organizations && Array.isArray(employmentData.current_organizations)) {
         // Check if any of the current organizations match the searched org
-        const orgs = grokAnalysis.current_position.organizations
+        const orgs = employmentData.current_organizations
         hasOrgAffiliation = orgs.some((org: string) => {
           const orgLower = org.toLowerCase()
           return orgLower === orgScreenName || 

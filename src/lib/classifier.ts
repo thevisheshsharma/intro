@@ -1,4 +1,4 @@
-import { runQuery, getUserByScreenName, transformToNeo4jUser, createOrUpdateUser, processEmploymentData } from '@/services'
+import { runQuery, getUserByScreenName, transformToNeo4jUser, createOrUpdateUserWithScreenNameMerge, processEmploymentData } from '@/services'
 import OpenAI from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
@@ -13,20 +13,22 @@ const grokClient = new OpenAI({
   baseURL: 'https://api.x.ai/v1',
 });
 
-// Type definitions for classification system
+// Type definitions for classification system - Unified single structure
 export interface ClassificationResult {
-  vibe: 'individual' | 'organization' | 'spam' | string
-  current_position?: {
-    organizations: string[] | null
-    department: 'engineering' | 'product' | 'marketing' | 'business' | 'operations' | 'research' | 'community' | 'leadership' | 'other'
-  }
-  employment_history?: Array<{
-    organization: string
-  }>
-  org_type?: 'defi' | 'gaming' | 'social' | 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community' | 'nft'
-  org_subtype?: string
-  web3_focus?: 'native' | 'adjacent' | 'traditional'
-  last_updated: string
+  screen_name: string;
+  vibe: 'individual' | 'organization' | 'spam';
+  
+  // Individual fields (flattened)
+  current_organizations?: string[] | null;
+  department?: 'engineering' | 'product' | 'marketing' | 'business' | 'operations' | 'research' | 'community' | 'leadership' | 'other';
+  past_organizations?: string[];
+  
+  // Organization fields
+  org_type?: 'defi' | 'gaming' | 'social' | 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community' | 'nft';
+  org_subtype?: string[];
+  web3_focus?: 'native' | 'adjacent' | 'traditional';
+  
+  last_updated: string;
 }
 
 export interface TwitterProfile {
@@ -61,26 +63,6 @@ export type UnifiedProfileInput = {
   [key: string]: any; // Allow additional properties
 };
 
-// Unified output type matching ClassificationResult
-export type UnifiedClassificationResult = {
-  screen_name: string;
-  entity_type: 'individual' | 'organization';
-  
-  // Individual fields (optional)
-  current_position?: {
-    organizations: string[] | null;
-    department: 'engineering' | 'product' | 'marketing' | 'business' | 'operations' | 'research' | 'community' | 'leadership' | 'other';
-  };
-  employment_history?: Array<{
-    organization: string;
-  }>;
-  
-  // Organization fields (optional)
-  org_type?: 'defi' | 'gaming' | 'social' | 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community' | 'nft';
-  org_subtype?: string;
-  web3_focus?: 'native' | 'adjacent' | 'traditional';
-};
-
 /**
  * Zod schema for classification results with proper validation
  * Note: OpenAI structured outputs require nullable() for optional fields
@@ -88,20 +70,16 @@ export type UnifiedClassificationResult = {
 const ClassificationSchema = z.object({
   results: z.array(z.object({
     screen_name: z.string(),
-    entity_type: z.enum(['individual', 'organization']),
+    vibe: z.enum(['individual', 'organization', 'spam']),
     
-    // Individual fields (conditional) - nullable for OpenAI compatibility
-    current_position: z.object({
-      organizations: z.array(z.string()).nullable(),
-      department: z.enum(['product', 'marketing', 'business', 'ecosystem', 'community', 'legal', 'hr', 'leadership', 'other'])
-    }).nullable().optional(),
-    employment_history: z.array(z.object({
-      organization: z.string()
-    })).nullable().optional(),
+    // Individual fields (flattened)
+    current_organizations: z.array(z.string()).nullable().optional(),
+    department: z.enum(['engineering', 'product', 'marketing', 'business', 'operations', 'research', 'community', 'leadership', 'other']).nullable().optional(),
+    past_organizations: z.array(z.string()).nullable().optional(),
     
-    // Organization fields (conditional) - nullable for OpenAI compatibility
+    // Organization fields
     org_type: z.enum(['defi', 'gaming', 'social', 'protocol', 'infrastructure', 'exchange', 'investment', 'service', 'community', 'nft']).nullable().optional(),
-    org_subtype: z.string().nullable().optional(),
+    org_subtype: z.array(z.string()).nullable().optional(),
     web3_focus: z.enum(['native', 'adjacent', 'traditional']).nullable().optional()
   }))
 });
@@ -225,7 +203,7 @@ export function isRegionalOrSupportAccount(profile: TwitterProfile): boolean {
  */
 export async function classifyProfilesWithGrok(
   input: UnifiedProfileInput | UnifiedProfileInput[]
-): Promise<UnifiedClassificationResult | UnifiedClassificationResult[]> {
+): Promise<ClassificationResult | ClassificationResult[]> {
   const isArray = Array.isArray(input);
   const profiles = isArray ? input : [input];
   
@@ -237,17 +215,22 @@ export async function classifyProfilesWithGrok(
     try {
       console.log(`🔍 Unified Classification: Processing ${profiles.length} profile${profiles.length === 1 ? '' : 's'} with Zod schema validation${attempt > 1 ? ` (attempt ${attempt}/${maxRetries})` : ''}`);
       
+      // Skip if we've seen too many JSON parsing errors
+      if (attempt > 1 && lastError?.message?.includes('JSON')) {
+        console.log('   → Skipping retry due to repeated JSON parsing errors, using fallback');
+        break;
+      }
       const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         {
           role: 'system',
-          content: `You are an expert Twitter profile classifier with live search capabilities. You understand web3 degen and technical language. Analyze each profile to classify it accurately.
+          content: `You are an expert profile classifier with live search capabilities. You understand web3 degen and technical language. Analyze each profile to classify it accurately.
 
 CLASSIFICATION RULES:
-- Classify each profile as either "individual" or "organization"
-- For individuals: identify their current position (organizations and department) and employment history
-- For organizations: identify the type (protocol/infrastructure/exchange/investment/service/community), subtype, and web3 focus
+- Classify each profile as "individual" or "organization"
+- For individuals: identify current organizations, past organizations and department
+- For organizations: identify the type (protocol/infrastructure/social/defi/gaming/exchange/investment/service/community/nft), subtype, and web3 focus
 - If you cannot determine a value with confidence, set it to null
-- Organizations in current_position and employment_history should be prefixed with @
+- Organizations in current_organizations and past_organizations should be prefixed with @
 
 PROFILES TO CLASSIFY:
 ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n')}`
@@ -260,7 +243,7 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
         messages,
         response_format: zodResponseFormat(ClassificationSchema, "classification_results"),
         temperature: 0.1,
-        max_tokens: 2000,  // Increased from 2000 to prevent truncation
+        max_tokens: 4000,  // Increased from 2000 to prevent truncation
         // Enable live search with comprehensive data sources for better classification
         search_parameters: {
           mode: "on", // Force live search to be enabled
@@ -286,6 +269,12 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
       // Debug: Log the raw response to understand parsing issues
       console.log('   → Raw Grok response (first 500 chars):', content.substring(0, 500));
       console.log('   → Response length:', content.length);
+      
+      // Early detection of truncation issues
+      if (content.length >= 3900 && !content.trim().endsWith('}')) {
+        console.log('   → Response appears truncated (near max_tokens and no proper ending), using fallback');
+        throw new Error('Response truncated - using fallback classification');
+      }
 
       let parsedResults: any;
 
@@ -315,12 +304,26 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
           cleanedContent = cleanedContent.replace(/[^\\]"[^"]*$/, '"');
         }
         
+        // Fix truncated arrays - if content ends with incomplete array, try to close it
+        if (cleanedContent.match(/,\s*$/)) {
+          console.log('   → Detected trailing comma, removing...');
+          cleanedContent = cleanedContent.replace(/,\s*$/, '');
+        }
+        
         // If content ends abruptly, try to close JSON structure
         const openBraces = (cleanedContent.match(/\{/g) || []).length;
         const closeBraces = (cleanedContent.match(/\}/g) || []).length;
+        const openBrackets = (cleanedContent.match(/\[/g) || []).length;
+        const closeBrackets = (cleanedContent.match(/\]/g) || []).length;
+        
         if (openBraces > closeBraces) {
           console.log(`   → Adding ${openBraces - closeBraces} closing braces to fix truncated JSON`);
           cleanedContent += '}'.repeat(openBraces - closeBraces);
+        }
+        
+        if (openBrackets > closeBrackets) {
+          console.log(`   → Adding ${openBrackets - closeBrackets} closing brackets to fix truncated arrays`);
+          cleanedContent += ']'.repeat(openBrackets - closeBrackets);
         }
 
         console.log('   → Cleaned content (first 300 chars):', cleanedContent.substring(0, 300));
@@ -517,17 +520,25 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
                   
                   return {
                     screen_name: profile.screen_name,
-                    entity_type: 'organization',
-                    current_position: null,
-                    employment_history: null,
+                    vibe: 'organization',
                     org_type: orgType,
-                    org_subtype: 'other',
+                    org_subtype: ['other'],
                     web3_focus: web3Focus
                   };
                 } else {
+                  // Check for spam indicators first
+                  const followers = profile.followers_count || 0;
+                  const following = profile.friends_count || 0;
+                  if (followers < 10 && following < 10) {
+                    return {
+                      screen_name: profile.screen_name,
+                      vibe: 'spam'
+                    };
+                  }
+                  
                   // Default to individual
                   let department = 'other';
-                  let organizations = null;
+                  let currentOrganizations = null;
                   
                   if (description.includes('engineer') || description.includes('developer')) {
                     department = 'engineering';
@@ -544,20 +555,15 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
                   // Try to extract organization from description
                   const orgMatch = description.match(/(?:at|@|working at|works at)\s+([a-zA-Z0-9_]+)/);
                   if (orgMatch) {
-                    organizations = [orgMatch[1]];
+                    currentOrganizations = [orgMatch[1]];
                   }
                   
                   return {
                     screen_name: profile.screen_name,
-                    entity_type: 'individual',
-                    current_position: {
-                      organizations: organizations,
-                      department: department
-                    },
-                    employment_history: [],
-                    org_type: null,
-                    org_subtype: null,
-                    web3_focus: null
+                    vibe: 'individual',
+                    current_organizations: currentOrganizations,
+                    department: department,
+                    past_organizations: []
                   };
                 }
               })
@@ -573,39 +579,42 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
         validatedResults = ClassificationSchema.parse(parsedResults);
       } catch (zodError) {
         console.log('   → Zod validation failed, using normalized fallback...');
-        // Ensure the structure matches our schema
+        // Ensure the structure matches our schema with flattened structure
         const results = parsedResults.results || parsedResults.profiles || [parsedResults];
         validatedResults = {
           results: results.map((result: any) => ({
             screen_name: result.screen_name || 'unknown',
-            entity_type: ['individual', 'organization'].includes(result.entity_type) ? result.entity_type : 'individual',
-            current_position: result.entity_type === 'individual' ? (result.current_position || null) : null,
-            employment_history: result.entity_type === 'individual' ? (result.employment_history || null) : null,
-            org_type: result.entity_type === 'organization' ? (result.org_type || null) : null,
-            org_subtype: result.entity_type === 'organization' ? (result.org_subtype || null) : null,
-            web3_focus: result.entity_type === 'organization' ? (result.web3_focus || null) : null
+            vibe: ['individual', 'organization', 'spam'].includes(result.vibe) ? result.vibe : 'individual',
+            // Individual fields (flattened)
+            current_organizations: result.vibe === 'individual' ? (result.current_organizations || null) : null,
+            department: result.vibe === 'individual' ? (result.department || 'other') : null,
+            past_organizations: result.vibe === 'individual' ? (result.past_organizations || []) : null,
+            // Organization fields
+            org_type: result.vibe === 'organization' ? (result.org_type || null) : null,
+            org_subtype: result.vibe === 'organization' ? (result.org_subtype || null) : null,
+            web3_focus: result.vibe === 'organization' ? (result.web3_focus || null) : null
           }))
         };
       }
       
-      // Convert to UnifiedClassificationResult format
-      const normalizedResults: UnifiedClassificationResult[] = validatedResults.results.map((result: any) => {
-        const normalized: UnifiedClassificationResult = {
+      // Convert to ClassificationResult format
+      const normalizedResults: ClassificationResult[] = validatedResults.results.map((result: any) => {
+        const normalized: ClassificationResult = {
           screen_name: result.screen_name,
-          entity_type: result.entity_type
+          vibe: result.vibe,
+          last_updated: new Date().toISOString()
         };
         
-        if (result.entity_type === 'individual') {
-          // Handle nullable optional fields
-          normalized.current_position = result.current_position || {
-            organizations: null,
-            department: 'other'
-          };
-          normalized.employment_history = result.employment_history || [];
-        } else {
+        if (result.vibe === 'individual') {
+          // Handle nullable optional fields with flattened structure
+          normalized.current_organizations = result.current_organizations || null;
+          normalized.department = result.department || 'other';
+          normalized.past_organizations = result.past_organizations || [];
+        } else if (result.vibe === 'organization') {
           // Handle nullable optional fields for organizations
+          // Use fallbacks for null, undefined, or empty values
           normalized.org_type = result.org_type || 'service';
-          normalized.org_subtype = result.org_subtype || 'other';
+          normalized.org_subtype = result.org_subtype || ['other'];
           normalized.web3_focus = result.web3_focus || 'traditional';
         }
         
@@ -635,7 +644,7 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
   console.error('❌ All Zod Classification attempts failed, using enhanced fallback');
   console.error('❌ Last error:', lastError?.message);
   
-  const fallbackResults: UnifiedClassificationResult[] = profiles.map(profile => {
+  const fallbackResults: ClassificationResult[] = profiles.map(profile => {
     const description = (profile.description || '').toLowerCase();
     const isLikelyOrg = description.includes('protocol') || 
                        description.includes('platform') || 
@@ -648,20 +657,20 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
     if (isLikelyOrg) {
       return {
         screen_name: profile.screen_name,
-        entity_type: 'organization' as const,
+        vibe: 'organization' as const,
+        last_updated: new Date().toISOString(),
         org_type: 'service' as const,
-        org_subtype: 'other',
+        org_subtype: ['other'],
         web3_focus: 'traditional' as const
       };
     } else {
       return {
         screen_name: profile.screen_name,
-        entity_type: 'individual' as const,
-        current_position: {
-          organizations: null,
-          department: 'other' as const
-        },
-        employment_history: []
+        vibe: 'individual' as const,
+        last_updated: new Date().toISOString(),
+        current_organizations: null,
+        department: 'other' as const,
+        past_organizations: []
       };
     }
   });
@@ -695,25 +704,25 @@ function convertToTwitterApiUser(profile: TwitterProfile): any {
 async function cleanConflictingFields(userId: string, vibe: string): Promise<void> {
   let cleanupQuery = ''
   
-  if (vibe === VibeType.INDIVIDUAL) {
+  if (vibe === 'individual') {
     // Remove organization fields for individuals
     cleanupQuery = `
       MATCH (u:User {userId: $userId})
       REMOVE u.org_type, u.org_subtype, u.web3_focus
       RETURN u.userId as userId
     `
-  } else if (vibe === VibeType.ORGANIZATION) {
+  } else if (vibe === 'organization') {
     // Remove individual fields for organizations
     cleanupQuery = `
       MATCH (u:User {userId: $userId})
-      REMOVE u.current_position, u.employment_history, u.department
+      REMOVE u.current_organizations, u.past_organizations, u.department
       RETURN u.userId as userId
     `
-  } else if (vibe === VibeType.SPAM) {
+  } else if (vibe === 'spam') {
     // Remove all classification fields for spam
     cleanupQuery = `
       MATCH (u:User {userId: $userId})
-      REMOVE u.current_position, u.employment_history, u.department,
+      REMOVE u.current_organizations, u.past_organizations, u.department,
              u.org_type, u.org_subtype, u.web3_focus
       RETURN u.userId as userId
     `
@@ -734,14 +743,8 @@ export async function saveClassificationToNeo4j(
   existingUserId?: string // NEW: Accept existing user ID
 ): Promise<string> { // NEW: Return user ID
   try {
-    // Validate vibe value before processing
-    const vibeValidation = validateVibe(classification.vibe)
-    if (!vibeValidation.isValid) {
-      logValidationError('vibe', classification.vibe, vibeValidation.error!, `saveClassificationToNeo4j for user ${twitterUsername}`)
-    }
-    
     const apiUser = convertToTwitterApiUser(profileData)
-    const neo4jUser = transformToNeo4jUser(apiUser, vibeValidation.sanitizedValue)
+    const neo4jUser = transformToNeo4jUser(apiUser, classification.vibe)
     
     // NEW: Use existing user ID or find existing user
     if (existingUserId) {
@@ -760,47 +763,33 @@ export async function saveClassificationToNeo4j(
     
     // Clean conflicting fields first (use userId if available, fallback to apiUser.id)
     const userIdForCleanup = neo4jUser.userId || apiUser.id
-    await cleanConflictingFields(userIdForCleanup, vibeValidation.sanitizedValue)
+    await cleanConflictingFields(userIdForCleanup, classification.vibe)
     
-    // Store ONLY the appropriate fields based on vibe
-    if (vibeValidation.sanitizedValue === VibeType.INDIVIDUAL) {
-      neo4jUser.vibe = VibeType.INDIVIDUAL
-      
-      // Set individual-specific fields only
-      if (classification.current_position) {
-        (neo4jUser as any).current_position = classification.current_position
-        // Extract department as a separate property for easier querying
-        if (classification.current_position.department) {
-          (neo4jUser as any).department = classification.current_position.department
-        }
+    // Store fields based on vibe
+    if (classification.vibe === 'individual') {
+      // Set individual-specific fields - organizations are used for relationship creation, not storage
+      if (classification.current_organizations) {
+        (neo4jUser as any).current_organizations = classification.current_organizations
       }
-      if (classification.employment_history) {
-        (neo4jUser as any).employment_history = classification.employment_history
+      if (classification.department) {
+        neo4jUser.department = classification.department
+      }
+      if (classification.past_organizations) {
+        (neo4jUser as any).past_organizations = classification.past_organizations
       }
       
-    } else if (vibeValidation.sanitizedValue === VibeType.SPAM) {
-      neo4jUser.vibe = VibeType.SPAM
-      // No additional fields for spam accounts
-      
-    } else {
-      neo4jUser.vibe = VibeType.ORGANIZATION
-      
-      // Set organization-specific fields only
-      if (classification.org_type) {
-        (neo4jUser as any).org_type = classification.org_type
-      }
-      if (classification.org_subtype) {
-        (neo4jUser as any).org_subtype = classification.org_subtype
-      }
-      if (classification.web3_focus) {
-        (neo4jUser as any).web3_focus = classification.web3_focus
-      }
+    } else if (classification.vibe === 'organization') {
+      // Set organization-specific fields - always assign with fallbacks for organizations
+      neo4jUser.org_type = classification.org_type || 'service';
+      neo4jUser.org_subtype = JSON.stringify(classification.org_subtype || ['other']);
+      neo4jUser.web3_focus = classification.web3_focus || 'traditional';
     }
+    // Note: spam accounts get no additional fields stored
     
     // Ensure lastUpdated is set to current timestamp
     neo4jUser.lastUpdated = new Date().toISOString()
     
-    await createOrUpdateUser(neo4jUser)
+    await createOrUpdateUserWithScreenNameMerge(neo4jUser)
     console.log(`  → ✅ Neo4j updated for @${twitterUsername}: ${classification.vibe}`)
     
     // NEW: Return the user ID for coordination
@@ -826,51 +815,43 @@ export async function getCachedClassification(twitterUsername: string): Promise<
     
     if (lastUpdated < thirtyDaysAgo) return null
     
-    // Extract classification data
+    // Extract classification data from user
     const userVibe = user.vibe || 'organization'
     
-    // Check for explicit individual classification
-    if (userVibe === 'individual') {
-      const result: ClassificationResult = {
-        vibe: 'individual',
-        last_updated: user.lastUpdated || new Date().toISOString()
-      }
-      
-      // Get the organizational data from separate fields
-      if ((user as any).current_position) {
-        result.current_position = (user as any).current_position
-      }
-      if ((user as any).employment_history) {
-        result.employment_history = (user as any).employment_history
-      }
-      
-      return result
-    }
-    
-    // Handle spam
-    if (userVibe === 'spam') {
-      return {
-        vibe: 'spam',
-        last_updated: user.lastUpdated || new Date().toISOString()
-      }
-    }
-    
-    // Handle organization
+    // Build classification result with new unified structure
     const result: ClassificationResult = {
-      vibe: 'organization',
+      screen_name: user.screenName || twitterUsername,
+      vibe: userVibe as 'individual' | 'organization' | 'spam',
       last_updated: user.lastUpdated || new Date().toISOString()
     }
     
-    if ((user as any).org_type) {
-      result.org_type = (user as any).org_type
+    if (userVibe === 'individual') {
+      // Get the organizational data - these are used for relationships, not stored as JSON
+      if ((user as any).current_organizations) {
+        result.current_organizations = (user as any).current_organizations;
+      }
+      if ((user as any).department) {
+        result.department = (user as any).department
+      }
+      if ((user as any).past_organizations) {
+        result.past_organizations = (user as any).past_organizations;
+      }
+    } else if (userVibe === 'organization') {
+      // Handle organization fields
+      if ((user as any).org_type) {
+        result.org_type = (user as any).org_type
+      }
+      if ((user as any).org_subtype) {
+        // Parse JSON string back to array if it's a string, otherwise use as-is
+        const orgSubtype = (user as any).org_subtype;
+        result.org_subtype = typeof orgSubtype === 'string' ? JSON.parse(orgSubtype) : orgSubtype;
+      }
+      if ((user as any).web3_focus) {
+        result.web3_focus = (user as any).web3_focus
+      }
     }
-    if ((user as any).org_subtype) {
-      result.org_subtype = (user as any).org_subtype
-    }
-    if ((user as any).web3_focus) {
-      result.web3_focus = (user as any).web3_focus
-    }
-    
+    // Note: spam accounts get no additional fields
+
     return result
   } catch (error) {
     console.error('Error getting cached classification:', error)
@@ -878,40 +859,7 @@ export async function getCachedClassification(twitterUsername: string): Promise<
   }
 }
 
-/**
- * Convert unified classification result to our standard format
- */
-function convertToClassificationResult(result: UnifiedClassificationResult): ClassificationResult {
-  const classificationResult: ClassificationResult = {
-    vibe: result.entity_type === 'individual' ? VibeType.INDIVIDUAL : VibeType.ORGANIZATION,
-    last_updated: new Date().toISOString()
-  };
-  
-  // Add individual fields if applicable
-  if (result.entity_type === 'individual') {
-    if (result.current_position) {
-      classificationResult.current_position = result.current_position;
-    }
-    if (result.employment_history) {
-      classificationResult.employment_history = result.employment_history;
-    }
-  }
-  
-  // Add organization fields if applicable
-  if (result.entity_type === 'organization') {
-    if (result.org_type) {
-      classificationResult.org_type = result.org_type;
-    }
-    if (result.org_subtype) {
-      classificationResult.org_subtype = result.org_subtype;
-    }
-    if (result.web3_focus) {
-      classificationResult.web3_focus = result.web3_focus;
-    }
-  }
-  
-  return classificationResult;
-}
+
 
 /**
  * Classify a single profile using the unified system
@@ -935,20 +883,20 @@ export async function classifyProfile(profile: TwitterProfile): Promise<Classifi
     };
     
     // Call unified function (single profile)
-    const result = await classifyProfilesWithGrok(unifiedProfile) as UnifiedClassificationResult;
+    const result = await classifyProfilesWithGrok(unifiedProfile) as ClassificationResult;
     
-    // Convert to ClassificationResult
-    const classificationResult = convertToClassificationResult(result);
-    
-    console.log(`  → ✅ Unified classification completed: ${classificationResult.vibe}`);
-    return classificationResult;
+    console.log(`  → ✅ Unified classification completed: ${result.vibe}`);
+    return result;
     
   } catch (error: any) {
     console.error(`  → ❌ Unified classification failed:`, error);
     
     // Fallback classification
     const fallback: ClassificationResult = {
-      vibe: VibeType.ORGANIZATION, // Conservative fallback
+      screen_name: profile.screen_name,
+      vibe: 'organization',
+      org_type: 'service' as const,
+      org_subtype: ['other'],
       web3_focus: 'traditional' as const,
       last_updated: new Date().toISOString()
     }
@@ -996,7 +944,8 @@ export async function classifyProfileComplete(
   if (isSpamAccount(profileData)) {
     console.log('  → ❌ Detected as spam account')
     finalClassification = {
-      vibe: VibeType.SPAM,
+      screen_name: normalizedUsername,
+      vibe: 'spam',
       last_updated: new Date().toISOString()
     }
   } else {
@@ -1038,21 +987,22 @@ export async function classifyProfileComplete(
     
     // Process employment relationships if individual with employment data
     if (finalClassification.vibe === 'individual' && 
-        (finalClassification.current_position?.organizations?.length || 
-         finalClassification.employment_history?.length)) {
+        (finalClassification.current_organizations?.length || 
+         finalClassification.past_organizations?.length)) {
       
-      console.log('  → Processing employment relationships...')
+      console.log('  → Processing employment relationships with flattened structure...')
       
-      // Create a profile object that matches the expected format for processEmploymentData
-      const profileWithGrok = {
+      // Create a profile object with flattened employment data
+      const profileWithEmploymentData = {
         ...convertToTwitterApiUser(profileData),
-        _grok_analysis: {
-          current_position: finalClassification.current_position,
-          employment_history: finalClassification.employment_history
+        _employment_data: {
+          current_organizations: finalClassification.current_organizations || [],
+          department: finalClassification.department || 'other',
+          past_organizations: finalClassification.past_organizations || []
         }
       }
       
-      await processEmploymentData([profileWithGrok])
+      await processEmploymentData([profileWithEmploymentData])
       console.log('  → ✅ Employment relationships processed')
     }
   } catch (saveError) {

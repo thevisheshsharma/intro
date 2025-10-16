@@ -194,13 +194,6 @@ function mergeProtocolGroup(protocols: LlamaProtocol[], parentSlug?: string): Gr
         if (!exists) recent_developments.push(hallmark)
       }
     }
-    
-    // TODO: TVL calculation disabled due to BigInt conversion issues
-    // Sum TVL - handle BigInt conversion
-    // if (protocol.tvl) {
-    //   const tvlValue = typeof protocol.tvl === 'bigint' ? Number(protocol.tvl) : protocol.tvl
-    //   totalTvl += tvlValue
-    // }
   }
 
   // Extract Twitter screen name from URL or handle
@@ -248,7 +241,6 @@ function mergeProtocolGroup(protocols: LlamaProtocol[], parentSlug?: string): Gr
     governance_forum,
     recent_developments,
     
-    // TODO: totalTvl disabled due to BigInt conversion issues
     totalTvl: 0  // Temporarily set to 0 instead of calculated value
   }
 }

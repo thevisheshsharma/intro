@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { createStructuredICPAnalysis, ICPAnalysisConfig } from '@/lib/grok'
 import { logAPIError, logExternalServiceError } from '@/lib/error-utils'
-import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, createOrganizationUser, updateOrganizationProperties, ensureUserExists } from '@/services'
+import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, updateOrganizationProperties, ensureUserExists } from '@/services'
 import { 
   classifyOrganization, 
   fetchTwitterProfile,
@@ -102,20 +102,21 @@ export async function POST(request: NextRequest) {
       console.log('  → ✅ Classification complete:', classification)
       
       // Handle different classification results
-      if (classification.vibe === 'spam') {
-        console.log('  → ❌ Account classified as spam')
-        return NextResponse.json({
-          error: 'This account appears to be a spam account (low followers/following count)',
-          classification
-        }, { status: 400 })
-      }
-      
       if (classification.vibe === 'individual') {
         console.log('  → ❌ Account classified as individual')
         return NextResponse.json({
           error: 'This appears to be an individual account. ICP analysis is designed for organizations.',
           classification,
           suggestion: 'Try using our individual profile analysis tools instead.'
+        }, { status: 400 })
+      }
+      
+      if (classification.vibe === 'spam') {
+        console.log('  → ❌ Account classified as spam')
+        return NextResponse.json({
+          error: 'This account appears to be a spam account.',
+          classification,
+          suggestion: 'Please verify the account and try again.'
         }, { status: 400 })
       }
       
@@ -175,7 +176,7 @@ export async function POST(request: NextRequest) {
       ICPAnalysisConfig.FULL,
       classification ? {
         org_type: classification.org_type,
-        org_subtype: classification.org_subtype ? [classification.org_subtype] : undefined,
+        org_subtype: classification.org_subtype,
         web3_focus: classification.web3_focus
       } : undefined
     )

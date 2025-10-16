@@ -130,36 +130,6 @@ export async function findProtocolsByScreenName(screenNames: string[]): Promise<
 }
 
 /**
- * Calculate TVL based on date logic:
- * - If existing data is less than 1 day old, add new TVL to existing
- * - If existing data is more than 1 day old, overwrite with new TVL
- */
-export function calculateTvl(
-  newTvl: number | bigint,
-  existingTvl?: number,
-  lastUpdated?: string
-): number {
-  // Convert BigInt to number if needed
-  const numericNewTvl = Number(newTvl || 0)
-  
-  if (!existingTvl || !lastUpdated) {
-    return numericNewTvl
-  }
-  
-  const lastUpdateDate = new Date(lastUpdated)
-  const now = new Date()
-  const daysDiff = (now.getTime() - lastUpdateDate.getTime()) / (1000 * 60 * 60 * 24)
-  
-  if (daysDiff < 1) {
-    // Data is less than 1 day old, add to existing TVL
-    return existingTvl + numericNewTvl
-  } else {
-    // Data is more than 1 day old, overwrite with new TVL
-    return numericNewTvl
-  }
-}
-
-/**
  * Find existing protocols by Twitter screen names
  */
 export async function findExistingProtocolsByScreenName(screenNames: string[]): Promise<Array<{
@@ -199,9 +169,24 @@ export async function checkProtocolsExist(protocolIds: string[]): Promise<string
 }
 
 /**
- * Create or update a single protocol in Neo4j
+ * Create or update a single protocol in Neo4j with screenName uniqueness check
  */
 export async function createOrUpdateProtocol(protocol: Neo4jProtocol): Promise<void> {
+  // First, check if a user with the same screenName (case-insensitive) already exists
+  const existingUserQuery = `
+    MATCH (existing:User)
+    WHERE toLower(existing.screenName) = toLower($screenName)
+    RETURN existing.userId as existingUserId
+    LIMIT 1
+  `
+  
+  const existingResult = await runQuery(existingUserQuery, { screenName: protocol.screenName || '' })
+  const finalUserId = existingResult.length > 0 ? existingResult[0].existingUserId : protocol.protocolId
+
+  if (existingResult.length > 0 && existingResult[0].existingUserId !== protocol.protocolId) {
+    console.log(`🔄 Protocol screenName conflict: ${protocol.screenName} (${protocol.protocolId} -> ${finalUserId})`)
+  }
+
   const query = `
     MERGE (p:User {userId: $protocolId})
     SET 
@@ -247,7 +232,7 @@ export async function createOrUpdateProtocol(protocol: Neo4jProtocol): Promise<v
   `
   
   const params = {
-    protocolId: protocol.protocolId,
+    protocolId: finalUserId,
     screenName: protocol.screenName || '',
     name: protocol.name,
     profileImageUrl: protocol.profileImageUrl || '',
@@ -378,6 +363,97 @@ export async function createOrUpdateProtocolsOptimized(protocols: Neo4jProtocol[
       const errorMsg = `Failed to process protocol batch ${Math.floor(i / PROTOCOL_BATCH_SIZES.PROTOCOL_UPSERT) + 1}: ${error}`
       console.error(errorMsg)
       errors.push(errorMsg)
+      
+      // Individual fallback processing for failed batch
+      console.log(`Attempting individual processing for failed batch with ${batch.length} protocols...`)
+      let batchSuccessCount = 0
+      let batchErrorCount = 0
+      
+      for (const protocol of batch) {
+        try {
+          const singleQuery = `
+            WITH $protocolData AS protocolData
+            // For protocols with screenName, check if one already exists
+            CALL {
+              WITH protocolData
+              OPTIONAL MATCH (existing:User {vibe: 'organization', org_type: 'protocol'})
+              WHERE existing.screenName = protocolData.screenName 
+                AND protocolData.screenName IS NOT NULL 
+                AND protocolData.screenName <> ''
+              RETURN existing
+            }
+            
+            // Use existing user or create new one
+            WITH protocolData, existing,
+                 CASE WHEN existing IS NOT NULL THEN existing.userId ELSE protocolData.protocolId END AS targetUserId
+            
+            MERGE (p:User {userId: targetUserId})
+            ON CREATE SET p.createdAt = protocolData.lastUpdated
+            SET 
+              // Only update if new value is not null/empty, preserve existing data
+              p.screenName = CASE WHEN protocolData.screenName IS NOT NULL AND protocolData.screenName <> '' THEN protocolData.screenName ELSE COALESCE(p.screenName, '') END,
+              p.name = CASE WHEN protocolData.name IS NOT NULL AND protocolData.name <> '' THEN protocolData.name ELSE COALESCE(p.name, '') END,
+              // Use the single about field for description - the about_array is stored separately
+              p.description = CASE WHEN protocolData.about IS NOT NULL AND protocolData.about <> '' THEN protocolData.about ELSE COALESCE(p.description, '') END,
+              p.location = CASE WHEN protocolData.location IS NOT NULL AND protocolData.location <> '' THEN protocolData.location ELSE COALESCE(p.location, '') END,
+              p.url = CASE WHEN protocolData.url IS NOT NULL AND protocolData.url <> '' THEN protocolData.url ELSE COALESCE(p.url, '') END,
+              
+              // Preserve existing social media data - only set defaults on new nodes
+              p.followersCount = COALESCE(p.followersCount, 0),
+              p.followingCount = COALESCE(p.followingCount, 0),
+              p.listedCount = COALESCE(p.listedCount, 0),
+              p.statusesCount = COALESCE(p.statusesCount, 0),
+              p.favouritesCount = COALESCE(p.favouritesCount, 0),
+              p.protected = COALESCE(p.protected, false),
+              p.canDm = COALESCE(p.canDm, false),
+              p.profileImageUrl = COALESCE(p.profileImageUrl, ''),
+              p.profileBannerUrl = COALESCE(p.profileBannerUrl, ''),
+              p.verificationType = COALESCE(p.verificationType, ''),
+              p.verificationReason = COALESCE(p.verificationReason, ''),
+              p.department = COALESCE(p.department, ''),
+              
+              // Always update these fields
+              p.verified = protocolData.verified,
+              p.lastUpdated = protocolData.lastUpdated,
+              p.createdAt = COALESCE(p.createdAt, protocolData.lastUpdated),
+              p.vibe = protocolData.vibe,
+              p.org_type = protocolData.org_type,
+              p.org_subtype = protocolData.org_subtype,
+              p.web3_focus = protocolData.web3_focus,
+              p.operational_status = protocolData.operational_status,
+              
+              // Protocol-specific fields - only update if not null/empty
+              p.tvl = CASE WHEN protocolData.tvl IS NOT NULL THEN protocolData.tvl ELSE p.tvl END,
+              p.gecko_id = CASE WHEN protocolData.gecko_id IS NOT NULL AND protocolData.gecko_id <> '' AND protocolData.gecko_id <> '-' THEN protocolData.gecko_id ELSE COALESCE(p.gecko_id, '') END,
+              p.cmcId = CASE WHEN protocolData.cmcId IS NOT NULL AND protocolData.cmcId <> '' AND protocolData.cmcId <> '-' THEN protocolData.cmcId ELSE COALESCE(p.cmcId, '') END,
+              p.token = CASE WHEN protocolData.token IS NOT NULL AND protocolData.token <> '' AND protocolData.token <> '-' THEN protocolData.token ELSE COALESCE(p.token, '') END,
+              
+              // Array fields - always update these
+              p.llama_id = protocolData.llama_id,
+              p.contract_address = protocolData.contract_address,
+              p.about_array = protocolData.about_array,
+              p.chains = protocolData.chains,
+              p.llama_slug = protocolData.llama_slug,
+              p.audit_links = protocolData.audit_links,
+              p.github = protocolData.github,
+              p.governance_forum = protocolData.governance_forum,
+              p.recent_developments = protocolData.recent_developments
+            RETURN p.userId as protocolId
+          `
+          
+          await runQuery(singleQuery, { protocolData: protocol })
+          batchSuccessCount++
+          processed++
+        } catch (singleError) {
+          batchErrorCount++
+          const protocolId = protocol.protocolId || protocol.screenName || 'unknown'
+          const singleErrorMsg = `Failed to process individual protocol ${protocolId}: ${singleError}`
+          console.error(singleErrorMsg)
+          errors.push(singleErrorMsg)
+        }
+      }
+      
+      console.log(`Individual processing completed: ${batchSuccessCount} succeeded, ${batchErrorCount} failed`)
     }
   }
   

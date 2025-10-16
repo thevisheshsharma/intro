@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { 
-  createOrUpdateUser, 
+  createOrUpdateUserWithScreenNameMerge, 
   getUserByScreenName,
   transformToNeo4jUser,
   isUserDataStale,
@@ -57,7 +57,7 @@ async function syncUserFollowers(username: string): Promise<{ synced: boolean, r
 
   // Create or update user in Neo4j
   const neo4jUser = transformToNeo4jUser(userData)
-  await createOrUpdateUser(neo4jUser)
+  await createOrUpdateUserWithScreenNameMerge(neo4jUser)
 
   // Step 2: Check if we need to fetch followers based on count differences or staleness
   const cachedFollowerCount = await getUserFollowerCount(userId)
