@@ -38,16 +38,19 @@ export default function ManageOrgPanel() {
 
   // ✅ Helper function to check if ICP analysis is stale (older than 60 days)
   const isICPAnalysisStale = (icp: Record<string, any> | null): boolean => {
-    if (!icp?.last_icp_analysis) {
-      console.log('📅 No last_icp_analysis timestamp found - considering stale')
+    // Check for both timestamp_utc (from Grok) and last_icp_analysis (legacy)
+    const timestamp = icp?.timestamp_utc || icp?.last_icp_analysis
+
+    if (!timestamp) {
+      console.log('📅 No timestamp found (checked timestamp_utc and last_icp_analysis) - considering stale')
       return true
     }
-    
-    const lastAnalysis = new Date(icp.last_icp_analysis)
+
+    const lastAnalysis = new Date(timestamp)
     const now = new Date()
     const daysDiff = (now.getTime() - lastAnalysis.getTime()) / (1000 * 60 * 60 * 24)
-    
-    console.log(`📅 ICP analysis age: ${daysDiff.toFixed(1)} days (stale if > 60)`)
+
+    console.log(`📅 ICP analysis age: ${daysDiff.toFixed(1)} days (stale if > 60) - using timestamp: ${timestamp}`)
     return daysDiff > 60
   }
 

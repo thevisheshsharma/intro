@@ -118,6 +118,24 @@ export async function initializeSchema(): Promise<void> {
       FOR (u:User) ON (u.screenName)
     `)
 
+    // Create index on User.screenNameLower for case-insensitive lookups (avoids toLower() overhead)
+    await session.run(`
+      CREATE INDEX user_screen_name_lower_index IF NOT EXISTS
+      FOR (u:User) ON (u.screenNameLower)
+    `)
+
+    // Create index on User.vibe for organization filtering
+    await session.run(`
+      CREATE INDEX user_vibe_index IF NOT EXISTS
+      FOR (u:User) ON (u.vibe)
+    `)
+
+    // Create index on User.department for department matching
+    await session.run(`
+      CREATE INDEX user_department_index IF NOT EXISTS
+      FOR (u:User) ON (u.department)
+    `)
+
     console.log('Neo4j schema initialized successfully')
   } catch (error) {
     console.error('Failed to initialize Neo4j schema:', error)
@@ -125,4 +143,18 @@ export async function initializeSchema(): Promise<void> {
   } finally {
     await session.close()
   }
+}
+
+// Backfill screenNameLower for existing users
+export async function backfillScreenNameLower(): Promise<number> {
+  const query = `
+    MATCH (u:User)
+    WHERE u.screenNameLower IS NULL AND u.screenName IS NOT NULL
+    SET u.screenNameLower = toLower(u.screenName)
+    RETURN count(u) as updated
+  `
+  const result = await runQuery<{ updated: { low: number; high: number } }>(query, {})
+  const updated = result[0]?.updated?.low || 0
+  console.log(`Backfilled screenNameLower for ${updated} users`)
+  return updated
 }

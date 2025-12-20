@@ -8,7 +8,7 @@ A sophisticated Next.js application that leverages Grok AI and advanced graph da
 - **Intelligent Classification System**: Automated detection of individuals, organizations, spam accounts, and Web3 entities with detailed categorization
 - **Comprehensive ICP Analysis**: Deep organizational profiling including market position, tokenomics, community health, and competitive landscape
 - **Graph-Based Relationship Mapping**: Neo4j-powered storage and analysis of Twitter connections with mutual discovery capabilities
-- **Multi-Model AI Integration**: Grok 3 models with live search capabilities for real-time information retrieval
+- **Multi-Model AI Integration**: Grok 4 models with enhanced reasoning and live search capabilities for real-time information retrieval
 - **Organization Discovery Pipeline**: Automated identification and classification of Web3 organizations from Twitter data
 - **Employment Relationship Tracking**: AI-driven extraction and mapping of professional relationships and company affiliations
 - **Real-time Streaming Analysis**: Live AI response streaming with progressive data processing
@@ -179,7 +179,7 @@ src/
 - **Error Handling**: Comprehensive error recovery and logging systems
 
 ### Grok AI Integration
-- **Multiple Model Support**: Grok 3, Grok 3 Mini, and Grok 3 Mini Fast variants
+- **Multiple Model Support**: Grok 4 Latest, Grok 4.1 Fast Reasoning, and Grok 4.1 Fast Non-Reasoning variants optimized for speed and efficiency
 - **Live Search Capabilities**: Real-time information retrieval and analysis
 - **Streaming Responses**: Progressive result delivery for better user experience
 - **Function Calling**: Advanced AI capabilities for complex analytical tasks

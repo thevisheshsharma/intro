@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { 
-  createOrUpdateUserWithScreenNameMerge, 
+import {
+  createOrUpdateUserWithScreenNameMerge,
   getUserByScreenName,
   getUsersByScreenNames,
-  findMutualConnections,
+  findTwoPOVMutuals,
   transformToNeo4jUser,
   isUserDataStale,
   getUserFollowerCount,
@@ -11,7 +11,8 @@ import {
   hasSignificantCountDifference,
   incrementalUpdateFollowers,
   incrementalUpdateFollowings,
-  type TwitterApiUser
+  type TwitterApiUser,
+  type TwoPOVMutualsResult
 } from '@/services'
 import { 
   fetchFollowersFromSocialAPI,
@@ -128,45 +129,80 @@ export async function POST(request: NextRequest) {
     const processingTime = Date.now() - startTime
     console.log(`Parallel processing completed in ${processingTime}ms`)
 
-    // Run user verification, count fetching, and mutual finding in parallel
-    console.log(`Starting parallel verification and mutual finding...`)
+    // Run user verification, count fetching, and two-POV mutual finding in parallel
+    console.log(`Starting parallel verification and two-POV mutual finding...`)
     const verificationStartTime = Date.now()
-    
-    const [users, loggedInUserFollowerCount, searchUserFollowingCount, mutuals] = await Promise.all([
+
+    const [users, loggedInUserFollowerCount, searchUserFollowingCount, mutualsResult] = await Promise.all([
       // Verify both users exist after processing - OPTIMIZED with batch query
       getUsersByScreenNames([loggedInUserUsername, searchUsername]),
       // Get follower count for logged in user
       getUserFollowerCount(loggedInUserId),
-      // Get following count for search user  
+      // Get following count for search user
       getUserFollowingCount(searchUserId),
-      // Find mutual connections (this is the most expensive operation)
-      findMutualConnections(loggedInUserUsername, searchUsername)
+      // Find two-POV mutual connections (introducers + direct connections)
+      findTwoPOVMutuals(loggedInUserUsername, searchUsername)
     ])
-    
+
     const verificationTime = Date.now() - verificationStartTime
-    console.log(`Parallel verification and mutual finding completed in ${verificationTime}ms`)
-    
+    console.log(`Parallel verification and two-POV mutual finding completed in ${verificationTime}ms`)
+
     const loggedInUser = users.find(u => u.screenName.toLowerCase() === loggedInUserUsername.toLowerCase())
     const searchUser = users.find(u => u.screenName.toLowerCase() === searchUsername.toLowerCase())
-    
+
     console.log(`After processing - Logged in user exists: ${!!loggedInUser}`)
     console.log(`After processing - Search user exists: ${!!searchUser}`)
     console.log(`${loggedInUserUsername} has ${loggedInUserFollowerCount} followers in Neo4j`)
     console.log(`${searchUsername} follows ${searchUserFollowingCount} users in Neo4j`)
 
-    console.log(`=== RESULT: Found ${mutuals.length} mutuals ===`)
+    console.log(`=== RESULT: Found ${mutualsResult.counts.introducers} introducers, ${mutualsResult.counts.directConnections} direct connections ===`)
 
     return NextResponse.json({
       success: true,
       loggedInUser: loggedInUserUsername,
       searchedUser: searchUsername,
-      mutuals: mutuals,
-      count: mutuals.length,
+
+      // New two-POV response structure
+      introducers: mutualsResult.introducers,
+      directConnections: mutualsResult.directConnections,
+
+      // Legacy format for backwards compatibility (using combined introducers)
+      mutuals: mutualsResult.introducers.combined,
+
+      counts: {
+        total: mutualsResult.counts.introducers + mutualsResult.counts.directConnections,
+        introducers: mutualsResult.counts.introducers,
+        directConnections: mutualsResult.counts.directConnections,
+        // Breakdown by type
+        introducersByType: {
+          direct: mutualsResult.introducers.direct.length,
+          orgDirect: mutualsResult.introducers.orgDirect.length,
+          orgIndirect: mutualsResult.introducers.orgIndirect.length,
+          sharedThirdParty: mutualsResult.introducers.sharedThirdParty.length,
+          chainAffinity: mutualsResult.introducers.chainAffinity.length,
+        },
+        directConnectionsByType: {
+          orgDirect: mutualsResult.directConnections.orgDirect.length,
+          orgIndirect: mutualsResult.directConnections.orgIndirect.length,
+          sharedThirdParty: mutualsResult.directConnections.sharedThirdParty.length,
+          chainAffinity: mutualsResult.directConnections.chainAffinity.length,
+        }
+      },
+
+      // Legacy field for backwards compatibility
+      count: mutualsResult.counts.introducers,
+
+      // Error handling
+      partialResults: mutualsResult.partialResults,
+      errors: mutualsResult.errors,
+
       debug: {
         loggedInUserExists: !!loggedInUser,
         searchUserExists: !!searchUser,
         loggedInUserFollowers: loggedInUserFollowerCount,
-        searchUserFollowings: searchUserFollowingCount
+        searchUserFollowings: searchUserFollowingCount,
+        processingTimeMs: processingTime,
+        verificationTimeMs: verificationTime
       }
     })
 

@@ -10,18 +10,14 @@ interface SidebarProps {
   twitterUsername: string | null
   collapsed: boolean
   setCollapsed: (c: boolean | ((c: boolean) => boolean)) => void
-  selectedPanel: 'twitter' | 'manage-org' | 'find-from-org'
-  setSelectedPanel: (panel: 'twitter' | 'manage-org' | 'find-from-org') => void
 }
 
-const Sidebar = memo(function Sidebar({ 
-  user, 
-  profile, 
-  twitterUsername, 
-  collapsed, 
+const Sidebar = memo(function Sidebar({
+  user,
+  profile,
+  twitterUsername,
+  collapsed,
   setCollapsed,
-  selectedPanel,
-  setSelectedPanel
 }: SidebarProps) {
   const displayName = user.firstName || user.emailAddresses[0]?.emailAddress || 'User'
 
@@ -72,11 +68,7 @@ const Sidebar = memo(function Sidebar({
           )}
         </div>
         
-        <SidebarMenu 
-          collapsed={collapsed} 
-          selectedPanel={selectedPanel}
-          setSelectedPanel={setSelectedPanel}
-        />
+        <SidebarMenu collapsed={collapsed} />
         
         <div className="flex-1" />
         

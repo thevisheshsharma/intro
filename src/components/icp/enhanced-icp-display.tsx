@@ -451,6 +451,22 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
           community_initiatives: ensureArray<string>(icp.initiatives, []),
           community_member_benefits: ensureArray<string>(icp.benefits, []),
           community_treasury_management: icp.treasury || null,
+
+          // NFT/Digital Assets Extensions (ensure array initialization)
+          category: icp.category || null,
+          collection_size: icp.collection_size || null,
+          floor_price: icp.floor_price || null,
+          total_volume: icp.total_volume || null,
+          unique_holders: icp.unique_holders || null,
+          creator_royalties: icp.creator_royalties || null,
+          launch_mechanism: icp.launch_mechanism || null,
+          utility_features: ensureArray<string>(icp.utility_features, []),
+          marketplace_integrations: ensureArray<string>(icp.marketplace_integrations, []),
+          asset_types: ensureArray<string>(icp.asset_types, []),
+          community_features: ensureArray<string>(icp.community_features, []),
+
+          // Security Extensions
+          security_measures: ensureArray<string>(icp.security_measures, []),
         }
         
         console.log('✅ Successfully processed flattened Neo4j data:', flatAnalysis)
@@ -1736,7 +1752,7 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
       {comprehensiveData.user_archetypes && comprehensiveData.user_archetypes.length > 0 && (
         <DetailedSection title="User Archetypes" icon={User} iconColor="text-rose-400">
           <div className="space-y-4">
-            {comprehensiveData.user_archetypes.map((archetype, index) => (
+            {comprehensiveData.user_archetypes.map((archetype: any, index: number) => (
               <div key={index} className="p-4 bg-gray-800/30 border border-gray-700/30 rounded-lg">
                 {typeof archetype === 'string' ? (
                   <p className="text-white">{archetype}</p>

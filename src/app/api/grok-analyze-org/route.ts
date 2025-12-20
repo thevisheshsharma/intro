@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuth } from '@clerk/nextjs/server'
 import { createStructuredICPAnalysis, ICPAnalysisConfig } from '@/lib/grok'
 import { logAPIError, logExternalServiceError } from '@/lib/error-utils'
-import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, updateOrganizationProperties, ensureUserExists } from '@/services'
+import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, updateOrganizationProperties, ensureUserExists, processICPRelationships } from '@/services'
 import { 
   classifyOrganization, 
   fetchTwitterProfile,
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
 
     // Step 3: Check for existing ICP analysis (using coordinated user)
     console.log('🔍 Step 3: Checking for existing ICP analysis...')
-    const existingProperties = await getOrganizationForUI(twitterUsername)
+    const existingProperties = await getOrganizationForUI(sanitizedUsername)
     
     if (existingProperties?.icp_synthesis) {
       console.log('✅ Existing ICP found in Neo4j, returning from cache')
@@ -199,9 +199,24 @@ export async function POST(request: NextRequest) {
     // ICP analysis is now saved to Neo4j by createStructuredICPAnalysis
     console.log('✅ ICP analysis saved to Neo4j via createStructuredICPAnalysis')
 
+    // Process ICP relationships (competitors, investors, partners, auditors)
+    console.log('🔗 Processing ICP relationships...')
+    try {
+      await processICPRelationships(sanitizedUsername, {
+        competitors: icpAnalysis.competitors as string[] | undefined,
+        investors: icpAnalysis.investors as string[] | undefined,
+        partners: icpAnalysis.partners as string[] | undefined,
+        auditor: icpAnalysis.auditor as string[] | undefined
+      })
+      console.log('✅ ICP relationships processed')
+    } catch (relError: any) {
+      console.error('⚠️ Failed to process ICP relationships (non-fatal):', relError.message)
+      // Don't fail the request - relationships are supplementary
+    }
+
     // Fetch canonical ICP from Neo4j to ensure consistency
     console.log('📊 Fetching canonical ICP from Neo4j...')
-    const canonicalICP = await getOrganizationForUI(twitterUsername)
+    const canonicalICP = await getOrganizationForUI(sanitizedUsername)
 
     console.log('✅ Grok analysis complete - returning response')
     return NextResponse.json({

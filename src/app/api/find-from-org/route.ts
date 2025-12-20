@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findOrgAffiliatesWithGrok } from '@/lib/grok'
 import { classifyProfilesWithGrok } from '@/lib/classifier'
 import { validateVibe, logValidationError, VibeType } from '@/lib/validation'
-import { 
+import {
   createOrUpdateUsersOptimized,
   createOrUpdateUserWithScreenNameMerge,
   getUserByScreenName,
@@ -18,7 +18,6 @@ import {
   checkExistingFollowsRelationships,
   filterOutExistingRelationships,
   getUsersWithExistingEmploymentRelationships,
-  getOrganizationEmployees,
   getOrganizationEmployeesByScreenName,
   updateOrganizationClassification,
   consolidatedUserExistenceCheck,
@@ -45,10 +44,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!process.env.GROK_API_KEY) {
-      console.error('[Config] GROK_API_KEY not configured')
+    if (!process.env.XAI_API_KEY) {
+      console.error('[Config] XAI_API_KEY not configured')
       return NextResponse.json(
-        { error: 'API configuration error: Missing Grok API key' },
+        { error: 'API configuration error: Missing xAI API key' },
         { status: 500 }
       )
     }
@@ -962,41 +961,23 @@ export async function POST(request: NextRequest) {
     console.log('🏢 Filtering and categorizing profiles in single pass...')
     console.log(`   📝 Organization name variations: ${globalOrgVariations.join(', ')}`)
     
-    // Define generic words that should require more specific matching
+    // Define ONLY truly generic words that need stricter matching
+    // Reduced list to avoid over-filtering valid profiles
     const genericWords = new Set([
-      'foundation', 'labs', 'technologies', 'crypto', 'blockchain', 
-      'onchain', 'protocol', 'network', 'solutions', 'systems', 'platform',
-      'company', 'corp', 'corporation', 'inc', 'llc', 'ltd',
-      'global', 'international', 'ventures', 'capital', 'fund',
-      'studio', 'agency', 'consulting', 'services', 'partners',
-      'project', 'ecosystem', 'community', 'dao', 'defi', 'nft', 'web3',
-      'innovation', 'research', 'development', 'security', 'finance',
-      'exchange', 'wallet', 'token', 'coin', 'chain', 'verse', 'world'
+      'foundation', 'labs', 'inc', 'llc', 'ltd', 'corp',
+      'global', 'international', 'services', 'partners'
     ])
 
-    // Regional/country indicators
+    // Regional indicators - only clear organizational patterns
+    // Reduced to avoid false positives like "scindia" matching "india"
     const regionalIndicators = [
-      // Countries
-      'india', 'china', 'japan', 'korea', 'singapore', 'thailand', 'vietnam', 'indonesia', 'malaysia', 'philippines',
-      'america', 'canada', 'mexico', 'brazil', 'argentina', 'chile', 'colombia', 'peru',
-      'france', 'germany', 'italy', 'spain', 'netherlands', 'poland', 'russia', 'turkey', 'israel',
-      'australia', 'newzealand', 'southafrica', 'nigeria', 'kenya', 'egypt',
-      
-      // Regions
-      'apac', 'emea', 'sea', 'latam', 'americas', 'europe', 'asia', 'africa', 'oceania',
-      'northamerica', 'southamerica', 'middleeast', 'southeastasia', 'eastasia',
-      'pacific', 'mena', 'dach', 'benelux', 'nordics', 'baltics'
+      // Only clear regional abbreviations (less likely to appear in names)
+      'apac', 'emea', 'latam', 'mena', 'dach', 'benelux'
     ]
     
-    // Functional department indicators
+    // Functional department indicators - only official org sub-accounts
     const functionalIndicators = [
-      'support', 'help', 'care', 'service', 'customer', 'assistance',
-      'news', 'updates', 'announcements',
-      'status', 'careers', 'hiring', 'recruitment', 'hr', 'talent',
-      'developer', 'engineering', 'docs', 'documentation',
-      'marketing', 'sales', 'business', 'partnerships', 'partner',
-      'security', 'compliance', 'legal', 'policy',
-      'community', 'social', 'events', 'meetup'
+      'support', 'help', 'status', 'careers', 'jobs', 'hiring'
     ]
 
     // Helper function to check for additional context when generic words are found
@@ -1110,36 +1091,55 @@ export async function POST(request: NextRequest) {
 
       // 4. Organization relevance check (combined with filtering)
       // Always accept official affiliates (they were fetched from the org's official affiliates list)
-      const isOfficialAffiliate = results.affiliatedUsers.some(affiliate => 
+      const isOfficialAffiliate = results.affiliatedUsers.some(affiliate =>
         affiliate.screen_name?.toLowerCase() === profile.screen_name?.toLowerCase()
       )
-      
+
       if (isOfficialAffiliate) {
         return { accepted: true, relevanceReason: 'official_affiliate' }
       }
-      
+
+      // Check if user is from the following list (org follows them)
+      const isFromFollowingList = results.followingUsers.some(following =>
+        following.screen_name?.toLowerCase() === profile.screen_name?.toLowerCase()
+      )
+
+      // Accept following list users - they'll be classified by Grok
+      if (isFromFollowingList) {
+        return { accepted: true, relevanceReason: 'org_following' }
+      }
+
       // Check for organization name variations in user's profile
       const searchableText = [
         profile.name || '',
         profile.description || '',
         profile.screen_name || ''
       ].join(' ').toLowerCase()
-      
+
+      // Check for @orgUsername mention in bio (direct reference)
+      const orgUsernameMention = `@${orgUsername.toLowerCase()}`
+      if (searchableText.includes(orgUsernameMention)) {
+        return { accepted: true, relevanceReason: 'mentions_org_username' }
+      }
+
       for (const variation of globalOrgVariations) {
         const isGenericWord = genericWords.has(variation.toLowerCase())
-        
+
+        // Skip very short variations (less than 3 chars) as they cause false positives
+        if (variation.length < 3) continue
+
         // Create word boundary regex for proper matching
         const wordBoundaryRegex = new RegExp(`\\b${variation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
         // Also check for exact matches with common separators
         const separatorRegex = new RegExp(`(^|[\\s\\-_@\\.])${variation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s\\-_@\\.])`,'i')
-        
+
         const hasMatch = wordBoundaryRegex.test(searchableText) || separatorRegex.test(searchableText)
-        
+
         if (hasMatch) {
           if (isGenericWord) {
             // For generic words, require additional validation
             const hasAdditionalContext = checkForAdditionalContext(searchableText, variation, globalOrgVariations)
-            
+
             if (hasAdditionalContext) {
               return { accepted: true, relevanceReason: `name_match_${variation}_with_context` }
             } else {
@@ -1151,7 +1151,16 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-      
+
+      // For search results, be more lenient - send to Grok for classification
+      const isFromSearchResults = results.searchedUsers.some(searched =>
+        searched.screen_name?.toLowerCase() === profile.screen_name?.toLowerCase()
+      )
+
+      if (isFromSearchResults) {
+        return { accepted: true, relevanceReason: 'search_result_for_grok' }
+      }
+
       return { accepted: false, rejectionReason: 'no_org_name_match' }
     }
 
@@ -1236,8 +1245,9 @@ export async function POST(request: NextRequest) {
           _relevance_reason: 'existing_works_at_relationship',
           _employment_data: {
             current_organizations: [orgUsername],
-            department: employee.department || 'other',
-            past_organizations: []
+            past_organizations: [],
+            member_of: [],
+            department: employee.department || 'other'
           }
         }
         
@@ -1328,7 +1338,7 @@ export async function POST(request: NextRequest) {
       console.log(`   → Only ${usersNeedingGrokAnalysis.length} users need Grok analysis (saved ${usersWithExistingRelationships.length + usersIdentifiedAsOrganizations.length} expensive AI calls)`)
       
       try {
-        const batchSize = 5 // Further reduced batch size to avoid token limits
+        const batchSize = 10 // Optimized batch size with reasoning model and increased tokens
         
         // Create all batches first
         const batches: Array<{
@@ -1444,8 +1454,9 @@ export async function POST(request: NextRequest) {
                   // Keep as individual and store flattened employment data directly
                   originalProfile._employment_data = {
                     current_organizations: analyzed.current_organizations || [],
-                    department: analyzed.department || 'other',
-                    past_organizations: analyzed.past_organizations || []
+                    past_organizations: analyzed.past_organizations || [],
+                    member_of: analyzed.member_of || [],
+                    department: analyzed.department || 'other'
                   }
                   finalIndividuals.push(originalProfile)
                   console.log(`     👤 @${analyzed.screen_name || originalProfile.screen_name} - INDIVIDUAL`)
@@ -1474,9 +1485,10 @@ export async function POST(request: NextRequest) {
                 batchResult.originalProfiles.forEach(profile => {
                   if (profile && typeof profile === 'object') {
                     profile._employment_data = {
-                      current_organizations: null,
-                      department: 'other',
-                      past_organizations: []
+                      current_organizations: [],
+                      past_organizations: [],
+                      member_of: [],
+                      department: 'other'
                     }
                     finalIndividuals.push(profile)
                   }
@@ -1501,9 +1513,10 @@ export async function POST(request: NextRequest) {
                 originalBatch.profiles.forEach((profile: any) => {
                   if (profile && typeof profile === 'object') {
                     profile._employment_data = {
-                      current_organizations: null,
-                      department: 'other',
-                      past_organizations: []
+                      current_organizations: [],
+                      past_organizations: [],
+                      member_of: [],
+                      department: 'other'
                     }
                     finalIndividuals.push(profile)
                   }
@@ -1526,9 +1539,10 @@ export async function POST(request: NextRequest) {
         usersNeedingGrokAnalysis.forEach(profile => {
           if (profile && typeof profile === 'object') {
             profile._employment_data = {
-              current_organizations: null,
-              department: 'other',
-              past_organizations: []
+              current_organizations: [],
+              past_organizations: [],
+              member_of: [],
+              department: 'other'
             }
             finalIndividuals.push(profile)
           }
@@ -1913,19 +1927,18 @@ export async function POST(request: NextRequest) {
         console.log(`   → Adding brief delay to prevent transaction deadlocks...`)
         await new Promise(resolve => setTimeout(resolve, 100))
       }
-      
+
+      // ===== CREATE RELATIONSHIPS IN PARALLEL =====
+      console.log(`   → Creating employment and affiliate relationships in parallel...`)
+
       const { processEmploymentData } = await import('@/services/user')
-      await processEmploymentData(finalIndividuals)
-      console.log(`   → Employment data processing completed`)
-      
-      // ===== CREATE RELATIONSHIPS =====
-      
+
       // Prepare affiliate relationships
       const allAffiliateRelationships: Array<{orgUserId: string, affiliateUserId: string}> = []
-      
+
       if (results.orgProfile?.id_str) {
         const orgUserId = results.orgProfile.id_str
-        
+
         // Only official affiliates get AFFILIATED_WITH relationships
         results.affiliatedUsers.forEach((affiliate: any) => {
           if (affiliate.id_str && affiliate.id_str !== orgUserId) {
@@ -1935,30 +1948,41 @@ export async function POST(request: NextRequest) {
             })
           }
         })
-        
-        if (allAffiliateRelationships.length > 0) {
-          console.log(`   → Processing ${allAffiliateRelationships.length} affiliate relationships...`)
-          
-          // Check which relationships already exist
-          const existingAffiliateRelationships = await checkExistingAffiliateRelationships(allAffiliateRelationships)
-          const newAffiliateRelationships = filterOutExistingRelationships(
-            allAffiliateRelationships,
-            existingAffiliateRelationships,
-            ['orgUserId', 'affiliateUserId']
-          )
-          
-          console.log(`   → Found ${existingAffiliateRelationships.length} existing, ${newAffiliateRelationships.length} new AFFILIATED_WITH relationships`)
-          
-          if (newAffiliateRelationships.length > 0) {
-            await addAffiliateRelationships(newAffiliateRelationships)
-            console.log(`   → Created ${newAffiliateRelationships.length} new AFFILIATED_WITH relationships`)
-          }
-        } else {
-          console.log(`   → No affiliate relationships to create`)
-        }
-      } else {
-        console.warn(`   → No organization profile ID available for relationship creation`)
       }
+
+      // Run employment data processing and affiliate relationships in parallel
+      await Promise.all([
+        // Process employment relationships (WORKS_AT, WORKED_AT)
+        processEmploymentData(finalIndividuals).then(() => {
+          console.log(`   → Employment data processing completed`)
+        }),
+
+        // Process affiliate relationships (AFFILIATED_WITH)
+        (async () => {
+          if (allAffiliateRelationships.length > 0) {
+            console.log(`   → Processing ${allAffiliateRelationships.length} affiliate relationships...`)
+
+            // Check which relationships already exist
+            const existingAffiliateRelationships = await checkExistingAffiliateRelationships(allAffiliateRelationships)
+            const newAffiliateRelationships = filterOutExistingRelationships(
+              allAffiliateRelationships,
+              existingAffiliateRelationships,
+              ['orgUserId', 'affiliateUserId']
+            )
+
+            console.log(`   → Found ${existingAffiliateRelationships.length} existing, ${newAffiliateRelationships.length} new AFFILIATED_WITH relationships`)
+
+            if (newAffiliateRelationships.length > 0) {
+              await addAffiliateRelationships(newAffiliateRelationships)
+              console.log(`   → Created ${newAffiliateRelationships.length} new AFFILIATED_WITH relationships`)
+            }
+          } else {
+            console.log(`   → No affiliate relationships to create`)
+          }
+        })()
+      ])
+
+      console.log(`   → All relationships created successfully`)
       
     } catch (employmentError: any) {
       console.error('❌ Employment data processing failed:', employmentError.message)
