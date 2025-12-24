@@ -80,6 +80,7 @@ export interface EnhancedMutualConnection extends Neo4jUser {
   intermediary?: { userId: string; screenName: string; name: string } // For org indirect
   thirdParty?: { userId: string; screenName: string; name: string } // For shared third party
   sharedChains?: string[] // For chain affinity
+  isReciprocal?: boolean // C↔B mutual follow (C follows B AND B follows C)
   // NEW: Aggregated fields for multi-connection users
   connectionTypes?: ConnectionType[] // All connection types this user has
   allOrgConnections?: OrgConnection[] // All org connections across all types
@@ -629,7 +630,8 @@ const UPDATE_BY_SCREENNAME_QUERY = `
     u.favouritesCount = $favouritesCount, u.protected = $protected,
     u.canDm = $canDm, u.profileBannerUrl = $profileBannerUrl,
     u.verificationType = $verificationType, u.verificationReason = $verificationReason,
-    u.vibe = $vibe, u.department = $department,
+    u.vibe = CASE WHEN $vibe IS NOT NULL AND $vibe <> '' THEN $vibe ELSE u.vibe END,
+    u.department = CASE WHEN $department IS NOT NULL AND $department <> '' THEN $department ELSE u.department END,
     u.org_type = CASE WHEN $org_type IS NOT NULL THEN $org_type ELSE u.org_type END,
     u.org_subtype = CASE WHEN $org_subtype IS NOT NULL THEN $org_subtype ELSE u.org_subtype END,
     u.web3_focus = CASE WHEN $web3_focus IS NOT NULL THEN $web3_focus ELSE u.web3_focus END
@@ -691,7 +693,8 @@ export async function createOrUpdateUserWithScreenNameMerge(user: Neo4jUser): Pr
         u.favouritesCount = $favouritesCount, u.protected = $protected,
         u.canDm = $canDm, u.profileBannerUrl = $profileBannerUrl,
         u.verificationType = $verificationType, u.verificationReason = $verificationReason,
-        u.vibe = $vibe, u.department = $department,
+        u.vibe = CASE WHEN $vibe IS NOT NULL AND $vibe <> '' THEN $vibe ELSE u.vibe END,
+        u.department = CASE WHEN $department IS NOT NULL AND $department <> '' THEN $department ELSE u.department END,
         u.org_type = CASE WHEN $org_type IS NOT NULL THEN $org_type ELSE u.org_type END,
         u.org_subtype = CASE WHEN $org_subtype IS NOT NULL THEN $org_subtype ELSE u.org_subtype END,
         u.web3_focus = CASE WHEN $web3_focus IS NOT NULL THEN $web3_focus ELSE u.web3_focus END
@@ -860,6 +863,57 @@ export function isUserDataStale(user: Neo4jUser, maxAgeHours: number = 1080): bo
   const now = new Date()
   const hoursDiff = (now.getTime() - lastUpdated.getTime()) / (1000 * 60 * 60)
   return hoursDiff > maxAgeHours
+}
+
+// Check if user needs Grok classification (missing vibe)
+// Note: We only check for vibe, not relationships. Relationships are processed
+// as part of classification, so if vibe exists, the user has already been classified.
+// Re-classifying just because relationships are missing would cause repeated API calls.
+export async function userNeedsClassification(screenName: string): Promise<boolean> {
+  const query = `
+    MATCH (u:User)
+    WHERE u.screenNameLower = $screenNameLower
+    RETURN u.vibe as vibe
+  `
+  const result = await runQuery(query, { screenNameLower: screenName.toLowerCase() })
+
+  if (!result || result.length === 0) {
+    // User doesn't exist yet, needs classification
+    return true
+  }
+
+  const { vibe } = result[0]
+  // Need classification only if vibe is missing
+  return !vibe
+}
+
+// Get orgs connected to a user that need connection discovery (no other employees/members)
+export async function getOrgsNeedingConnectionDiscovery(
+  userScreenName: string,
+  excludeScreenNames: string[]
+): Promise<Array<{screenName: string, userId: string}>> {
+  const query = `
+    MATCH (u:User {screenNameLower: $userScreenNameLower})-[:WORKS_AT|WORKED_AT|MEMBER_OF|AFFILIATED_WITH]->(org:User {vibe: 'organization'})
+
+    // Check if org has any OTHER employees/members (excluding the users we're checking)
+    OPTIONAL MATCH (org)<-[:WORKS_AT|WORKED_AT|MEMBER_OF|AFFILIATED_WITH]-(other:User)
+    WHERE NOT other.screenNameLower IN $excludeScreenNamesLower
+
+    WITH org, count(other) as otherConnectionCount
+    WHERE otherConnectionCount = 0
+
+    RETURN org.screenName as screenName, org.userId as userId
+  `
+
+  const result = await runQuery(query, {
+    userScreenNameLower: userScreenName.toLowerCase(),
+    excludeScreenNamesLower: excludeScreenNames.map(s => s.toLowerCase())
+  })
+
+  return result.map(row => ({
+    screenName: row.screenName,
+    userId: row.userId
+  }))
 }
 
 // Find mutual connections between two users
@@ -1213,6 +1267,7 @@ const ENHANCED_SCORING = {
   ADJACENT_DEPARTMENT_BONUS: 6,
   MULTIPLE_ORG_CONNECTIONS_BONUS: 8,
   MULTI_CONNECTION_TYPE_BONUS: 20, // Bonus per additional connection type
+  RECIPROCITY_BONUS: 15, // C↔B mutual follow is stronger intro path
   // Freshness decay
   FRESHNESS_HALF_LIFE_DAYS: 90,
   FRESHNESS_MINIMUM: 0.3,
@@ -1228,6 +1283,7 @@ export function calculateEnhancedScore(
     adjacentDepartment?: boolean
     multipleOrgConnections?: number
     lastUpdated?: string
+    isReciprocal?: boolean // C↔B mutual follow
   }
 ): { score: number; breakdown: EnhancedMutualConnection['scoreBreakdown'] } {
   // Base score
@@ -1262,6 +1318,7 @@ export function calculateEnhancedScore(
   if (options?.multipleOrgConnections && options.multipleOrgConnections > 1) {
     bonuses += ENHANCED_SCORING.MULTIPLE_ORG_CONNECTIONS_BONUS * (options.multipleOrgConnections - 1)
   }
+  if (options?.isReciprocal) bonuses += ENHANCED_SCORING.RECIPROCITY_BONUS
 
   // Freshness decay
   let freshnessDecay = 1.0
@@ -1299,6 +1356,7 @@ export function calculateAggregatedScore(
     adjacentDepartment?: boolean
     totalOrgConnections?: number
     lastUpdated?: string
+    isReciprocal?: boolean // C↔B mutual follow
   }
 ): { score: number; breakdown: EnhancedMutualConnection['scoreBreakdown'] } {
   // Sum base scores for ALL connection types
@@ -1339,6 +1397,7 @@ export function calculateAggregatedScore(
   if (options?.totalOrgConnections && options.totalOrgConnections > 1) {
     bonuses += ENHANCED_SCORING.MULTIPLE_ORG_CONNECTIONS_BONUS * (options.totalOrgConnections - 1)
   }
+  if (options?.isReciprocal) bonuses += ENHANCED_SCORING.RECIPROCITY_BONUS
 
   // Freshness decay
   let freshnessDecay = 1.0
@@ -1386,6 +1445,7 @@ export async function findCBasedDirect(
     MATCH (c:User)-[:FOLLOWS]->(a)
     WHERE c <> a AND c <> b
     MATCH (b)-[:FOLLOWS]->(c)
+    OPTIONAL MATCH (c)-[cFollowsB:FOLLOWS]->(b)
     RETURN DISTINCT
       c.userId as userId,
       c.screenName as screenName,
@@ -1402,14 +1462,17 @@ export async function findCBasedDirect(
       c.createdAt as createdAt,
       c.vibe as vibe,
       c.department as department,
-      c.lastUpdated as lastUpdated
+      c.lastUpdated as lastUpdated,
+      cFollowsB IS NOT NULL as isReciprocal
   `
 
   try {
     const results = await runQuery(query, { aLower, bLower })
 
     return results.map(record => {
-      const { score, breakdown } = calculateEnhancedScore('direct', record)
+      const { score, breakdown } = calculateEnhancedScore('direct', record, [], {
+        isReciprocal: record.isReciprocal
+      })
       return {
         userId: record.userId,
         screenName: record.screenName,
@@ -1430,6 +1493,7 @@ export async function findCBasedDirect(
         connectionType: 'direct' as ConnectionType,
         relevancyScore: score,
         scoreBreakdown: breakdown,
+        isReciprocal: record.isReciprocal,
       }
     })
   } catch (error: any) {
@@ -1455,6 +1519,8 @@ export async function findCBasedOrgDirect(
     WHERE c <> a AND c <> b
     MATCH (c)-[cRel${ORG_REL_PATTERN}]->(x:User)
     MATCH (b)-[bRel${ORG_REL_PATTERN}]->(x)
+    OPTIONAL MATCH (c)-[cFollowsB:FOLLOWS]->(b)
+    OPTIONAL MATCH (b)-[bFollowsC:FOLLOWS]->(c)
     RETURN DISTINCT
       c.userId as userId,
       c.screenName as screenName,
@@ -1476,7 +1542,8 @@ export async function findCBasedOrgDirect(
       x.screenName as sharedOrgScreenName,
       x.name as sharedOrgName,
       type(cRel) as cRelType,
-      type(bRel) as bRelType
+      type(bRel) as bRelType,
+      (cFollowsB IS NOT NULL AND bFollowsC IS NOT NULL) as isReciprocal
   `
 
   try {
@@ -1510,7 +1577,7 @@ export async function findCBasedOrgDirect(
         'org_direct',
         record,
         Array.from(record.relationshipTypes),
-        { multipleOrgConnections: record.orgConnections.length }
+        { multipleOrgConnections: record.orgConnections.length, isReciprocal: record.isReciprocal }
       )
       return {
         userId: record.userId,
@@ -1538,6 +1605,7 @@ export async function findCBasedOrgDirect(
           screenName: record.orgConnections[0].orgScreenName,
           name: record.orgConnections[0].orgName,
         } : undefined,
+        isReciprocal: record.isReciprocal,
       }
     })
   } catch (error: any) {
@@ -1570,6 +1638,9 @@ export async function findCBasedOrgIndirect(
     // Y ↔ B mutual follow
     MATCH (y)-[:FOLLOWS]->(b)
     MATCH (b)-[:FOLLOWS]->(y)
+    // Check C↔B reciprocity
+    OPTIONAL MATCH (c)-[cFollowsB:FOLLOWS]->(b)
+    OPTIONAL MATCH (b)-[bFollowsC:FOLLOWS]->(c)
     RETURN DISTINCT
       c.userId as userId,
       c.screenName as screenName,
@@ -1594,7 +1665,8 @@ export async function findCBasedOrgIndirect(
       y.screenName as intermediaryScreenName,
       y.name as intermediaryName,
       type(cRel) as cRelType,
-      type(yRel) as yRelType
+      type(yRel) as yRelType,
+      (cFollowsB IS NOT NULL AND bFollowsC IS NOT NULL) as isReciprocal
   `
 
   try {
@@ -1629,7 +1701,7 @@ export async function findCBasedOrgIndirect(
         'org_indirect',
         record,
         Array.from(record.relationshipTypes),
-        { multipleOrgConnections: record.orgConnections.length }
+        { multipleOrgConnections: record.orgConnections.length, isReciprocal: record.isReciprocal }
       )
       return {
         userId: record.userId,
@@ -1662,6 +1734,7 @@ export async function findCBasedOrgIndirect(
           screenName: record.intermediaryScreenName,
           name: record.intermediaryName,
         },
+        isReciprocal: record.isReciprocal,
       }
     })
   } catch (error: any) {
@@ -1690,6 +1763,8 @@ export async function findCBasedSharedThirdParty(
     MATCH (thirdParty)-[tpRel2:INVESTED_IN|AUDITS]->(bOrg:User {vibe: 'organization'})
     WHERE cOrg <> bOrg
     MATCH (b)-[:WORKS_AT]->(bOrg)
+    OPTIONAL MATCH (c)-[cFollowsB:FOLLOWS]->(b)
+    OPTIONAL MATCH (b)-[bFollowsC:FOLLOWS]->(c)
     RETURN DISTINCT
       c.userId as userId,
       c.screenName as screenName,
@@ -1717,7 +1792,8 @@ export async function findCBasedSharedThirdParty(
       bOrg.screenName as bOrgScreenName,
       bOrg.name as bOrgName,
       type(tpRel1) as tpRelType1,
-      type(tpRel2) as tpRelType2
+      type(tpRel2) as tpRelType2,
+      (cFollowsB IS NOT NULL AND bFollowsC IS NOT NULL) as isReciprocal
   `
 
   try {
@@ -1745,7 +1821,7 @@ export async function findCBasedSharedThirdParty(
         'shared_third_party',
         record,
         Array.from(record.relationshipTypes),
-        { multipleOrgConnections: record.thirdParties.size }
+        { multipleOrgConnections: record.thirdParties.size, isReciprocal: record.isReciprocal }
       )
       return {
         userId: record.userId,
@@ -1777,6 +1853,7 @@ export async function findCBasedSharedThirdParty(
           screenName: record.thirdPartyScreenName,
           name: record.thirdPartyName,
         },
+        isReciprocal: record.isReciprocal,
       }
     })
   } catch (error: any) {
@@ -1806,6 +1883,8 @@ export async function findCBasedChainAffinity(
     WHERE cOrg.chains IS NOT NULL AND cOrg.chains <> '[]'
     MATCH (b)-[:WORKS_AT]->(bOrg:User {vibe: 'organization'})
     WHERE bOrg.chains IS NOT NULL AND bOrg.chains <> '[]' AND cOrg <> bOrg
+    OPTIONAL MATCH (c)-[cFollowsB:FOLLOWS]->(b)
+    OPTIONAL MATCH (b)-[bFollowsC:FOLLOWS]->(c)
     RETURN DISTINCT
       c.userId as userId,
       c.screenName as screenName,
@@ -1830,7 +1909,8 @@ export async function findCBasedChainAffinity(
       bOrg.userId as bOrgUserId,
       bOrg.screenName as bOrgScreenName,
       bOrg.name as bOrgName,
-      bOrg.chains as bOrgChains
+      bOrg.chains as bOrgChains,
+      (cFollowsB IS NOT NULL AND bFollowsC IS NOT NULL) as isReciprocal
   `
 
   try {
@@ -1879,7 +1959,7 @@ export async function findCBasedChainAffinity(
         'chain_affinity',
         record,
         ['WORKS_AT'],
-        { multipleOrgConnections: sharedChainsArray.length }
+        { multipleOrgConnections: sharedChainsArray.length, isReciprocal: record.isReciprocal }
       )
       return {
         userId: record.userId,
@@ -1907,6 +1987,7 @@ export async function findCBasedChainAffinity(
           screenName: record.cOrgScreenName,
           name: record.cOrgName,
         },
+        isReciprocal: record.isReciprocal,
       }
     })
   } catch (error: any) {
@@ -2214,6 +2295,7 @@ export async function findTwoPOVMutuals(
     allThirdParties: Array<{ userId: string; screenName: string; name: string }>
     allSharedChains: string[]
     allRelationshipTypes: Set<OrgRelationType>
+    isReciprocal: boolean // Track if any connection has C↔B mutual follow
   }
 
   const userAggregationMap = new Map<string, AggregatedUser>()
@@ -2230,6 +2312,7 @@ export async function findTwoPOVMutuals(
         allThirdParties: result.thirdParty ? [result.thirdParty] : [],
         allSharedChains: result.sharedChains ? [...result.sharedChains] : [],
         allRelationshipTypes: new Set<OrgRelationType>(),
+        isReciprocal: result.isReciprocal || false,
       })
       // Extract relationship types from org connections
       if (result.orgConnections) {
@@ -2240,6 +2323,11 @@ export async function findTwoPOVMutuals(
     } else {
       const existing = userAggregationMap.get(result.userId)!
       existing.connectionTypes.add(result.connectionType)
+
+      // Track reciprocity - if any connection has it, the user is reciprocal
+      if (result.isReciprocal) {
+        existing.isReciprocal = true
+      }
 
       // Merge org connections (dedupe by orgUserId)
       if (result.orgConnections) {
@@ -2310,6 +2398,7 @@ export async function findTwoPOVMutuals(
       {
         totalOrgConnections: aggregated.allOrgConnections.length,
         lastUpdated: aggregated.user.lastUpdated,
+        isReciprocal: aggregated.isReciprocal,
       }
     )
 
@@ -2336,6 +2425,7 @@ export async function findTwoPOVMutuals(
       intermediary: aggregated.allIntermediaries[0],
       thirdParty: aggregated.allThirdParties[0],
       sharedChains: aggregated.allSharedChains.length > 0 ? aggregated.allSharedChains : undefined,
+      isReciprocal: aggregated.isReciprocal,
     })
   })
 

@@ -1,4 +1,4 @@
-# Intro - AI-Powered Twitter Analysis Platform
+# Intro - AI-Powered Twitter Analysis Platform  
 
 A sophisticated Next.js application that leverages Grok AI and advanced graph databases to provide comprehensive Twitter profile analysis, organizational intelligence, and relationship mapping. The platform specializes in Web3 ecosystem analysis with deep ICP (Ideal Customer Profile) insights and automated classification systems.
 

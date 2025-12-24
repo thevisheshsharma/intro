@@ -43,6 +43,14 @@ interface MutualUser {
   allIntermediaries?: Array<{ userId: string; screenName: string; name: string }>
   allThirdParties?: Array<{ userId: string; screenName: string; name: string }>
   allSharedChains?: string[]
+  // Score breakdown for tooltip display
+  scoreBreakdown?: {
+    base: number
+    relationshipMultiplier: number
+    accountQuality: number
+    bonuses: number
+    freshnessDecay: number
+  }
 }
 
 interface EnhancedMutualsTableProps {
@@ -72,8 +80,17 @@ const CONNECTION_TYPE_CONFIG: Record<ConnectionType, { label: string; shortLabel
   chain_affinity: { label: 'Same Chain', shortLabel: 'Chain', color: 'text-cyan-400', bgColor: 'bg-cyan-900/40' },
 }
 
-// Circular progress indicator for relevancy score
-function ScoreCircle({ score, maxScore = 150 }: { score: number; maxScore?: number }) {
+// Circular progress indicator for relevancy score with tooltip
+function ScoreCircle({
+  score,
+  maxScore = 150,
+  breakdown
+}: {
+  score: number
+  maxScore?: number
+  breakdown?: MutualUser['scoreBreakdown']
+}) {
+  const [showTooltip, setShowTooltip] = useState(false)
   const percentage = Math.min((score / maxScore) * 100, 100)
   const radius = 12
   const strokeWidth = 3
@@ -88,7 +105,11 @@ function ScoreCircle({ score, maxScore = 150 }: { score: number; maxScore?: numb
   }
 
   return (
-    <div className="relative flex items-center justify-center" title={`Score: ${score.toFixed(0)}`}>
+    <div
+      className="relative flex items-center justify-center cursor-pointer"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
       <svg width="32" height="32" viewBox="0 0 32 32">
         {/* Background circle */}
         <circle
@@ -114,6 +135,46 @@ function ScoreCircle({ score, maxScore = 150 }: { score: number; maxScore?: numb
           style={{ transition: 'stroke-dashoffset 0.3s ease' }}
         />
       </svg>
+
+      {/* Score breakdown tooltip */}
+      {showTooltip && breakdown && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs whitespace-nowrap z-50 shadow-lg">
+          <div className="text-gray-400 mb-1 font-medium">Score Breakdown</div>
+          <div className="space-y-0.5">
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Base:</span>
+              <span className="text-white">{breakdown.base.toFixed(0)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Multiplier:</span>
+              <span className="text-white">×{breakdown.relationshipMultiplier.toFixed(1)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Quality:</span>
+              <span className="text-white">+{breakdown.accountQuality.toFixed(0)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Bonuses:</span>
+              <span className="text-white">+{breakdown.bonuses.toFixed(0)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Freshness:</span>
+              <span className="text-white">×{breakdown.freshnessDecay.toFixed(2)}</span>
+            </div>
+            <div className="border-t border-gray-700 mt-1 pt-1 flex justify-between gap-4">
+              <span className="text-gray-400">Total:</span>
+              <span className="text-green-400 font-medium">{score.toFixed(0)}</span>
+            </div>
+          </div>
+          {/* Tooltip arrow */}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-700"></div>
+        </div>
+      )}
+
+      {/* Fallback title for cases without breakdown */}
+      {!breakdown && (
+        <span className="sr-only">Score: {score.toFixed(0)}</span>
+      )}
     </div>
   )
 }
@@ -511,14 +572,14 @@ export function EnhancedMutualsTable({
 
             {/* Score circle */}
             <div className="col-span-1 flex items-center justify-center">
-              <ScoreCircle score={user.relevancyScore} />
+              <ScoreCircle score={user.relevancyScore} breakdown={user.scoreBreakdown} />
             </div>
 
             {/* Mobile layout */}
             <div className="md:hidden col-span-1 flex flex-col gap-2 mt-2">
               <div className="flex items-center justify-between">
                 <span className="text-gray-300 text-sm">{user.followersCount.toLocaleString()} followers</span>
-                <ScoreCircle score={user.relevancyScore} />
+                <ScoreCircle score={user.relevancyScore} breakdown={user.scoreBreakdown} />
               </div>
               {user.connectionTypes && user.connectionTypes.length > 1 && (
                 <ConnectionTypeBadges types={user.connectionTypes} />
