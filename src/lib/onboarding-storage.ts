@@ -37,14 +37,59 @@ export interface OrgInfo {
     profileImageUrl?: string
 }
 
-// Global job storage - survives across route handlers
-declare global {
-    var onboardingJobs: Map<string, OnboardingJob> | undefined
-}
+import { runQuery } from './neo4j'
 
-// Use global to persist across hot reloads in dev
-export const analysisJobs: Map<string, OnboardingJob> =
-    global.onboardingJobs || (global.onboardingJobs = new Map())
+// Global job storage - persists in Neo4j for serverless environments
+export const analysisJobs = {
+    async get(jobId: string): Promise<OnboardingJob | undefined> {
+        const query = `
+            MATCH (j:OnboardingJob {jobId: $jobId})
+            RETURN j
+        `
+        const results = await runQuery(query, { jobId })
+        if (results.length === 0) return undefined
+
+        const props = results[0].j.properties
+        return {
+            ...props,
+            result: props.result ? JSON.parse(props.result) : undefined,
+            startedAt: new Date(props.startedAt)
+        }
+    },
+
+    async set(jobId: string, job: OnboardingJob): Promise<void> {
+        const query = `
+            MERGE (j:OnboardingJob {jobId: $jobId})
+            SET j.status = $status,
+                j.step = $step,
+                j.progress = toInteger($progress),
+                j.error = $error,
+                j.startedAt = $startedAt,
+                j.result = $result,
+                j.expiresAt = datetime() + duration({minutes: 60})
+        `
+        await runQuery(query, {
+            jobId,
+            status: job.status,
+            step: job.step,
+            progress: job.progress,
+            error: job.error || null,
+            startedAt: job.startedAt.toISOString(),
+            result: job.result ? JSON.stringify(job.result) : null
+        })
+    },
+
+    async size(): Promise<number> {
+        const query = `MATCH (j:OnboardingJob) RETURN count(j) as count`
+        const result = await runQuery(query)
+        return result[0]?.count?.low || result[0]?.count || 0
+    },
+
+    async delete(jobId: string): Promise<void> {
+        const query = `MATCH (j:OnboardingJob {jobId: $jobId}) DETACH DELETE j`
+        await runQuery(query, { jobId })
+    }
+}
 
 // Step labels for UI display  
 export const stepLabels: Record<string, string> = {

@@ -21,23 +21,24 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
         }
 
-        console.log(`[Onboarding Status] Looking for job ${jobId} - jobs in memory: ${analysisJobs.size}`)
+        const totalJobs = await analysisJobs.size()
+        console.log(`[Onboarding Status] Looking for job ${jobId} - total jobs in DB: ${totalJobs}`)
 
-        const job = analysisJobs.get(jobId)
+        const job = await analysisJobs.get(jobId)
 
         if (!job) {
-            console.log(`[Onboarding Status] Job ${jobId} not found. Available jobs:`, Array.from(analysisJobs.keys()))
+            console.log(`[Onboarding Status] Job ${jobId} not found in DB.`)
             return NextResponse.json({
                 error: 'Job not found',
                 status: 'not_found'
             }, { status: 404 })
         }
 
-        // Clean up old jobs (older than 30 minutes)
+        // Clean up old jobs (older than 60 minutes - matching the DB expiry)
         const now = new Date()
-        const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000)
-        if (job.startedAt < thirtyMinutesAgo) {
-            analysisJobs.delete(jobId)
+        const sixtyMinutesAgo = new Date(now.getTime() - 60 * 60 * 1000)
+        if (job.startedAt < sixtyMinutesAgo) {
+            await analysisJobs.delete(jobId)
             return NextResponse.json({
                 error: 'Job expired',
                 status: 'expired'

@@ -1,4 +1,4 @@
-import { getDriver } from './neo4j'
+import { runQuery } from './neo4j'
 
 /**
  * Migration: Convert snake_case properties to camelCase
@@ -12,14 +12,11 @@ export async function migratePropertyNamesToCamelCase(): Promise<{
   migratedUsers: number
   migratedProtocols: number
 }> {
-  const driver = await getDriver()
-  const session = driver.session()
-
   try {
     console.log('Starting property naming migration (snake_case -> camelCase)...')
 
     // Migrate User nodes with org_type, org_subtype, or web3_focus
-    const userResult = await session.run(`
+    const userResult = await runQuery(`
       MATCH (u:User)
       WHERE u.org_type IS NOT NULL OR u.org_subtype IS NOT NULL OR u.web3_focus IS NOT NULL
       SET u.orgType = COALESCE(u.org_type, u.orgType),
@@ -29,13 +26,11 @@ export async function migratePropertyNamesToCamelCase(): Promise<{
       RETURN count(u) as migrated
     `)
 
-    const migratedUsers = userResult.records[0]?.get('migrated')?.toNumber?.() ||
-                          userResult.records[0]?.get('migrated') || 0
-
+    const migratedUsers = userResult[0]?.migrated?.low || userResult[0]?.migrated || 0
     console.log(`Migrated ${migratedUsers} User nodes`)
 
     // Also ensure any protocol nodes (which are User nodes with vibe='organization') are migrated
-    const protocolResult = await session.run(`
+    const protocolResult = await runQuery(`
       MATCH (p:User {vibe: 'organization'})
       WHERE p.org_type IS NOT NULL OR p.org_subtype IS NOT NULL OR p.web3_focus IS NOT NULL
       SET p.orgType = COALESCE(p.org_type, p.orgType),
@@ -45,15 +40,14 @@ export async function migratePropertyNamesToCamelCase(): Promise<{
       RETURN count(p) as migrated
     `)
 
-    const migratedProtocols = protocolResult.records[0]?.get('migrated')?.toNumber?.() ||
-                              protocolResult.records[0]?.get('migrated') || 0
-
+    const migratedProtocols = protocolResult[0]?.migrated?.low || protocolResult[0]?.migrated || 0
     console.log(`Migrated ${migratedProtocols} Protocol/Organization nodes`)
     console.log('Property naming migration complete!')
 
     return { migratedUsers, migratedProtocols }
-  } finally {
-    await session.close()
+  } catch (error) {
+    console.error('Migration failed:', error)
+    throw error
   }
 }
 
@@ -64,25 +58,16 @@ export async function verifyMigration(): Promise<{
   hasOldProperties: boolean
   remainingCount: number
 }> {
-  const driver = await getDriver()
-  const session = driver.session()
+  const result = await runQuery(`
+    MATCH (u:User)
+    WHERE u.org_type IS NOT NULL OR u.org_subtype IS NOT NULL OR u.web3_focus IS NOT NULL
+    RETURN count(u) as remaining
+  `)
 
-  try {
-    const result = await session.run(`
-      MATCH (u:User)
-      WHERE u.org_type IS NOT NULL OR u.org_subtype IS NOT NULL OR u.web3_focus IS NOT NULL
-      RETURN count(u) as remaining
-    `)
-
-    const remainingCount = result.records[0]?.get('remaining')?.toNumber?.() ||
-                           result.records[0]?.get('remaining') || 0
-
-    return {
-      hasOldProperties: remainingCount > 0,
-      remainingCount
-    }
-  } finally {
-    await session.close()
+  const remainingCount = result[0]?.remaining?.low || result[0]?.remaining || 0
+  return {
+    hasOldProperties: remainingCount > 0,
+    remainingCount
   }
 }
 
@@ -90,55 +75,37 @@ export async function verifyMigration(): Promise<{
  * Rollback migration: Convert camelCase back to snake_case (if needed)
  */
 export async function rollbackPropertyNamingMigration(): Promise<number> {
-  const driver = await getDriver()
-  const session = driver.session()
+  console.log('Rolling back property naming migration (camelCase -> snake_case)...')
 
-  try {
-    console.log('Rolling back property naming migration (camelCase -> snake_case)...')
+  const result = await runQuery(`
+    MATCH (u:User)
+    WHERE u.orgType IS NOT NULL OR u.orgSubtype IS NOT NULL OR u.web3Focus IS NOT NULL
+    SET u.org_type = COALESCE(u.orgType, u.org_type),
+        u.org_subtype = COALESCE(u.orgSubtype, u.org_subtype),
+        u.web3_focus = COALESCE(u.web3Focus, u.web3_focus)
+    REMOVE u.orgType, u.orgSubtype, u.web3Focus
+    RETURN count(u) as rolledBack
+  `)
 
-    const result = await session.run(`
-      MATCH (u:User)
-      WHERE u.orgType IS NOT NULL OR u.orgSubtype IS NOT NULL OR u.web3Focus IS NOT NULL
-      SET u.org_type = COALESCE(u.orgType, u.org_type),
-          u.org_subtype = COALESCE(u.orgSubtype, u.org_subtype),
-          u.web3_focus = COALESCE(u.web3Focus, u.web3_focus)
-      REMOVE u.orgType, u.orgSubtype, u.web3Focus
-      RETURN count(u) as rolledBack
-    `)
-
-    const rolledBack = result.records[0]?.get('rolledBack')?.toNumber?.() ||
-                       result.records[0]?.get('rolledBack') || 0
-
-    console.log(`Rolled back ${rolledBack} nodes`)
-    return rolledBack
-  } finally {
-    await session.close()
-  }
+  const rolledBack = result[0]?.rolledBack?.low || result[0]?.rolledBack || 0
+  console.log(`Rolled back ${rolledBack} nodes`)
+  return rolledBack
 }
 
 /**
  * Populate screenNameLower for all users that don't have it
  */
 export async function populateScreenNameLower(): Promise<number> {
-  const driver = await getDriver()
-  const session = driver.session()
+  console.log('Populating screenNameLower for users...')
 
-  try {
-    console.log('Populating screenNameLower for users...')
+  const result = await runQuery(`
+    MATCH (u:User)
+    WHERE u.screenName IS NOT NULL AND u.screenNameLower IS NULL
+    SET u.screenNameLower = toLower(u.screenName)
+    RETURN count(u) as updated
+  `)
 
-    const result = await session.run(`
-      MATCH (u:User)
-      WHERE u.screenName IS NOT NULL AND u.screenNameLower IS NULL
-      SET u.screenNameLower = toLower(u.screenName)
-      RETURN count(u) as updated
-    `)
-
-    const updated = result.records[0]?.get('updated')?.toNumber?.() ||
-                    result.records[0]?.get('updated') || 0
-
-    console.log(`Populated screenNameLower for ${updated} users`)
-    return updated
-  } finally {
-    await session.close()
-  }
+  const updated = result[0]?.updated?.low || result[0]?.updated || 0
+  console.log(`Populated screenNameLower for ${updated} users`)
+  return updated
 }

@@ -30,22 +30,23 @@ export async function POST(request: NextRequest) {
         const jobId = `onboard_${userId}_${Date.now()}`
 
         // Initialize job in shared storage
-        analysisJobs.set(jobId, {
+        await analysisJobs.set(jobId, {
             status: 'pending',
             step: 'initializing',
             progress: 0,
             startedAt: new Date()
         })
 
-        console.log(`[Onboarding] Created job ${jobId} - jobs in memory: ${analysisJobs.size}`)
+        console.log(`[Onboarding] Created job ${jobId}`)
 
         // Start async analysis (don't await)
-        runAnalysis(jobId, userId, twitterUsername, email).catch(err => {
+        runAnalysis(jobId, userId, twitterUsername, email).catch(async err => {
             console.error('Analysis failed:', err)
-            const job = analysisJobs.get(jobId)
+            const job = await analysisJobs.get(jobId)
             if (job) {
                 job.status = 'error'
                 job.error = err.message
+                await analysisJobs.set(jobId, job)
             }
         })
 
@@ -70,26 +71,27 @@ async function runAnalysis(
     twitterUsername: string,
     email?: string | null
 ) {
-    const job = analysisJobs.get(jobId)!
+    const job = await analysisJobs.get(jobId)
+    if (!job) return
     const normalizedUsername = twitterUsername.replace('@', '').toLowerCase()
 
     try {
         // Step 1: Create/update user with trial subscription
-        updateJob(jobId, 'processing', 'profile', 10)
+        await updateJob(jobId, 'processing', 'profile', 10)
         await createUserWithTrial(privyDid, email || undefined)
 
         // Step 2: Fetch Twitter profile from SocialAPI
-        updateJob(jobId, 'processing', 'fetching', 20)
+        await updateJob(jobId, 'processing', 'fetching', 20)
         const twitterProfile = await fetchTwitterProfile(normalizedUsername)
         console.log(`[Onboarding] Fetched profile for @${normalizedUsername}`)
 
         // Step 3: Classify user with Grok
-        updateJob(jobId, 'processing', 'classifying', 40)
+        await updateJob(jobId, 'processing', 'classifying', 40)
         const classification = await classifyProfileComplete(normalizedUsername, twitterProfile)
         console.log(`[Onboarding] Classification: ${classification.vibe}`)
 
         // Step 4: Extract organizations - first try Neo4j, then fallback to classification
-        updateJob(jobId, 'processing', 'extracting_orgs', 60)
+        await updateJob(jobId, 'processing', 'extracting_orgs', 60)
 
         // Query Neo4j for existing org relationships (for returning users)
         let works_at: OrgInfo[] = []
@@ -162,7 +164,7 @@ async function runAnalysis(
         member_of.forEach(o => allOrgScreenNames.add(o.screenName))
 
         // Step 5: Check Neo4j for orgs with ICP relationships
-        updateJob(jobId, 'processing', 'checking_relationships', 70)
+        await updateJob(jobId, 'processing', 'checking_relationships', 70)
         const { invested_in, partners_with, missingIcp } = await fetchIcpRelationships(Array.from(allOrgScreenNames))
 
         // Step 6: Queue ICP analysis for missing orgs (background, non-blocking)
@@ -176,7 +178,7 @@ async function runAnalysis(
         }
 
         // Step 7: Update Neo4j with onboarding status
-        updateJob(jobId, 'processing', 'saving', 90)
+        await updateJob(jobId, 'processing', 'saving', 90)
         await updateOnboardingStatus(privyDid, normalizedUsername, classification)
 
         // Calculate Berri points
@@ -203,31 +205,36 @@ async function runAnalysis(
             pendingIcpAnalysis: orgsNeedingIcp
         }
 
-        updateJob(jobId, 'complete', 'done', 100, result)
+        await updateJob(jobId, 'complete', 'done', 100, result)
         console.log(`[Onboarding] Analysis complete for @${normalizedUsername}, job ${jobId} marked complete`)
         console.log(`[Onboarding] Orgs found: works_at=${works_at.length}, worked_at=${worked_at.length}, member_of=${member_of.length}`)
 
     } catch (error: any) {
         console.error(`[Onboarding] Analysis error:`, error)
-        job.status = 'error'
-        job.step = 'error'
-        job.error = error.message
+        const job = await analysisJobs.get(jobId)
+        if (job) {
+            job.status = 'error'
+            job.step = 'error'
+            job.error = error.message
+            await analysisJobs.set(jobId, job)
+        }
     }
 }
 
-function updateJob(
+async function updateJob(
     jobId: string,
     status: 'pending' | 'processing' | 'complete' | 'error',
     step: string,
     progress: number,
     result?: OnboardingResult
 ) {
-    const job = analysisJobs.get(jobId)
+    const job = await analysisJobs.get(jobId)
     if (job) {
         job.status = status
         job.step = step
         job.progress = progress
         if (result) job.result = result
+        await analysisJobs.set(jobId, job)
         console.log(`[Onboarding] Job ${jobId} updated: ${status} - ${step} (${progress}%)`)
     }
 }
