@@ -8,6 +8,8 @@ import {
   isOnboardingComplete,
 } from '@/lib/subscription'
 
+export const dynamic = 'force-dynamic'
+
 // GET: Get current user's session data (combined profile + subscription)
 // This endpoint combines what was previously 2-3 separate API calls
 export async function GET(request: NextRequest) {

@@ -7,6 +7,8 @@ import {
   getTrialDaysLeft,
 } from '@/lib/subscription'
 
+export const dynamic = 'force-dynamic'
+
 // GET: Get current user's subscription
 export async function GET(request: NextRequest) {
   const { userId, error: authError } = await verifyPrivyToken(request)

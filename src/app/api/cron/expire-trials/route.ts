@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { expireTrials, getExpiringTrials } from '@/lib/subscription'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * Cron endpoint to expire trials that have ended
  *

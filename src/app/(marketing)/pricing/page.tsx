@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Sparkles, ArrowUpRight, TrendingUp, Star, Clock, CalendarDays, Users, LogOut, RefreshCcw, CreditCard, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -124,7 +124,7 @@ const pricingFaqs = [
     }
 ]
 
-export default function PricingPage() {
+function PricingContent() {
     const [annual, setAnnual] = useState(true)
     const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null)
     const [checkoutMessage, setCheckoutMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -743,5 +743,13 @@ export default function PricingPage() {
 
             <CTA />
         </>
+    )
+}
+
+export default function PricingPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen bg-gray-50 pt-32" />}>
+            <PricingContent />
+        </Suspense>
     )
 }
