@@ -3,6 +3,8 @@ import type { Profile } from '@/lib/profile'
 import { logAPIError } from '@/lib/error-utils'
 import { verifyPrivyToken } from '@/lib/privy'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(
   request: Request,
   { params }: { params: { userId: string } }

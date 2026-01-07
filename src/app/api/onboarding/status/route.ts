@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyPrivyToken } from '@/lib/privy'
 import { analysisJobs, stepLabels } from '@/lib/onboarding-storage'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
     try {
         const { userId, error: authError } = await verifyPrivyToken(request)
