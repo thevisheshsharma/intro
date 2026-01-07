@@ -7,16 +7,7 @@ function createDriver(): Driver {
   const user = process.env.NEO4J_USERNAME || 'neo4j'
   const password = process.env.NEO4J_PASSWORD || 'password'
 
-  // Log URI without credentials for debugging
-  const maskedUri = uri.replace(/\/\/.*:.*@/, '//***:***@')
-  console.log(`[Neo4j] Initializing driver with URI: ${maskedUri}`)
-
-  return neo4j.driver(uri, neo4j.auth.basic(user, password), {
-    maxConnectionPoolSize: 10,          // Recommended for Aura Free/Serverless to avoid exhausting connections
-    connectionTimeout: 30000,           // 30 seconds connection timeout
-    maxConnectionLifetime: 600000,      // 10 minutes connection lifetime
-    connectionAcquisitionTimeout: 20000 // 20 seconds to acquire a connection from the pool
-  })
+  return neo4j.driver(uri, neo4j.auth.basic(user, password))
 }
 
 export function getDriver(): Driver {
@@ -61,24 +52,14 @@ export async function runQuery<T = any>(
       const isConstraintViolation = error.code === 'Neo.ClientError.Schema.ConstraintValidationFailed' ||
         error.message?.includes('already exists with label')
 
-      const isConnectionError = error.code === 'ServiceUnavailable' ||
-        error.code === 'SessionExpired' ||
-        error.message?.includes('Could not perform discovery') ||
-        error.retriable === true
-
-      if ((isDeadlock || isConstraintViolation || isConnectionError) && attempt < maxRetries) {
-        let errorType = 'Error'
-        if (isDeadlock) errorType = 'Deadlock'
-        else if (isConstraintViolation) errorType = 'Constraint violation'
-        else if (isConnectionError) errorType = 'Connection/Discovery failure'
-
+      if ((isDeadlock || isConstraintViolation) && attempt < maxRetries) {
+        const errorType = isDeadlock ? 'Deadlock' : 'Constraint violation'
         console.warn(`⚠️ ${errorType} detected on attempt ${attempt}/${maxRetries}, retrying after delay...`)
-        // Wait with exponential backoff (longer for connection errors)
-        const baseDelay = isConnectionError ? 500 : 100
-        const delay = Math.min(baseDelay * Math.pow(2, attempt - 1), 5000)
+        // Wait with exponential backoff
+        const delay = Math.min(100 * Math.pow(2, attempt - 1), 1000)
         await new Promise(resolve => setTimeout(resolve, delay))
-      } else {
-        // For other errors or if we've run out of retries, throw
+      } else if (!isDeadlock && !isConstraintViolation) {
+        // For other errors, don't retry
         throw error
       }
     } finally {
@@ -172,18 +153,6 @@ export async function initializeSchema(): Promise<void> {
     await session.run(`
       CREATE INDEX user_department_index IF NOT EXISTS
       FOR (u:User) ON (u.department)
-    `)
-
-    // Create uniqueness constraint on OnboardingJob.jobId
-    await session.run(`
-      CREATE CONSTRAINT onboarding_job_id_unique IF NOT EXISTS
-      FOR (j:OnboardingJob) REQUIRE j.jobId IS UNIQUE
-    `)
-
-    // Create index on OnboardingJob.startedAt for expiration cleanup
-    await session.run(`
-      CREATE INDEX onboarding_job_started_at_index IF NOT EXISTS
-      FOR (j:OnboardingJob) ON (j.startedAt)
     `)
 
     console.log('Neo4j schema initialized successfully')
