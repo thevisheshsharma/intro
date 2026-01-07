@@ -5,7 +5,7 @@ import { useUser } from '@clerk/nextjs'
 import { getProfile, type Profile } from '@/lib/profile'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { ErrorDisplay } from '@/components/ui/error-display'
-import Sidebar from '../Sidebar'
+import Sidebar from '@/components/Sidebar'
 import { extractTwitterUsername } from '@/lib/twitter-helpers'
 import { useAutoSyncFollowers } from '@/lib/hooks/useAutoSyncFollowers'
 
@@ -51,7 +51,7 @@ export default function DashboardLayout({
 
   if (!isLoaded || (user && loading)) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-white">
         <LoadingSpinner />
       </div>
     )
@@ -60,7 +60,8 @@ export default function DashboardLayout({
   if (error) return <ErrorDisplay message={error} />
 
   return (
-    <div className="flex min-h-screen w-full bg-[#181818]">
+    <div className="min-h-screen bg-[#FAFAFA]">
+      {/* Sidebar */}
       {user && (
         <Sidebar
           user={user}
@@ -70,9 +71,13 @@ export default function DashboardLayout({
           setCollapsed={setSidebarCollapsed}
         />
       )}
-      <div className="flex-1 flex flex-col items-center overflow-y-auto">
+
+      {/* Main Content - offset for sidebar + its margin */}
+      <main
+        className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? 'ml-[90px]' : 'ml-[278px]'}`}
+      >
         {children}
-      </div>
+      </main>
     </div>
   )
 }

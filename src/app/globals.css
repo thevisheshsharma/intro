@@ -4,73 +4,925 @@
 
 @layer base {
   :root {
+    /* Light theme by default - Clean and modern */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 240 10% 4%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
- 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
- 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
- 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
- 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
- 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
- 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --card-foreground: 240 10% 4%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
- 
-    --radius: 0.5rem;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 4%;
+
+    /* Primary: Berri Raspberry - Warm and approachable */
+    --primary: 349 76% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: Berri Coral - Warm complement */
+    --secondary: 10 100% 71%;
+    --secondary-foreground: 240 10% 4%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 5% 45%;
+
+    /* Accent: Berri Amber - Warm tertiary */
+    --accent: 36 92% 96%;
+    --accent-foreground: 36 92% 50%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 5% 90%;
+    --input: 240 5% 90%;
+    --ring: 349 76% 55%;
+
+    --radius: 0.75rem;
+
+    /* Spacing Standards */
+    --section-spacing: 6rem;
+
+    /* 96px - Comfortable breathing room */
+    @media (min-width: 1024px) {
+      --section-spacing: 8rem;
+      /* 128px on larger screens */
+    }
   }
- 
+
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
- 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
- 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
- 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
- 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
- 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
- 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
- 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
- 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --background: 240 10% 4%;
+    --foreground: 0 0% 98%;
+
+    --card: 240 10% 6%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 10% 6%;
+    --popover-foreground: 0 0% 98%;
+
+    /* Primary: Raspberry */
+    --primary: 349 76% 59%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: Coral */
+    --secondary: 10 100% 71%;
+    --secondary-foreground: 240 10% 4%;
+
+    --muted: 240 10% 12%;
+    --muted-foreground: 240 5% 55%;
+
+    /* Accent: Amber */
+    --accent: 36 92% 61%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 10% 15%;
+    --input: 240 10% 15%;
+    --ring: 36 92% 61%;
   }
 }
- 
+
 @layer base {
   * {
     @apply border-border;
   }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Font Classes */
+.font-heading {
+  font-family: var(--font-jakarta), sans-serif;
+}
+
+/* Body text with better contrast */
+.prose {
+  color: #1f2937;
+  /* gray-800 for better readability */
+}
+
+.prose-light {
+  color: #4b5563;
+  /* gray-600 for lighter contexts */
+}
+
+/* ========================================
+   GLASSMORPHISM UTILITIES - Light Theme
+   ======================================== */
+
+/* Basic glass - subtle frosted effect */
+.glass {
+  @apply backdrop-blur-xl border;
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(0, 0, 0, 0.06);
+  /* Valley-style subtle border */
+  box-shadow:
+    0 4px 30px rgba(0, 0, 0, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* Strong glass - more prominent frosted effect */
+.glass-strong {
+  @apply backdrop-blur-2xl border;
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.04);
+  /* Valley-style minimal border */
+  box-shadow:
+    0 8px 40px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+/* Navbar glass - extra strong blur for dropdown menus */
+.glass-navbar {
+  @apply border;
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(0, 0, 0, 0.03);
+  box-shadow:
+    0 8px 40px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* Subtle glass - very light frosted effect */
+.glass-subtle {
+  @apply backdrop-blur-lg border;
+  background: rgba(255, 255, 255, 0.4);
+  border-color: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* Colored glass variations */
+.glass-indigo {
+  @apply backdrop-blur-xl border;
+  background: rgba(245, 166, 35, 0.08);
+  border-color: rgba(245, 166, 35, 0.15);
+  box-shadow:
+    0 4px 30px rgba(245, 166, 35, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.glass-raspberry {
+  @apply backdrop-blur-xl border;
+  background: rgba(229, 72, 104, 0.06);
+  border-color: rgba(229, 72, 104, 0.12);
+  box-shadow:
+    0 4px 30px rgba(229, 72, 104, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.glass-coral {
+  @apply backdrop-blur-xl border;
+  background: rgba(255, 127, 107, 0.06);
+  border-color: rgba(255, 127, 107, 0.12);
+  box-shadow:
+    0 4px 30px rgba(255, 127, 107, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.glass-amber {
+  @apply backdrop-blur-xl border;
+  background: rgba(245, 166, 35, 0.06);
+  border-color: rgba(245, 166, 35, 0.12);
+  box-shadow:
+    0 4px 30px rgba(245, 166, 35, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.glass-gold {
+  @apply backdrop-blur-xl border;
+  background: rgba(212, 148, 10, 0.06);
+  border-color: rgba(212, 148, 10, 0.12);
+  box-shadow:
+    0 4px 30px rgba(212, 148, 10, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ========================================
+   GLOW EFFECTS - Premium Light Theme
+   ======================================== */
+
+/* Soft ambient glows */
+.glow-soft {
+  box-shadow:
+    0 0 60px rgba(245, 166, 35, 0.12),
+    0 0 120px rgba(245, 166, 35, 0.06);
+}
+
+.glow-primary {
+  box-shadow:
+    0 0 40px rgba(229, 72, 104, 0.2),
+    0 0 80px rgba(229, 72, 104, 0.1),
+    0 0 120px rgba(229, 72, 104, 0.05);
+}
+
+.glow-accent {
+  box-shadow:
+    0 0 40px rgba(245, 166, 35, 0.2),
+    0 0 80px rgba(245, 166, 35, 0.1),
+    0 0 120px rgba(245, 166, 35, 0.05);
+}
+
+.glow-coral {
+  box-shadow:
+    0 0 40px rgba(255, 127, 107, 0.2),
+    0 0 80px rgba(255, 127, 107, 0.1),
+    0 0 120px rgba(255, 127, 107, 0.05);
+}
+
+.glow-raspberry {
+  box-shadow:
+    0 0 40px rgba(229, 72, 104, 0.2),
+    0 0 80px rgba(229, 72, 104, 0.1),
+    0 0 120px rgba(229, 72, 104, 0.05);
+}
+
+.glow-amber {
+  box-shadow:
+    0 0 40px rgba(245, 166, 35, 0.2),
+    0 0 80px rgba(245, 166, 35, 0.1),
+    0 0 120px rgba(245, 166, 35, 0.05);
+}
+
+.glow-gold {
+  box-shadow:
+    0 0 40px rgba(212, 148, 10, 0.2),
+    0 0 80px rgba(212, 148, 10, 0.1),
+    0 0 120px rgba(212, 148, 10, 0.05);
+}
+
+/* Interactive glow on hover */
+.hover-glow-indigo {
+  @apply transition-shadow duration-500;
+}
+
+.hover-glow-indigo:hover {
+  box-shadow:
+    0 0 40px rgba(245, 166, 35, 0.25),
+    0 0 80px rgba(245, 166, 35, 0.15),
+    0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.hover-glow-raspberry {
+  @apply transition-shadow duration-500;
+}
+
+.hover-glow-raspberry:hover {
+  box-shadow:
+    0 0 40px rgba(229, 72, 104, 0.25),
+    0 0 80px rgba(229, 72, 104, 0.15),
+    0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.hover-glow-amber {
+  @apply transition-shadow duration-500;
+}
+
+.hover-glow-amber:hover {
+  box-shadow:
+    0 0 40px rgba(245, 166, 35, 0.25),
+    0 0 80px rgba(245, 166, 35, 0.15),
+    0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+/* ========================================
+   DEPTH & ELEVATION UTILITIES
+   ======================================== */
+
+/* Layered depth shadows */
+.depth-sm {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.03),
+    0 2px 4px rgba(0, 0, 0, 0.03),
+    0 4px 8px rgba(0, 0, 0, 0.02);
+}
+
+.depth-md {
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.03),
+    0 4px 8px rgba(0, 0, 0, 0.03),
+    0 8px 16px rgba(0, 0, 0, 0.03),
+    0 16px 32px rgba(0, 0, 0, 0.02);
+}
+
+.depth-lg {
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.02),
+    0 8px 15px rgba(0, 0, 0, 0.03),
+    0 16px 30px rgba(0, 0, 0, 0.04),
+    0 32px 60px rgba(0, 0, 0, 0.04);
+}
+
+.depth-xl {
+  box-shadow:
+    0 8px 16px rgba(0, 0, 0, 0.03),
+    0 16px 32px rgba(0, 0, 0, 0.04),
+    0 32px 64px rgba(0, 0, 0, 0.04),
+    0 64px 128px rgba(0, 0, 0, 0.05);
+}
+
+/* Floating card effect - combines elevation with subtle glow */
+.card-elevated {
+  @apply transition-all duration-500;
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.02),
+    0 10px 20px rgba(0, 0, 0, 0.03),
+    0 0 0 1px rgba(0, 0, 0, 0.02);
+}
+
+.card-elevated:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 8px 15px rgba(0, 0, 0, 0.04),
+    0 20px 40px rgba(0, 0, 0, 0.06),
+    0 0 60px rgba(245, 166, 35, 0.06),
+    0 0 0 1px rgba(245, 166, 35, 0.08);
+}
+
+/* Premium floating effect with glassmorphism */
+.card-glass-elevated {
+  @apply backdrop-blur-xl border transition-all duration-500;
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.03),
+    0 8px 40px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.card-glass-elevated:hover {
+  transform: translateY(-6px);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.06),
+    0 24px 60px rgba(245, 166, 35, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+/* ========================================
+   GRADIENT UTILITIES
+   ======================================== */
+
+/* Gradient text utility */
+.gradient-text {
+  @apply text-transparent bg-clip-text bg-gradient-to-r from-primary via-accent to-secondary;
+}
+
+.gradient-text-indigo {
+  @apply text-transparent bg-clip-text;
+  background-image: linear-gradient(135deg, #F5A623 0%, #FFB84D 50%, #F5A623 100%);
+}
+
+.gradient-text-raspberry {
+  @apply text-transparent bg-clip-text;
+  background-image: linear-gradient(135deg, #E54868 0%, #FF6B8A 50%, #E54868 100%);
+}
+
+/* Aurora background effect - warm tones */
+.aurora-bg {
+  background: radial-gradient(ellipse 80% 80% at 50% -20%, rgba(229, 72, 104, 0.15), transparent),
+    radial-gradient(ellipse 50% 50% at 80% 50%, rgba(255, 127, 107, 0.12), transparent),
+    radial-gradient(ellipse 60% 60% at 20% 80%, rgba(245, 166, 35, 0.1), transparent);
+}
+
+/* Light aurora for light backgrounds */
+.aurora-light {
+  background:
+    radial-gradient(ellipse 100% 100% at 0% 0%, rgba(245, 166, 35, 0.08), transparent 50%),
+    radial-gradient(ellipse 80% 80% at 100% 0%, rgba(229, 72, 104, 0.06), transparent 50%),
+    radial-gradient(ellipse 60% 60% at 50% 100%, rgba(255, 127, 107, 0.05), transparent 50%);
+}
+
+/* Mesh gradient background */
+.mesh-gradient {
+  background:
+    radial-gradient(at 40% 20%, rgba(245, 166, 35, 0.08) 0px, transparent 50%),
+    radial-gradient(at 80% 0%, rgba(229, 72, 104, 0.06) 0px, transparent 50%),
+    radial-gradient(at 0% 50%, rgba(255, 127, 107, 0.05) 0px, transparent 50%),
+    radial-gradient(at 80% 50%, rgba(245, 166, 35, 0.04) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(245, 166, 35, 0.06) 0px, transparent 50%),
+    radial-gradient(at 80% 100%, rgba(229, 72, 104, 0.04) 0px, transparent 50%),
+    radial-gradient(at 0% 0%, rgba(255, 127, 107, 0.04) 0px, transparent 50%);
+}
+
+/* ========================================
+   TEXTURE OVERLAYS
+   ======================================== */
+
+/* ========================================
+   GRAIN/NOISE TEXTURE OVERLAYS
+   Valley-inspired subtle film grain
+   ======================================== */
+
+/* Base noise texture - visible for light backgrounds */
+.grain-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Grain for dark backgrounds - more visible */
+.grain-dark::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Grain with overlay blend for gradient backgrounds */
+.grain-blend::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.12;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Legacy noise-overlay - keeping for backwards compatibility */
+.noise-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+/* Subtle dot grid pattern */
+.dot-grid::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.06) 1px, transparent 0);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+
+/* ========================================
+   BORDER EFFECTS
+   ======================================== */
+
+/* Gradient border */
+.border-gradient {
+  position: relative;
+  background: white;
+  border-radius: inherit;
+}
+
+.border-gradient::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(245, 166, 35, 0.3), rgba(229, 72, 104, 0.2), rgba(255, 127, 107, 0.2));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* Animated gradient border */
+@keyframes gradient-rotate {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animated-border {
+  background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--accent)), hsl(var(--secondary)), hsl(var(--primary)));
+  background-size: 300% 100%;
+  animation: gradient-rotate 4s ease infinite;
+}
+
+/* ========================================
+   ANIMATIONS
+   ======================================== */
+
+/* Premium card hover effect */
+.card-hover {
+  @apply transition-all duration-500;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.1),
+    0 0 60px rgba(245, 166, 35, 0.08);
+}
+
+/* Subtle float animation */
+@keyframes subtle-float {
+
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  50% {
+    transform: translateY(-10px) rotate(1deg);
+  }
+}
+
+.animate-subtle-float {
+  animation: subtle-float 6s ease-in-out infinite;
+}
+
+/* Pulse glow animation */
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 4s ease-in-out infinite;
+}
+
+/* Shimmer effect */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.4) 50%,
+      rgba(255, 255, 255, 0) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Glow pulse animation */
+@keyframes glow-pulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(245, 166, 35, 0.15);
+  }
+
+  50% {
+    box-shadow: 0 0 40px rgba(245, 166, 35, 0.3), 0 0 60px rgba(245, 166, 35, 0.15);
+  }
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* ========================================
+   DASHBOARD DARK THEME SYSTEM
+   "Sunset Suite Dark" - Warm accents on dark background
+   ======================================== */
+
+/* Dashboard CSS Custom Properties */
+@layer base {
+  :root {
+    /* Dashboard Background Hierarchy - Warmer than pure black */
+    --dashboard-bg-base: 240 6% 7%;
+    /* #0F0F12 - Base background */
+    --dashboard-bg-elevated: 240 5% 11%;
+    /* #1A1A1F - Cards, panels */
+    --dashboard-bg-surface: 240 4% 15%;
+    /* #242429 - Interactive surfaces */
+    --dashboard-bg-hover: 240 4% 18%;
+    /* Hover state */
+
+    /* Warm accent colors (from Sunset Suite) */
+    --dashboard-primary: 349 76% 55%;
+    /* Raspberry #E54868 */
+    --dashboard-secondary: 10 100% 71%;
+    /* Coral #FF7F6B */
+    --dashboard-accent: 36 92% 55%;
+    /* Amber #F5A623 */
+    --dashboard-gold: 42 93% 44%;
+    /* Gold #D4940A */
+
+    /* Text hierarchy */
+    --dashboard-text-primary: 0 0% 100%;
+    --dashboard-text-secondary: 240 5% 72%;
+    --dashboard-text-muted: 240 4% 46%;
+
+    /* Borders */
+    --dashboard-border-subtle: rgba(255, 255, 255, 0.06);
+    --dashboard-border-default: rgba(255, 255, 255, 0.1);
+    --dashboard-border-accent: rgba(229, 72, 104, 0.3);
+  }
+}
+
+/* ========================================
+   DARK GLASSMORPHISM UTILITIES
+   ======================================== */
+
+/* Basic dark glass - subtle frosted effect */
+.glass-dark {
+  @apply backdrop-blur-xl border;
+  background: rgba(26, 26, 31, 0.8);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 4px 30px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Strong dark glass - more prominent */
+.glass-dark-strong {
+  @apply backdrop-blur-2xl border;
+  background: rgba(36, 36, 41, 0.9);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 8px 40px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Subtle dark glass - very light effect */
+.glass-dark-subtle {
+  @apply backdrop-blur-lg border;
+  background: rgba(20, 20, 24, 0.6);
+  border-color: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* Colored dark glass variations - warm palette */
+.glass-dark-raspberry {
+  @apply backdrop-blur-xl border;
+  background: rgba(229, 72, 104, 0.1);
+  border-color: rgba(229, 72, 104, 0.25);
+  box-shadow:
+    0 4px 30px rgba(229, 72, 104, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.glass-dark-coral {
+  @apply backdrop-blur-xl border;
+  background: rgba(255, 127, 107, 0.1);
+  border-color: rgba(255, 127, 107, 0.25);
+  box-shadow:
+    0 4px 30px rgba(255, 127, 107, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.glass-dark-amber {
+  @apply backdrop-blur-xl border;
+  background: rgba(245, 166, 35, 0.1);
+  border-color: rgba(245, 166, 35, 0.25);
+  box-shadow:
+    0 4px 30px rgba(245, 166, 35, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.glass-dark-gold {
+  @apply backdrop-blur-xl border;
+  background: rgba(212, 148, 10, 0.1);
+  border-color: rgba(212, 148, 10, 0.25);
+  box-shadow:
+    0 4px 30px rgba(212, 148, 10, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ========================================
+   DARK THEME GLOW EFFECTS
+   ======================================== */
+
+/* Dark theme glows - more visible on dark backgrounds */
+.glow-dark-raspberry {
+  box-shadow:
+    0 0 40px rgba(229, 72, 104, 0.3),
+    0 0 80px rgba(229, 72, 104, 0.15),
+    0 0 120px rgba(229, 72, 104, 0.08);
+}
+
+.glow-dark-coral {
+  box-shadow:
+    0 0 40px rgba(255, 127, 107, 0.3),
+    0 0 80px rgba(255, 127, 107, 0.15),
+    0 0 120px rgba(255, 127, 107, 0.08);
+}
+
+.glow-dark-amber {
+  box-shadow:
+    0 0 40px rgba(245, 166, 35, 0.3),
+    0 0 80px rgba(245, 166, 35, 0.15),
+    0 0 120px rgba(245, 166, 35, 0.08);
+}
+
+/* Interactive hover glows for dark theme */
+.hover-glow-dark-raspberry {
+  @apply transition-shadow duration-500;
+}
+
+.hover-glow-dark-raspberry:hover {
+  box-shadow:
+    0 0 40px rgba(229, 72, 104, 0.35),
+    0 0 80px rgba(229, 72, 104, 0.2),
+    0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.hover-glow-dark-amber {
+  @apply transition-shadow duration-500;
+}
+
+.hover-glow-dark-amber:hover {
+  box-shadow:
+    0 0 40px rgba(245, 166, 35, 0.35),
+    0 0 80px rgba(245, 166, 35, 0.2),
+    0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* ========================================
+   DARK THEME DEPTH & ELEVATION
+   ======================================== */
+
+/* Dark layered depth shadows */
+.depth-dark-sm {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 2px 4px rgba(0, 0, 0, 0.15),
+    0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.depth-dark-md {
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.2),
+    0 4px 8px rgba(0, 0, 0, 0.15),
+    0 8px 16px rgba(0, 0, 0, 0.1),
+    0 16px 32px rgba(0, 0, 0, 0.08);
+}
+
+.depth-dark-lg {
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.15),
+    0 8px 15px rgba(0, 0, 0, 0.12),
+    0 16px 30px rgba(0, 0, 0, 0.1),
+    0 32px 60px rgba(0, 0, 0, 0.08);
+}
+
+/* Dark card elevated effect */
+.card-dark-elevated {
+  @apply transition-all duration-500;
+  background: rgba(26, 26, 31, 0.8);
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.15),
+    0 10px 20px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.card-dark-elevated:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 8px 15px rgba(0, 0, 0, 0.2),
+    0 20px 40px rgba(0, 0, 0, 0.25),
+    0 0 60px rgba(229, 72, 104, 0.1),
+    0 0 0 1px rgba(229, 72, 104, 0.15);
+}
+
+/* Premium dark floating glass card */
+.card-glass-dark-elevated {
+  @apply backdrop-blur-xl border transition-all duration-500;
+  background: rgba(26, 26, 31, 0.85);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.25),
+    0 8px 40px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.card-glass-dark-elevated:hover {
+  transform: translateY(-6px);
+  background: rgba(36, 36, 41, 0.9);
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.3),
+    0 24px 60px rgba(229, 72, 104, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* ========================================
+   DARK THEME GRAIN TEXTURES
+   ======================================== */
+
+/* Grain for dark dashboard backgrounds */
+.grain-dashboard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ========================================
+   DASHBOARD UTILITY CLASSES
+   ======================================== */
+
+/* Dashboard backgrounds */
+.bg-dashboard-base {
+  background-color: hsl(var(--dashboard-bg-base));
+}
+
+.bg-dashboard-elevated {
+  background-color: hsl(var(--dashboard-bg-elevated));
+}
+
+.bg-dashboard-surface {
+  background-color: hsl(var(--dashboard-bg-surface));
+}
+
+/* Dashboard text colors */
+.text-dashboard-primary {
+  color: hsl(var(--dashboard-text-primary));
+}
+
+.text-dashboard-secondary {
+  color: hsl(var(--dashboard-text-secondary));
+}
+
+.text-dashboard-muted {
+  color: hsl(var(--dashboard-text-muted));
+}
+
+/* Dashboard borders */
+.border-dashboard-subtle {
+  border-color: var(--dashboard-border-subtle);
+}
+
+.border-dashboard-default {
+  border-color: var(--dashboard-border-default);
+}
+
+/* Dashboard accent gradients */
+.gradient-dashboard-primary {
+  background: linear-gradient(135deg, hsl(var(--dashboard-primary)), hsl(var(--dashboard-secondary)));
+}
+
+.gradient-dashboard-warm {
+  background: linear-gradient(135deg, hsl(var(--dashboard-secondary)), hsl(var(--dashboard-accent)));
+}
+
+.gradient-dashboard-gold {
+  background: linear-gradient(135deg, hsl(var(--dashboard-accent)), hsl(var(--dashboard-gold)));
+}
+
+/* Dashboard aurora for dark backgrounds */
+.aurora-dashboard {
+  background:
+    radial-gradient(ellipse 80% 80% at 50% -20%, rgba(229, 72, 104, 0.12), transparent),
+    radial-gradient(ellipse 50% 50% at 80% 50%, rgba(255, 127, 107, 0.08), transparent),
+    radial-gradient(ellipse 60% 60% at 20% 80%, rgba(245, 166, 35, 0.06), transparent);
 }

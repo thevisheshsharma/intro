@@ -17,8 +17,17 @@ const buttonVariants = cva(
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
-        primaryOutline:
-          "bg-transparent text-white border border-blue-600 hover:bg-blue-600 hover:text-white hover:shadow-md transition-shadow",
+        // Brand variants for marketing - warm raspberry primary
+        brand: "bg-berri-raspberry hover:bg-berri-raspberry/90 text-white shadow-lg shadow-berri-raspberry/20 hover:shadow-xl hover:shadow-berri-raspberry/30 transition-all",
+        brandAction: "bg-berri-raspberry hover:bg-berri-raspberry/90 text-white shadow-lg shadow-berri-raspberry/20 hover:shadow-xl hover:shadow-berri-raspberry/30 transition-all",
+        brandAccent: "bg-berri-amber hover:bg-berri-gold text-white shadow-lg shadow-berri-amber/20 hover:shadow-xl hover:shadow-berri-gold/30 transition-all",
+        brandOutline: "bg-transparent text-berri-raspberry border border-berri-raspberry hover:bg-berri-raspberry hover:text-white transition-all",
+        brandOutlineAccent: "bg-transparent text-berri-amber border border-berri-amber hover:bg-berri-amber hover:text-white transition-all",
+        // Dark mode variants for dashboard
+        brandActionDark: "bg-gradient-to-r from-berri-raspberry to-berri-coral hover:from-berri-raspberry/90 hover:to-berri-coral/90 text-white shadow-lg shadow-berri-raspberry/30 hover:shadow-xl hover:shadow-berri-raspberry/40 transition-all",
+        brandAccentDark: "bg-gradient-to-r from-berri-amber to-berri-gold hover:from-berri-amber/90 hover:to-berri-gold/90 text-white shadow-lg shadow-berri-amber/30 hover:shadow-xl hover:shadow-berri-gold/40 transition-all",
+        brandOutlineDark: "bg-transparent text-berri-raspberry border border-berri-raspberry/50 hover:bg-berri-raspberry/10 hover:border-berri-raspberry transition-all",
+        brandGhost: "bg-white/5 text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all",
       },
       size: {
         default: "h-10 px-4 py-2",
@@ -36,7 +45,7 @@ const buttonVariants = cva(
 
 interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+  VariantProps<typeof buttonVariants> {
   asChild?: boolean
 }
 

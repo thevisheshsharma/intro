@@ -3,8 +3,8 @@
 
 import React, { useState, useEffect } from 'react'
 import { useUser } from '@clerk/nextjs'
-import { 
-  Bot, 
+import {
+  Bot,
   Loader,
   CheckCircle
 } from 'lucide-react'
@@ -13,7 +13,7 @@ import { ErrorDisplay } from '@/components/ui/error-display'
 import { EnhancedICPDisplay } from '@/components/icp/enhanced-icp-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { lookupTwitterUser, transformTwitterUser } from '../../lib/twitter-helpers'
-import SearchForm from '@/app/SearchForm'
+import SearchForm from '@/components/SearchForm'
 
 // Organization type definition (moved from deleted organization.ts)
 interface Organization {
@@ -65,17 +65,17 @@ export default function ManageOrgPanel() {
     try {
       setLoading(true)
       setError(null)
-      
+
       console.log('🔄 Loading organization data...')
-      
+
       // Just get any previously searched organization from local storage or state
       const lastSearched = localStorage.getItem('lastSearchedOrg')
       console.log('💾 Last searched from localStorage:', lastSearched)
-      
+
       if (lastSearched) {
         console.log('🏢 Fetching organization for:', lastSearched)
         setSearchValue(lastSearched) // Set the search value immediately
-        
+
         try {
           // First try to lookup the Twitter user to set the profile
           const userData = await lookupTwitterUser(lastSearched)
@@ -85,12 +85,12 @@ export default function ManageOrgPanel() {
         } catch (twitterError) {
           console.log('⚠️ Could not load Twitter profile on refresh:', twitterError)
         }
-        
+
         const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${lastSearched}`)
         const data = await response.json()
-        
+
         console.log('📊 Load organization response:', { status: response.status, data })
-        
+
         if (response.ok && data.organization) {
           setOrganization(data.organization)
           console.log('✅ Organization loaded:', data.organization)
@@ -124,9 +124,9 @@ export default function ManageOrgPanel() {
       setAnalyzing(true)
       setError(null)
       setSuccess(null)
-      
+
       let usernameToAnalyze = ''
-      
+
       if (organization) {
         // Use existing organization's username
         usernameToAnalyze = organization.twitter_username.replace(/^@/, '').toLowerCase()
@@ -139,9 +139,9 @@ export default function ManageOrgPanel() {
         setError('Please search for an organization first')
         return
       }
-      
+
       console.log('🤖 Starting Grok analysis for:', usernameToAnalyze)
-      
+
       const response = await fetch('/api/grok-analyze-org', {
         method: 'POST',
         headers: {
@@ -152,26 +152,26 @@ export default function ManageOrgPanel() {
         })
       })
       const data = await response.json()
-      
+
       console.log('🤖 Grok analysis response:', { status: response.status, data })
-      
+
       if (!response.ok) {
         throw new Error(data.error || 'Failed to analyze ICP')
       }
-      
+
       // Update both organization and ICP from the response
       if (data.organization) {
         setOrganization(data.organization)
         console.log('✅ Organization updated from analysis:', data.organization)
       }
-      
+
       if (data.icp) {
         setIcp(data.icp)
         console.log('✅ ICP created/updated:', data.icp)
       }
-      
+
       setSuccess(data.fromCache ? 'Loaded existing ICP analysis from cache!' : 'ICP analysis completed successfully!')
-      
+
       // Update localStorage to ensure persistence
       if (usernameToAnalyze) {
         localStorage.setItem('lastSearchedOrg', usernameToAnalyze)
@@ -189,7 +189,7 @@ export default function ManageOrgPanel() {
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!searchValue.trim()) return
-    
+
     console.log('🔍 Starting search for:', searchValue)
     setError(null)
     setSuccess(null)
@@ -197,33 +197,33 @@ export default function ManageOrgPanel() {
     setOrganization(null)
     setIcp(null)
     setSearching(true)
-    
+
     try {
       // Normalize username: remove '@' and lowercase
       const normalizedUsername = searchValue.replace(/^@/, '').toLowerCase()
       console.log('🔍 Normalized username:', normalizedUsername)
-      
+
       // Save to local storage
       localStorage.setItem('lastSearchedOrg', normalizedUsername)
       console.log('💾 Saved to localStorage:', normalizedUsername)
-      
+
       // Lookup Twitter user
       console.log('🐦 Looking up Twitter user...')
       const userData = await lookupTwitterUser(normalizedUsername)
       const profile = transformTwitterUser(userData)
       setOrgTwitterProfile(profile)
       console.log('✅ Twitter profile found:', profile)
-      
+
       // Load org data (now checks globally, not user-specific)
       console.log('🏢 Fetching organization data...')
-      
+
       const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${normalizedUsername}`)
       const data = await response.json()
-      
+
       console.log('📊 Organization API response:', { status: response.status, data })
-      
+
       if (!response.ok) throw new Error(data.error || 'Failed to load organization')
-      
+
       if (data.organization) {
         setOrganization(data.organization)
         console.log('✅ Organization loaded:', data.organization)
@@ -324,7 +324,7 @@ export default function ManageOrgPanel() {
                   <Bot className="w-12 h-12 text-blue-400 mx-auto mb-4" />
                   <h3 className="text-lg font-semibold text-white mb-2">Ready to Analyze Your ICP?</h3>
                   <p className="text-gray-400 mb-4">
-                    {organization 
+                    {organization
                       ? "Organization found in our database. Let Grok analyze and create a comprehensive Ideal Customer Profile."
                       : "Organization not in our database yet. Let Grok analyze this Twitter profile and create a comprehensive Ideal Customer Profile using live web search and AI insights."
                     }
