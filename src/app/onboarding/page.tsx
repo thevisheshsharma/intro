@@ -44,6 +44,7 @@ export default function OnboardingPage() {
         if (ready && authenticated && hasTwitter && currentStep === 'connect-twitter') {
             startAnalysis()
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ready, authenticated, hasTwitter, currentStep])
 
     const startAnalysis = useCallback(async () => {

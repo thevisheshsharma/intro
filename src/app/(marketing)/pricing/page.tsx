@@ -349,11 +349,10 @@ export default function PricingPage() {
                             <motion.div
                                 initial={{ opacity: 0, y: -10 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                className={`mt-6 px-6 py-3 rounded-xl text-sm font-medium ${
-                                    checkoutMessage.type === 'success'
-                                        ? 'bg-green-100 text-green-800 border border-green-200'
-                                        : 'bg-red-100 text-red-800 border border-red-200'
-                                }`}
+                                className={`mt-6 px-6 py-3 rounded-xl text-sm font-medium ${checkoutMessage.type === 'success'
+                                    ? 'bg-green-100 text-green-800 border border-green-200'
+                                    : 'bg-red-100 text-red-800 border border-red-200'
+                                    }`}
                             >
                                 {checkoutMessage.text}
                             </motion.div>
@@ -723,7 +722,7 @@ export default function PricingPage() {
                                 ))}
                             </div>
                             <p className="text-sm text-gray-600 max-w-sm">
-                                <span className="font-semibold text-gray-900">"Berri helped us close our seed round in 4 weeks"</span>
+                                <span className="font-semibold text-gray-900">&quot;Berri helped us close our seed round in 4 weeks&quot;</span>
                                 {' '}— founders from Protocol Labs, Framework, Paradigm
                             </p>
                         </motion.div>

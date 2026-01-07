@@ -54,6 +54,7 @@ export default function TwitterPage() {
         fetchUserStats(username)
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, authenticated, user])
 
   // Fetch user stats from the API
@@ -154,91 +155,91 @@ export default function TwitterPage() {
 
   return (
     <FeatureGate feature="pathfinder">
-    <div className="min-h-screen py-8 px-6 lg:px-10">
-      <div className="max-w-4xl mx-auto">
-        {/* Dashboard Header with Date, Profile Card, Stats */}
-        <DashboardHeader
-          user={{
-            firstName: twitterUsername || undefined,
-            imageUrl: undefined // Privy doesn't provide profile images directly
-          }}
-          profile={userProfile}
-          stats={userStats}
-        />
-
-        {/* Search - Width = 2 quick action cards + 1 gap */}
-        <section className="mb-8" style={{ width: hasResults ? '100%' : 'calc((100% - 40px) * 2/3 + 20px)' }}>
-          <SearchForm
-            ref={searchInputRef}
-            value={searchUsername}
-            onChange={setSearchUsername}
-            onSubmit={handleSearchSubmit}
-            loading={followingsLoading}
+      <div className="min-h-screen py-8 px-6 lg:px-10">
+        <div className="max-w-4xl mx-auto">
+          {/* Dashboard Header with Date, Profile Card, Stats */}
+          <DashboardHeader
+            user={{
+              firstName: twitterUsername || undefined,
+              imageUrl: undefined // Privy doesn't provide profile images directly
+            }}
+            profile={userProfile}
+            stats={userStats}
           />
-        </section>
 
-        {/* Quick Actions - only show when no results */}
-        {!hasResults && (
-          <section className="mb-10">
-            <QuickActions onSearchFocus={focusSearch} />
+          {/* Search - Width = 2 quick action cards + 1 gap */}
+          <section className="mb-8" style={{ width: hasResults ? '100%' : 'calc((100% - 40px) * 2/3 + 20px)' }}>
+            <SearchForm
+              ref={searchInputRef}
+              value={searchUsername}
+              onChange={setSearchUsername}
+              onSubmit={handleSearchSubmit}
+              loading={followingsLoading}
+            />
           </section>
-        )}
 
-        {/* Error */}
-        {searchError && (
-          <div className="mb-6">
-            <ErrorDisplay message={searchError} compact={true} />
-          </div>
-        )}
+          {/* Quick Actions - only show when no results */}
+          {!hasResults && (
+            <section className="mb-10">
+              <QuickActions onSearchFocus={focusSearch} />
+            </section>
+          )}
 
-        {/* Results */}
-        {hasResults && (
-          <section className="space-y-6">
-            {/* Profile + Connections Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Profile Card */}
-              {searchedProfile && (
-                <div className="lg:col-span-4">
-                  <SearchedProfileCard user={searchedProfile} />
+          {/* Error */}
+          {searchError && (
+            <div className="mb-6">
+              <ErrorDisplay message={searchError} compact={true} />
+            </div>
+          )}
+
+          {/* Results */}
+          {hasResults && (
+            <section className="space-y-6">
+              {/* Profile + Connections Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Profile Card */}
+                {searchedProfile && (
+                  <div className="lg:col-span-4">
+                    <SearchedProfileCard user={searchedProfile} />
+                  </div>
+                )}
+
+                {/* Direct Connections */}
+                <div className={searchedProfile ? 'lg:col-span-8' : 'lg:col-span-12'}>
+                  {directConnections && (
+                    <DirectConnectionsSection
+                      connections={directConnections}
+                      prospectScreenName={searchUsername.replace('@', '')}
+                      loading={followingsLoading}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Introducers Table */}
+              {followings.length > 0 && (
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-100">
+                    <h2 className="text-[15px] font-semibold text-gray-900">
+                      People who can introduce you
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      {followings.length} mutual connection{followings.length !== 1 ? 's' : ''} found
+                    </p>
+                  </div>
+                  <div className="p-6">
+                    <EnhancedMutualsTable
+                      mutuals={followings}
+                      loading={followingsLoading}
+                      searchedUserScreenName={searchUsername.replace('@', '')}
+                    />
+                  </div>
                 </div>
               )}
-
-              {/* Direct Connections */}
-              <div className={searchedProfile ? 'lg:col-span-8' : 'lg:col-span-12'}>
-                {directConnections && (
-                  <DirectConnectionsSection
-                    connections={directConnections}
-                    prospectScreenName={searchUsername.replace('@', '')}
-                    loading={followingsLoading}
-                  />
-                )}
-              </div>
-            </div>
-
-            {/* Introducers Table */}
-            {followings.length > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100">
-                  <h2 className="text-[15px] font-semibold text-gray-900">
-                    People who can introduce you
-                  </h2>
-                  <p className="text-sm text-gray-500 mt-0.5">
-                    {followings.length} mutual connection{followings.length !== 1 ? 's' : ''} found
-                  </p>
-                </div>
-                <div className="p-6">
-                  <EnhancedMutualsTable
-                    mutuals={followings}
-                    loading={followingsLoading}
-                    searchedUserScreenName={searchUsername.replace('@', '')}
-                  />
-                </div>
-              </div>
-            )}
-          </section>
-        )}
+            </section>
+          )}
+        </div>
       </div>
-    </div>
     </FeatureGate>
   )
 }

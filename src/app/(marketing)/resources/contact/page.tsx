@@ -42,12 +42,10 @@ export default function ContactPage() {
 
     // Initialize Cal.com embed
     useEffect(() => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const w = window as any
 
         // Cal.com IIFE initialization
         ;(function (C, A, L) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const p = function (a: any, ar: any) { a.q.push(ar) }
             const d = C.document
             C.Cal = C.Cal || function () {
@@ -63,7 +61,6 @@ export default function ContactPage() {
                 if (ar[0] === L) {
                     const api = function () { p(api, arguments) }
                     const namespace = ar[1]
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     ;(api as any).q = (api as any).q || []
                     if (typeof namespace === 'string') {
                         cal.ns[namespace] = cal.ns[namespace] || api
@@ -169,11 +166,11 @@ export default function ContactPage() {
                             </span>
 
                             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-heading font-extrabold tracking-tight text-gray-900 mb-6">
-                                Let's Talk
+                                Let&apos;s Talk
                             </h1>
 
                             <p className="text-lg text-gray-600 mb-10 max-w-md">
-                                Have questions about Berri? Want a personalized demo? We'd love to hear from you.
+                                Have questions about Berri? Want a personalized demo? We&apos;d love to hear from you.
                             </p>
 
                             {/* Contact Info Cards */}
@@ -237,7 +234,7 @@ export default function ContactPage() {
                                     <>
                                         <h2 className="text-2xl font-heading font-bold mb-2">Get in Touch</h2>
                                         <p className="text-gray-500 mb-8">
-                                            Fill out the form and we'll get back to you within 24 hours.
+                                            Fill out the form and we&apos;ll get back to you within 24 hours.
                                         </p>
 
                                         <form onSubmit={handleSubmit} className="space-y-5">
@@ -374,7 +371,7 @@ export default function ContactPage() {
                             Schedule a Call
                         </h2>
                         <p className="text-gray-600">
-                            Pick a time that works for you. We'll answer any questions.
+                            Pick a time that works for you. We&apos;ll answer any questions.
                         </p>
                     </motion.div>
 

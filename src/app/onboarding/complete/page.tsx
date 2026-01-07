@@ -141,7 +141,7 @@ export default function OnboardingCompletePage() {
                         transition={{ delay: 0.4 }}
                         className="text-gray-600"
                     >
-                        Here's what we discovered about your network
+                        Here&apos;s what we discovered about your network
                     </motion.p>
                 </div>
 

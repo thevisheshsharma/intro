@@ -359,7 +359,7 @@ export default function GrovePage() {
                                         <Building2 className="w-3 h-3 mr-1" />
                                         Featured Story
                                     </span>
-                                    <p className="text-sm text-gray-600 italic mb-4">"{featuredStory.quote}"</p>
+                                    <p className="text-sm text-gray-600 italic mb-4">&quot;{featuredStory.quote}&quot;</p>
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <div className="w-6 h-6 rounded-full bg-gradient-to-br from-berri-raspberry to-berri-coral" />
@@ -461,7 +461,7 @@ export default function GrovePage() {
                                                     </div>
                                                 ))}
                                             </div>
-                                            <p className="text-xs text-gray-600 italic mb-3 line-clamp-2">"{item.quote}"</p>
+                                            <p className="text-xs text-gray-600 italic mb-3 line-clamp-2">&quot;{item.quote}&quot;</p>
                                             <div className="flex items-center justify-between">
                                                 <span className="text-xs text-gray-500">{item.author}</span>
                                                 <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-berri-raspberry transition-colors" />

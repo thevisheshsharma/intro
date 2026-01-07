@@ -40,34 +40,34 @@ export default function ManageOrgPanel() {
   }
 
   useEffect(() => {
+    const loadOrganizationData = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const lastSearched = localStorage.getItem('lastSearchedOrg')
+        if (lastSearched) {
+          setSearchValue(lastSearched)
+          try {
+            const userData = await lookupTwitterUser(lastSearched)
+            const profile = transformTwitterUser(userData)
+            setOrgTwitterProfile(profile)
+          } catch (e) { }
+          const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${lastSearched}`)
+          const data = await response.json()
+          if (response.ok && data.organization) {
+            setOrganization(data.organization)
+            if (data.icp && !isICPAnalysisStale(data.icp)) setIcp(data.icp)
+          }
+        }
+      } catch (error: any) {
+        setError(error.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+
     if (ready && authenticated && user) loadOrganizationData()
   }, [ready, authenticated, user])
-
-  const loadOrganizationData = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const lastSearched = localStorage.getItem('lastSearchedOrg')
-      if (lastSearched) {
-        setSearchValue(lastSearched)
-        try {
-          const userData = await lookupTwitterUser(lastSearched)
-          const profile = transformTwitterUser(userData)
-          setOrgTwitterProfile(profile)
-        } catch (e) { }
-        const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${lastSearched}`)
-        const data = await response.json()
-        if (response.ok && data.organization) {
-          setOrganization(data.organization)
-          if (data.icp && !isICPAnalysisStale(data.icp)) setIcp(data.icp)
-        }
-      }
-    } catch (error: any) {
-      setError(error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleAnalyzeICP = async () => {
     try {
