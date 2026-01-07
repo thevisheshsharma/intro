@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { verifyPrivyToken, getPrivyUser, extractTwitterFromPrivyUser, extractEmailFromPrivyUser } from '@/lib/privy'
 import { fetchTwitterProfile, classifyProfileComplete } from '@/lib/classifier'
 import { createUserWithTrial } from '@/lib/subscription'
@@ -39,16 +40,26 @@ export async function POST(request: NextRequest) {
 
         console.log(`[Onboarding] Created job ${jobId}`)
 
-        // Start async analysis (don't await)
-        runAnalysis(jobId, userId, twitterUsername, email).catch(async err => {
-            console.error('Analysis failed:', err)
-            const job = await analysisJobs.get(jobId)
-            if (job) {
-                job.status = 'error'
-                job.error = err.message
-                await analysisJobs.set(jobId, job)
+        // Use waitUntil to keep the function alive for background analysis
+        // This is critical for Vercel serverless - without it, the function terminates
+        // immediately after returning the response, killing the background work
+        const analysisPromise = runAnalysis(jobId, userId, twitterUsername, email).catch(async err => {
+            console.error('[Onboarding] Analysis failed:', err)
+            try {
+                const job = await analysisJobs.get(jobId)
+                if (job) {
+                    job.status = 'error'
+                    job.error = err.message
+                    await analysisJobs.set(jobId, job)
+                }
+            } catch (setError) {
+                console.error('[Onboarding] Failed to set error state:', setError)
             }
         })
+
+        // waitUntil keeps the serverless function alive until the promise resolves
+        // while still allowing us to return a response immediately
+        waitUntil(analysisPromise)
 
         return NextResponse.json({
             jobId,

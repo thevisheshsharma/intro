@@ -23,17 +23,31 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
         }
 
-        const totalJobs = await analysisJobs.size()
-        console.log(`[Onboarding Status] Looking for job ${jobId} - total jobs in DB: ${totalJobs}`)
+        console.log(`[Onboarding Status] Looking for job ${jobId}`)
 
-        const job = await analysisJobs.get(jobId)
+        let job
+        try {
+            job = await analysisJobs.get(jobId)
+        } catch (dbError: any) {
+            console.error(`[Onboarding Status] DB error fetching job ${jobId}:`, dbError.message)
+            // Return a pending status on DB error to allow retries
+            return NextResponse.json({
+                status: 'processing',
+                step: 'initializing',
+                stepLabel: 'Connecting to database...',
+                progress: 5
+            })
+        }
 
         if (!job) {
-            console.log(`[Onboarding Status] Job ${jobId} not found in DB.`)
+            console.log(`[Onboarding Status] Job ${jobId} not found in DB - may still be initializing`)
+            // Return pending instead of 404 for recently created jobs that haven't been written yet
             return NextResponse.json({
-                error: 'Job not found',
-                status: 'not_found'
-            }, { status: 404 })
+                status: 'processing',
+                step: 'initializing',
+                stepLabel: 'Initializing analysis...',
+                progress: 0
+            })
         }
 
         // Clean up old jobs (older than 60 minutes - matching the DB expiry)

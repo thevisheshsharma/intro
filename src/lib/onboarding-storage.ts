@@ -42,41 +42,63 @@ import { runQuery } from './neo4j'
 // Global job storage - persists in Neo4j for serverless environments
 export const analysisJobs = {
     async get(jobId: string): Promise<OnboardingJob | undefined> {
-        const query = `
-            MATCH (j:OnboardingJob {jobId: $jobId})
-            RETURN j
-        `
-        const results = await runQuery(query, { jobId })
-        if (results.length === 0) return undefined
+        try {
+            const query = `
+                MATCH (j:OnboardingJob {jobId: $jobId})
+                RETURN j
+            `
+            const results = await runQuery(query, { jobId })
+            if (results.length === 0) return undefined
 
-        const props = results[0].j.properties
-        return {
-            ...props,
-            result: props.result ? JSON.parse(props.result) : undefined,
-            startedAt: new Date(props.startedAt)
+            // Handle both direct properties and nested .properties object
+            const node = results[0].j
+            const props = node?.properties || node
+
+            if (!props || !props.status) {
+                console.warn(`[OnboardingStorage] Invalid job data for ${jobId}:`, props)
+                return undefined
+            }
+
+            return {
+                status: props.status,
+                step: props.step,
+                progress: typeof props.progress === 'object' ? props.progress.low : props.progress,
+                error: props.error || undefined,
+                result: props.result ? JSON.parse(props.result) : undefined,
+                startedAt: new Date(props.startedAt)
+            }
+        } catch (error: any) {
+            console.error(`[OnboardingStorage] Error getting job ${jobId}:`, error.message)
+            return undefined
         }
     },
 
     async set(jobId: string, job: OnboardingJob): Promise<void> {
-        const query = `
-            MERGE (j:OnboardingJob {jobId: $jobId})
-            SET j.status = $status,
-                j.step = $step,
-                j.progress = toInteger($progress),
-                j.error = $error,
-                j.startedAt = $startedAt,
-                j.result = $result,
-                j.expiresAt = datetime() + duration({minutes: 60})
-        `
-        await runQuery(query, {
-            jobId,
-            status: job.status,
-            step: job.step,
-            progress: job.progress,
-            error: job.error || null,
-            startedAt: job.startedAt.toISOString(),
-            result: job.result ? JSON.stringify(job.result) : null
-        })
+        try {
+            const query = `
+                MERGE (j:OnboardingJob {jobId: $jobId})
+                SET j.status = $status,
+                    j.step = $step,
+                    j.progress = toInteger($progress),
+                    j.error = $error,
+                    j.startedAt = $startedAt,
+                    j.result = $result,
+                    j.expiresAt = datetime() + duration({minutes: 60})
+            `
+            await runQuery(query, {
+                jobId,
+                status: job.status,
+                step: job.step,
+                progress: job.progress,
+                error: job.error || null,
+                startedAt: job.startedAt.toISOString(),
+                result: job.result ? JSON.stringify(job.result) : null
+            })
+            console.log(`[OnboardingStorage] Job ${jobId} updated: ${job.status} - ${job.step}`)
+        } catch (error: any) {
+            console.error(`[OnboardingStorage] Error setting job ${jobId}:`, error.message)
+            throw error // Re-throw to propagate to caller
+        }
     },
 
     async size(): Promise<number> {

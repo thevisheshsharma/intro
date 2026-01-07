@@ -27,6 +27,7 @@
     "encoding": "^0.1.13",
     "framer-motion": "^11.0.0",
     "lucide-react": "^0.562.0",
+    "@vercel/functions": "^1.4.0",
     "neo4j-driver": "^5.28.1",
     "next": "13.5.7",
     "node-cron": "^4.2.1",
