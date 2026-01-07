@@ -11,8 +11,13 @@ function createDriver(): Driver {
   const maskedUri = uri.replace(/\/\/.*:.*@/, '//***:***@')
   console.log(`[Neo4j] Initializing driver with URI: ${maskedUri}`)
 
+  if (uri.startsWith('neo4j://') || uri.startsWith('neo4js://')) {
+    console.warn('[Neo4j] ⚠️ WARNING: Using "neo4j://" routing protocol in serverless environments (Vercel) is often unstable.')
+    console.warn('[Neo4j] 💡 RECOMMENDED: Change your NEO4J_URI to use "bolt+s://" (e.g., bolt+s://<your-db-id>.databases.neo4j.io)')
+  }
+
   return neo4j.driver(uri, neo4j.auth.basic(user, password), {
-    maxConnectionPoolSize: 10,          // Recommended for Aura Free/Serverless to avoid exhausting connections
+    maxConnectionPoolSize: 5,           // Lowered even more for highly concurrent serverless environments
     connectionTimeout: 30000,           // 30 seconds connection timeout
     maxConnectionLifetime: 600000,      // 10 minutes connection lifetime
     connectionAcquisitionTimeout: 20000 // 20 seconds to acquire a connection from the pool
@@ -63,7 +68,8 @@ export async function runQuery<T = any>(
 
       const isConnectionError = error.code === 'ServiceUnavailable' ||
         error.code === 'SessionExpired' ||
-        error.message?.includes('Could not perform discovery') ||
+        error.message?.toLowerCase().includes('discovery') ||
+        error.message?.toLowerCase().includes('established connection') ||
         error.retriable === true
 
       if ((isDeadlock || isConstraintViolation || isConnectionError) && attempt < maxRetries) {
@@ -72,13 +78,16 @@ export async function runQuery<T = any>(
         else if (isConstraintViolation) errorType = 'Constraint violation'
         else if (isConnectionError) errorType = 'Connection/Discovery failure'
 
-        console.warn(`⚠️ ${errorType} detected on attempt ${attempt}/${maxRetries}, retrying after delay...`)
+        console.warn(`[Neo4j] ⚠️ ${errorType} detected on attempt ${attempt}/${maxRetries}, retrying after delay...`)
         // Wait with exponential backoff (longer for connection errors)
-        const baseDelay = isConnectionError ? 500 : 100
+        const baseDelay = isConnectionError ? 1000 : 100
         const delay = Math.min(baseDelay * Math.pow(2, attempt - 1), 5000)
         await new Promise(resolve => setTimeout(resolve, delay))
       } else {
-        // For other errors or if we've run out of retries, throw
+        // For other errors or if we've run out of retries, log the final failure and throw
+        if (attempt === maxRetries) {
+          console.error(`[Neo4j] ❌ Failed after ${maxRetries} attempts. Final error:`, error.message)
+        }
         throw error
       }
     } finally {
@@ -86,8 +95,6 @@ export async function runQuery<T = any>(
     }
   }
 
-  // If we get here, all retries failed
-  console.error(`❌ All ${maxRetries} attempts failed due to deadlocks`)
   throw lastError
 }
 
@@ -142,56 +149,55 @@ export async function runBatchQuery<T = any>(
 
 // Initialize the database schema (constraints and indexes)
 export async function initializeSchema(): Promise<void> {
-  const session = await getSession()
   try {
+    console.log('[Neo4j] Initializing schema (constraints and indexes)...')
+
     // Create uniqueness constraint on User.userId (automatically creates index)
-    await session.run(`
+    await runQuery(`
       CREATE CONSTRAINT user_id_unique IF NOT EXISTS
       FOR (u:User) REQUIRE u.userId IS UNIQUE
     `)
 
     // Create index on User.screenName for fast lookups
-    await session.run(`
+    await runQuery(`
       CREATE INDEX user_screen_name_index IF NOT EXISTS
       FOR (u:User) ON (u.screenName)
     `)
 
     // Create index on User.screenNameLower for case-insensitive lookups (avoids toLower() overhead)
-    await session.run(`
+    await runQuery(`
       CREATE INDEX user_screen_name_lower_index IF NOT EXISTS
       FOR (u:User) ON (u.screenNameLower)
     `)
 
     // Create index on User.vibe for organization filtering
-    await session.run(`
+    await runQuery(`
       CREATE INDEX user_vibe_index IF NOT EXISTS
       FOR (u:User) ON (u.vibe)
     `)
 
     // Create index on User.department for department matching
-    await session.run(`
+    await runQuery(`
       CREATE INDEX user_department_index IF NOT EXISTS
       FOR (u:User) ON (u.department)
     `)
 
     // Create uniqueness constraint on OnboardingJob.jobId
-    await session.run(`
+    await runQuery(`
       CREATE CONSTRAINT onboarding_job_id_unique IF NOT EXISTS
       FOR (j:OnboardingJob) REQUIRE j.jobId IS UNIQUE
     `)
 
     // Create index on OnboardingJob.startedAt for expiration cleanup
-    await session.run(`
+    await runQuery(`
       CREATE INDEX onboarding_job_started_at_index IF NOT EXISTS
       FOR (j:OnboardingJob) ON (j.startedAt)
     `)
 
-    console.log('Neo4j schema initialized successfully')
-  } catch (error) {
-    console.error('Failed to initialize Neo4j schema:', error)
+    console.log('[Neo4j] Schema initialized successfully')
+  } catch (error: any) {
+    console.error('[Neo4j] Failed to initialize schema:', error.message)
     throw error
-  } finally {
-    await session.close()
   }
 }
 
