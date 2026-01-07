@@ -198,12 +198,10 @@ const NetworkSphere = () => {
 export default function CTA() {
     // Initialize Cal.com embed for popup
     useEffect(() => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const w = window as any
 
             // Cal.com IIFE initialization
             ; (function (C, A, L) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const p = function (a: any, ar: any) { a.q.push(ar) }
                 const d = C.document
                 C.Cal = C.Cal || function () {
@@ -219,7 +217,6 @@ export default function CTA() {
                     if (ar[0] === L) {
                         const api = function () { p(api, arguments) }
                         const namespace = ar[1]
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             ; (api as any).q = (api as any).q || []
                         if (typeof namespace === 'string') {
                             cal.ns[namespace] = cal.ns[namespace] || api

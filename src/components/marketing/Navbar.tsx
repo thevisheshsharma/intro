@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Menu, X, ChevronDown, Route, Building2, Users, Rocket, TrendingUp, Megaphone, FileText, BookOpen, Mail, ArrowUpRight, MapPin, BarChart3, Send, Heart, Landmark, UserCheck, Target, Radio, Newspaper, Award } from 'lucide-react'
 import { motion, AnimatePresence, useScroll, useMotionValueEvent } from 'framer-motion'
 import { Button } from '@/components/ui/button'
-import { useUser, UserButton } from '@clerk/nextjs'
+import { LazyNavActions, LazyMobileNavActions } from './LazyNavActions'
 
 // ========== UNIQUE INTERACTIVE ICON ANIMATIONS ==========
 
@@ -624,7 +624,6 @@ export default function Navbar() {
     const [scrolled, setScrolled] = useState(false)
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
     const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
-    const { isSignedIn, isLoaded, user } = useUser()
 
     // Stripe-like morphing popover state
     const navRef = useRef<HTMLDivElement>(null)
@@ -868,44 +867,7 @@ export default function Navbar() {
 
                 {/* Actions */}
                 <div className="hidden lg:flex items-center gap-3">
-                    {isLoaded && isSignedIn ? (
-                        <>
-                            <Button
-                                variant="brand"
-                                asChild
-                                className="rounded-full px-6 h-10 text-sm font-medium transition-transform hover:scale-105"
-                            >
-                                <Link href="/app" className="flex items-center gap-2">
-                                    Go to Dashboard
-                                    <ArrowUpRight className="w-4 h-4" />
-                                </Link>
-                            </Button>
-                            <UserButton
-                                afterSignOutUrl="/"
-                                appearance={{
-                                    elements: {
-                                        avatarBox: "w-10 h-10 rounded-full ring-2 ring-gray-200 hover:ring-berri-raspberry transition-all"
-                                    }
-                                }}
-                            />
-                        </>
-                    ) : (
-                        <>
-                            <Link
-                                href="/sign-in"
-                                className="px-5 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors duration-300 rounded-full hover:bg-gray-100"
-                            >
-                                Log in
-                            </Link>
-                            <Button
-                                variant="brand"
-                                asChild
-                                className="rounded-full px-6 h-10 text-sm font-medium transition-transform hover:scale-105"
-                            >
-                                <Link href="/sign-up">Get Started</Link>
-                            </Button>
-                        </>
-                    )}
+                    <LazyNavActions />
                 </div>
 
                 {/* Mobile Toggle */}
@@ -956,51 +918,7 @@ export default function Navbar() {
                                     </div>
                                 ))}
                                 <div className="h-px bg-gray-100 my-3" />
-                                {isLoaded && isSignedIn ? (
-                                    <>
-                                        <div className="flex items-center gap-3 px-4 py-3">
-                                            <UserButton
-                                                afterSignOutUrl="/"
-                                                appearance={{
-                                                    elements: {
-                                                        avatarBox: "w-10 h-10 rounded-full"
-                                                    }
-                                                }}
-                                            />
-                                            <span className="text-sm font-medium text-gray-900">
-                                                {user?.firstName || 'Account'}
-                                            </span>
-                                        </div>
-                                        <Button
-                                            variant="brand"
-                                            className="w-full rounded-full h-12 text-sm font-medium"
-                                            asChild
-                                        >
-                                            <Link href="/app" onClick={() => setMobileMenuOpen(false)}>
-                                                Go to Dashboard
-                                            </Link>
-                                        </Button>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Link
-                                            href="/sign-in"
-                                            className="text-sm font-medium text-gray-600 px-4 py-3 rounded-xl hover:bg-gray-50 transition-colors"
-                                            onClick={() => setMobileMenuOpen(false)}
-                                        >
-                                            Log in
-                                        </Link>
-                                        <Button
-                                            variant="brand"
-                                            className="w-full rounded-full h-12 text-sm font-medium"
-                                            asChild
-                                        >
-                                            <Link href="/sign-up" onClick={() => setMobileMenuOpen(false)}>
-                                                Get Started
-                                            </Link>
-                                        </Button>
-                                    </>
-                                )}
+                                <LazyMobileNavActions onClose={() => setMobileMenuOpen(false)} />
                             </div>
                         </motion.div>
                     )}

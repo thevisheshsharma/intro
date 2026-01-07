@@ -18,14 +18,22 @@ interface TwitterUser {
   }
 }
 
-// Extract Twitter username from Clerk user object
+// Extract Twitter username from Privy user object
 export function extractTwitterUsername(user: any): string | null {
   if (!user) return null
-  
-  // Try multiple sources for Twitter username
-  return user.username || 
-         user.publicMetadata?.twitter || 
-         null
+
+  // For Privy users, look in linkedAccounts
+  if (user.linkedAccounts) {
+    const twitterAccount = user.linkedAccounts.find(
+      (account: any) => account.type === 'twitter_oauth'
+    )
+    if (twitterAccount?.username) {
+      return twitterAccount.username
+    }
+  }
+
+  // Legacy support: try direct properties
+  return user.username || null
 }
 
 // Transform Twitter user API response to standardized format

@@ -1,22 +1,22 @@
-import { auth } from '@clerk/nextjs'
 import { NextResponse } from 'next/server'
 import type { Profile } from '@/lib/profile'
 import { logAPIError } from '@/lib/error-utils'
+import { verifyPrivyToken } from '@/lib/privy'
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { userId: string } }
 ) {
-  const { userId: currentUserId } = auth()
-  
+  const { userId: currentUserId, error } = await verifyPrivyToken(request)
+
   // Only allow users to access their own profile
-  if (currentUserId !== params.userId) {
+  if (error || currentUserId !== params.userId) {
     return new NextResponse('Unauthorized', { status: 403 })
   }
 
   try {
-    // For now, we'll just return the basic profile info from Clerk
-    // In a real app, you might want to fetch additional profile data from your database
+    // For now, we'll just return the basic profile info
+    // In a real app, you might want to fetch additional profile data from Neo4j
     const profile: Profile = {
       id: params.userId,
       username: null,
@@ -37,17 +37,17 @@ export async function PATCH(
   request: Request,
   { params }: { params: { userId: string } }
 ) {
-  const { userId: currentUserId } = auth()
-  
+  const { userId: currentUserId, error } = await verifyPrivyToken(request)
+
   // Only allow users to update their own profile
-  if (currentUserId !== params.userId) {
+  if (error || currentUserId !== params.userId) {
     return new NextResponse('Unauthorized', { status: 403 })
   }
 
   try {
     const updates = await request.json()
-    
-    // Here you would typically update the profile in your database
+
+    // Here you would typically update the profile in Neo4j
     // For now, we'll just return the updates
     const updatedProfile: Profile = {
       id: params.userId,

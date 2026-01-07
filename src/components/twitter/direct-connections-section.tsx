@@ -32,15 +32,15 @@ interface DirectConnectionsSectionProps {
   loading: boolean
 }
 
-// Relationship type display config
+// Relationship type display config - Light mode colors
 const RELATIONSHIP_CONFIG: Record<string, { label: string; color: string }> = {
-  WORKS_AT: { label: 'works at', color: 'text-green-400' },
-  WORKED_AT: { label: 'worked at', color: 'text-yellow-400' },
-  INVESTED_IN: { label: 'invested in', color: 'text-blue-400' },
-  AUDITS: { label: 'audits', color: 'text-purple-400' },
-  AFFILIATED_WITH: { label: 'affiliated with', color: 'text-orange-400' },
-  PARTNERS_WITH: { label: 'partners with', color: 'text-pink-400' },
-  MEMBER_OF: { label: 'member of', color: 'text-cyan-400' },
+  WORKS_AT: { label: 'works at', color: 'text-green-600' },
+  WORKED_AT: { label: 'worked at', color: 'text-amber-600' },
+  INVESTED_IN: { label: 'invested in', color: 'text-blue-600' },
+  AUDITS: { label: 'audits', color: 'text-purple-600' },
+  AFFILIATED_WITH: { label: 'affiliated with', color: 'text-orange-600' },
+  PARTNERS_WITH: { label: 'partners with', color: 'text-pink-600' },
+  MEMBER_OF: { label: 'member of', color: 'text-cyan-600' },
 }
 
 // Connection type labels
@@ -51,7 +51,7 @@ const CONNECTION_TYPE_LABELS: Record<string, { label: string; description: strin
   chain_affinity: { label: 'Same Blockchain', description: 'Your organizations operate on the same blockchain' },
 }
 
-// Chain node component
+// Chain node component - Light mode
 function ChainNode({
   node,
   isFirst,
@@ -64,17 +64,17 @@ function ChainNode({
   const getRoleStyles = () => {
     switch (node.role) {
       case 'you':
-        return 'text-emerald-300 bg-emerald-900/30 border-emerald-700'
+        return 'text-emerald-700 bg-emerald-50 border-emerald-200'
       case 'prospect':
-        return 'text-purple-300 bg-purple-900/30 border-purple-700'
+        return 'text-purple-700 bg-purple-50 border-purple-200'
       case 'organization':
-        return 'text-green-300 bg-green-900/30 border-green-700'
+        return 'text-green-700 bg-green-50 border-green-200'
       case 'intermediary':
-        return 'text-orange-300 bg-orange-900/30 border-orange-700'
+        return 'text-orange-700 bg-orange-50 border-orange-200'
       case 'third_party':
-        return 'text-blue-300 bg-blue-900/30 border-blue-700'
+        return 'text-blue-700 bg-blue-50 border-blue-200'
       default:
-        return 'text-gray-300 bg-gray-700/50 border-gray-600'
+        return 'text-gray-700 bg-gray-100 border-gray-200'
     }
   }
 
@@ -82,7 +82,7 @@ function ChainNode({
 
   return (
     <span className={cn(
-      'px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap border',
+      'px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap border',
       getRoleStyles()
     )}>
       {node.role === 'organization' || node.role === 'third_party' ? label : `@${label}`}
@@ -93,23 +93,23 @@ function ChainNode({
 // Em dash connector
 function ChainDash() {
   return (
-    <span className="text-gray-500 text-sm font-light mx-0.5">—</span>
+    <span className="text-gray-400 text-sm font-light mx-1">—</span>
   )
 }
 
 // Relationship label
 function RelLabel({ relationship }: { relationship?: string }) {
   if (!relationship) return null
-  const config = RELATIONSHIP_CONFIG[relationship] || { label: relationship.toLowerCase(), color: 'text-gray-400' }
+  const config = RELATIONSHIP_CONFIG[relationship] || { label: relationship.toLowerCase(), color: 'text-gray-500' }
   return (
-    <span className={cn('text-[10px]', config.color)}>{config.label}</span>
+    <span className={cn('text-[10px] font-medium', config.color)}>{config.label}</span>
   )
 }
 
 // Single connection path visualization
 function ConnectionPathView({ path }: { path: ConnectionPath }) {
   return (
-    <div className="flex items-center gap-1.5 flex-wrap py-1">
+    <div className="flex items-center gap-1.5 flex-wrap py-2">
       {path.chain.map((node, index) => (
         <span key={index} className="flex items-center gap-1">
           {index > 0 && (
@@ -126,15 +126,15 @@ function ConnectionPathView({ path }: { path: ConnectionPath }) {
         </span>
       ))}
       {path.sharedChains && path.sharedChains.length > 0 && (
-        <span className="ml-2 text-xs text-cyan-400">
-          [{path.sharedChains.join(', ')}]
+        <span className="ml-2 px-2 py-0.5 bg-cyan-50 text-cyan-700 rounded text-xs font-medium">
+          {path.sharedChains.join(', ')}
         </span>
       )}
     </div>
   )
 }
 
-// Connection type section
+// Connection type section - Light mode
 function ConnectionTypeSection({
   type,
   paths,
@@ -150,14 +150,14 @@ function ConnectionTypeSection({
   if (paths.length === 0) return null
 
   return (
-    <div className="border-b border-gray-700/50 last:border-b-0">
+    <div className="border-b border-gray-100 last:border-b-0">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between py-2 px-1 hover:bg-gray-800/30 transition"
+        className="w-full flex items-center justify-between py-3 px-4 hover:bg-gray-50 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm text-white font-medium">{config.label}</span>
-          <span className="text-xs text-gray-500">({paths.length})</span>
+          <span className="text-sm text-gray-900 font-medium">{config.label}</span>
+          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{paths.length}</span>
         </div>
         <svg
           className={cn('w-4 h-4 text-gray-400 transition-transform', expanded && 'rotate-180')}
@@ -165,13 +165,13 @@ function ConnectionTypeSection({
           viewBox="0 0 24 24"
           stroke="currentColor"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
       {expanded && (
-        <div className="px-2 pb-2">
-          <p className="text-xs text-gray-500 mb-2">{config.description}</p>
-          <div className="space-y-1">
+        <div className="px-4 pb-4">
+          <p className="text-xs text-gray-500 mb-3">{config.description}</p>
+          <div className="space-y-1 bg-gray-50 rounded-xl p-3">
             {paths.map((path, index) => (
               <ConnectionPathView key={index} path={path} />
             ))}
@@ -195,8 +195,11 @@ export function DirectConnectionsSection({
 
   if (loading) {
     return (
-      <div className="w-full mt-4 p-4 border border-gray-700 rounded-xl bg-gray-800/30">
-        <div className="text-sm text-gray-400">Finding your connections...</div>
+      <div className="w-full mt-4 p-6 border border-gray-100 rounded-2xl bg-white shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-4 h-4 rounded-full border-2 border-berri-raspberry/20 border-t-berri-raspberry animate-spin" />
+          <span className="text-sm text-gray-500">Finding your connections...</span>
+        </div>
       </div>
     )
   }
@@ -207,10 +210,10 @@ export function DirectConnectionsSection({
 
   return (
     <div className="w-full mt-4">
-      <h3 className="text-sm font-semibold text-gray-400 mb-2 uppercase tracking-wide">
+      <h3 className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">
         Your Direct Connections to @{prospectScreenName}
       </h3>
-      <div className="border border-gray-700 rounded-xl bg-gray-800/20 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <ConnectionTypeSection
           type="org_direct"
           paths={connections.orgDirect}

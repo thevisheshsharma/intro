@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { SignInButton, useUser } from '@clerk/nextjs'
+import { usePrivy } from '@privy-io/react-auth'
 
 export function Header() {
-  const { isSignedIn } = useUser()
+  const { authenticated, login } = usePrivy()
 
   // Hide header if user is signed in (profile management is now in sidebar)
-  if (isSignedIn) return null;
+  if (authenticated) return null;
 
   return (
     <header className="border-b border-gray-200 bg-white">
@@ -20,9 +20,7 @@ export function Header() {
             </Link>
           </div>
           <div>
-            <SignInButton mode="modal">
-              <Button>Sign in</Button>
-            </SignInButton>
+            <Button onClick={() => login()}>Sign in</Button>
           </div>
         </div>
       </div>

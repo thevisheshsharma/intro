@@ -22,10 +22,10 @@ export interface Neo4jProtocol {
   
   // Protocol-specific fields
   vibe: string             // Always 'organization' for protocols
-  org_type: OrgType        // Mapped based on categories
-  org_subtype: string[]    // Array of categories
-  web3_focus: string       // Always 'native'
-  operational_status: string // Always 'mainnet'
+  orgType: OrgType         // Mapped based on categories
+  orgSubtype: string[]     // Array of categories
+  web3Focus: string        // Always 'native'
+  operationalStatus: string // Always 'mainnet'
   
   // Financial data
   tvl?: number             // Calculated based on date logic
@@ -78,10 +78,10 @@ export function transformProtocolToNeo4j(groupedProtocol: GroupedProtocol): Neo4
     
     // Static classification fields
     vibe: VibeType.ORGANIZATION,
-    org_type: orgType, // ✅ Efficiently mapped
-    org_subtype: groupedProtocol.org_subType || [], // Array of categories
-    web3_focus: 'native',
-    operational_status: 'mainnet',
+    orgType: orgType, // Efficiently mapped
+    orgSubtype: groupedProtocol.org_subType || [], // Array of categories
+    web3Focus: 'native',
+    operationalStatus: 'mainnet',
     
     // Financial data - safe number conversion
     tvl: groupedProtocol.totalTvl || undefined,
@@ -115,7 +115,7 @@ export async function findProtocolsByScreenName(screenNames: string[]): Promise<
   
   const query = `
     UNWIND $screenNames AS screenName
-    MATCH (p:User {vibe: 'organization', org_type: 'protocol'})
+    MATCH (p:User {vibe: 'organization', orgType: 'protocol'})
     WHERE toLower(p.screenName) = toLower(screenName)
     RETURN p.screenName as screenName, p.userId as userId, p.tvl as tvl, p.lastUpdated as lastUpdated
   `
@@ -160,7 +160,7 @@ export async function checkProtocolsExist(protocolIds: string[]): Promise<string
   
   const query = `
     UNWIND $protocolIds AS protocolId
-    MATCH (p:User {userId: protocolId, vibe: 'organization', org_type: 'protocol'})
+    MATCH (p:User {userId: protocolId, vibe: 'organization', orgType: 'protocol'})
     RETURN p.userId as existingProtocolId
   `
   
@@ -211,10 +211,10 @@ export async function createOrUpdateProtocol(protocol: Neo4jProtocol): Promise<v
       p.verificationReason = '',
       p.vibe = $vibe,
       p.department = '',
-      p.org_type = $org_type,
-      p.org_subtype = $org_subtype,
-      p.web3_focus = $web3_focus,
-      p.operational_status = $operational_status,
+      p.orgType = $orgType,
+      p.orgSubtype = $orgSubtype,
+      p.web3Focus = $web3Focus,
+      p.operationalStatus = $operationalStatus,
       p.tvl = $tvl,
       p.gecko_id = $gecko_id,
       p.cmcId = $cmcId,
@@ -242,10 +242,10 @@ export async function createOrUpdateProtocol(protocol: Neo4jProtocol): Promise<v
     verified: protocol.verified,
     lastUpdated: protocol.lastUpdated,
     vibe: protocol.vibe,
-    org_type: protocol.org_type,
-    org_subtype: JSON.stringify(protocol.org_subtype),
-    web3_focus: protocol.web3_focus,
-    operational_status: protocol.operational_status,
+    orgType: protocol.orgType,
+    orgSubtype: JSON.stringify(protocol.orgSubtype),
+    web3Focus: protocol.web3Focus,
+    operationalStatus: protocol.operationalStatus,
     tvl: protocol.tvl || null,
     gecko_id: protocol.gecko_id || '',
     cmcId: protocol.cmcId || '',
@@ -291,7 +291,7 @@ export async function createOrUpdateProtocolsOptimized(protocols: Neo4jProtocol[
         // For protocols with screenName, check if one already exists
         CALL {
           WITH protocolData
-          OPTIONAL MATCH (existing:User {vibe: 'organization', org_type: 'protocol'})
+          OPTIONAL MATCH (existing:User {vibe: 'organization', orgType: 'protocol'})
           WHERE existing.screenName = protocolData.screenName 
             AND protocolData.screenName IS NOT NULL 
             AND protocolData.screenName <> ''
@@ -332,10 +332,10 @@ export async function createOrUpdateProtocolsOptimized(protocols: Neo4jProtocol[
           p.lastUpdated = protocolData.lastUpdated,
           p.createdAt = COALESCE(p.createdAt, protocolData.lastUpdated),
           p.vibe = protocolData.vibe,
-          p.org_type = protocolData.org_type,
-          p.org_subtype = protocolData.org_subtype,
-          p.web3_focus = protocolData.web3_focus,
-          p.operational_status = protocolData.operational_status,
+          p.orgType = protocolData.orgType,
+          p.orgSubtype = protocolData.orgSubtype,
+          p.web3Focus = protocolData.web3Focus,
+          p.operationalStatus = protocolData.operationalStatus,
           
           // Protocol-specific fields - only update if not null/empty
           p.tvl = CASE WHEN protocolData.tvl IS NOT NULL THEN protocolData.tvl ELSE p.tvl END,
@@ -376,7 +376,7 @@ export async function createOrUpdateProtocolsOptimized(protocols: Neo4jProtocol[
             // For protocols with screenName, check if one already exists
             CALL {
               WITH protocolData
-              OPTIONAL MATCH (existing:User {vibe: 'organization', org_type: 'protocol'})
+              OPTIONAL MATCH (existing:User {vibe: 'organization', orgType: 'protocol'})
               WHERE existing.screenName = protocolData.screenName 
                 AND protocolData.screenName IS NOT NULL 
                 AND protocolData.screenName <> ''
@@ -417,10 +417,10 @@ export async function createOrUpdateProtocolsOptimized(protocols: Neo4jProtocol[
               p.lastUpdated = protocolData.lastUpdated,
               p.createdAt = COALESCE(p.createdAt, protocolData.lastUpdated),
               p.vibe = protocolData.vibe,
-              p.org_type = protocolData.org_type,
-              p.org_subtype = protocolData.org_subtype,
-              p.web3_focus = protocolData.web3_focus,
-              p.operational_status = protocolData.operational_status,
+              p.orgType = protocolData.orgType,
+              p.orgSubtype = protocolData.orgSubtype,
+              p.web3Focus = protocolData.web3Focus,
+              p.operationalStatus = protocolData.operationalStatus,
               
               // Protocol-specific fields - only update if not null/empty
               p.tvl = CASE WHEN protocolData.tvl IS NOT NULL THEN protocolData.tvl ELSE p.tvl END,
@@ -469,10 +469,10 @@ export async function getProtocolStats(): Promise<{
   bySubtype: Record<string, number>
 }> {
   const query = `
-    MATCH (p:User {vibe: 'organization', org_type: 'protocol'})
+    MATCH (p:User {vibe: 'organization', orgType: 'protocol'})
     RETURN 
       count(p) as total,
-      p.org_subtype as subtype,
+      p.orgSubtype as subtype,
       count(p) as count
     ORDER BY count DESC
   `
@@ -542,7 +542,7 @@ export async function cleanupDuplicateProtocols(): Promise<{
       const props = node.properties || node
       
       // User type priority bonus (protocols get priority)
-      if (props.vibe === 'organization' && props.org_type === 'protocol') {
+      if (props.vibe === 'organization' && props.orgType === 'protocol') {
         score += 10 // High priority for protocols
       } else if (props.vibe === 'organization') {
         score += 5 // Medium priority for other organizations
@@ -609,7 +609,7 @@ export async function cleanupDuplicateProtocols(): Promise<{
         userId: props.userId,
         screenName: props.screenName,
         name: props.name || 'Unknown',
-        userType: `${props.vibe || 'user'}${props.org_type ? ':' + props.org_type : ''}`,
+        userType: `${props.vibe || 'user'}${props.orgType ? ':' + props.orgType : ''}`,
         lastUpdated: props.lastUpdated || 'Unknown'
       }
     }).sort((a: any, b: any) => b.score - a.score) // Sort by score descending
@@ -723,7 +723,7 @@ export async function deduplicateProtocolArrays(): Promise<{
   
   // Get all protocol nodes with array fields
   const query = `
-    MATCH (p:User {vibe: 'organization', org_type: 'protocol'})
+    MATCH (p:User {vibe: 'organization', orgType: 'protocol'})
     WHERE p.contract_address IS NOT NULL OR p.chains IS NOT NULL OR p.about_array IS NOT NULL
     RETURN p.userId as userId, p.contract_address as contract_address, p.chains as chains, 
            p.about_array as about_array, p.llama_slug as llama_slug,

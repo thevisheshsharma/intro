@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, type FormEvent, useEffect } from 'react'
-import { useUser } from '@clerk/nextjs'
+import { usePrivy } from '@privy-io/react-auth'
 import { ErrorDisplay } from '@/components/ui/error-display'
 import { EnhancedMutualsTable } from '@/components/twitter/enhanced-mutuals-table'
 import { DirectConnectionsSection } from '@/components/twitter/direct-connections-section'
@@ -9,6 +9,7 @@ import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { QuickActions } from '@/components/QuickActions'
 import SearchForm from '@/components/SearchForm'
 import DashboardHeader from '@/components/dashboard/DashboardHeader'
+import { FeatureGate } from '@/components/FeatureGate'
 import {
   extractTwitterUsername,
   transformTwitterUser,
@@ -30,7 +31,7 @@ interface UserStats {
 }
 
 export default function TwitterPage() {
-  const { user, isLoaded } = useUser()
+  const { user, ready, authenticated } = usePrivy()
   const [searchUsername, setSearchUsername] = useState('')
   const [followingsLoading, setFollowingsLoading] = useState(false)
   const [followings, setFollowings] = useState<any[]>([])
@@ -45,7 +46,7 @@ export default function TwitterPage() {
   const hasResults = searchedProfile || followings.length > 0
 
   useEffect(() => {
-    if (isLoaded && user) {
+    if (ready && authenticated && user) {
       const username = extractTwitterUsername(user)
       if (username) {
         setTwitterUsername(username)
@@ -53,7 +54,7 @@ export default function TwitterPage() {
         fetchUserStats(username)
       }
     }
-  }, [isLoaded, user])
+  }, [ready, authenticated, user])
 
   // Fetch user stats from the API
   const fetchUserStats = async (username: string) => {
@@ -152,13 +153,14 @@ export default function TwitterPage() {
   }
 
   return (
+    <FeatureGate feature="pathfinder">
     <div className="min-h-screen py-8 px-6 lg:px-10">
       <div className="max-w-4xl mx-auto">
         {/* Dashboard Header with Date, Profile Card, Stats */}
         <DashboardHeader
           user={{
-            firstName: user?.firstName || undefined,
-            imageUrl: user?.imageUrl
+            firstName: twitterUsername || undefined,
+            imageUrl: undefined // Privy doesn't provide profile images directly
           }}
           profile={userProfile}
           stats={userStats}
@@ -237,5 +239,6 @@ export default function TwitterPage() {
         )}
       </div>
     </div>
+    </FeatureGate>
   )
 }

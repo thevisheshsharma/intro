@@ -4,36 +4,47 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-xl text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-berri-raspberry/20 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline:
-          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
-        // Brand variants for marketing - warm raspberry primary
-        brand: "bg-berri-raspberry hover:bg-berri-raspberry/90 text-white shadow-lg shadow-berri-raspberry/20 hover:shadow-xl hover:shadow-berri-raspberry/30 transition-all",
-        brandAction: "bg-berri-raspberry hover:bg-berri-raspberry/90 text-white shadow-lg shadow-berri-raspberry/20 hover:shadow-xl hover:shadow-berri-raspberry/30 transition-all",
-        brandAccent: "bg-berri-amber hover:bg-berri-gold text-white shadow-lg shadow-berri-amber/20 hover:shadow-xl hover:shadow-berri-gold/30 transition-all",
-        brandOutline: "bg-transparent text-berri-raspberry border border-berri-raspberry hover:bg-berri-raspberry hover:text-white transition-all",
-        brandOutlineAccent: "bg-transparent text-berri-amber border border-berri-amber hover:bg-berri-amber hover:text-white transition-all",
-        // Dark mode variants for dashboard
-        brandActionDark: "bg-gradient-to-r from-berri-raspberry to-berri-coral hover:from-berri-raspberry/90 hover:to-berri-coral/90 text-white shadow-lg shadow-berri-raspberry/30 hover:shadow-xl hover:shadow-berri-raspberry/40 transition-all",
-        brandAccentDark: "bg-gradient-to-r from-berri-amber to-berri-gold hover:from-berri-amber/90 hover:to-berri-gold/90 text-white shadow-lg shadow-berri-amber/30 hover:shadow-xl hover:shadow-berri-gold/40 transition-all",
-        brandOutlineDark: "bg-transparent text-berri-raspberry border border-berri-raspberry/50 hover:bg-berri-raspberry/10 hover:border-berri-raspberry transition-all",
-        brandGhost: "bg-white/5 text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all",
+        // Primary - Raspberry filled
+        default: "bg-berri-raspberry hover:bg-berri-raspberry/90 text-white shadow-md shadow-berri-raspberry/25 hover:shadow-lg",
+        primary: "bg-berri-raspberry hover:bg-berri-raspberry/90 text-white shadow-md shadow-berri-raspberry/25 hover:shadow-lg",
+
+        // Secondary - Light background
+        secondary: "bg-gray-100 text-gray-900 hover:bg-gray-200",
+
+        // Ghost - Transparent
+        ghost: "text-gray-600 hover:text-gray-900 hover:bg-gray-100",
+
+        // Outline - Border only
+        outline: "border border-gray-200 bg-white text-gray-900 hover:bg-gray-50 hover:border-gray-300",
+
+        // Destructive - Red
+        destructive: "bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/25",
+
+        // Link style
+        link: "text-berri-raspberry underline-offset-4 hover:underline",
+
+        // Brand variants - Light mode dashboard
+        brand: "bg-berri-raspberry hover:bg-berri-raspberry/90 text-white shadow-md shadow-berri-raspberry/25 hover:shadow-lg",
+        brandAction: "bg-berri-raspberry hover:bg-berri-raspberry/90 text-white shadow-md shadow-berri-raspberry/25 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]",
+        brandOutline: "bg-transparent text-berri-raspberry border border-berri-raspberry/30 hover:bg-berri-raspberry/5 hover:border-berri-raspberry",
+        brandGhost: "text-berri-raspberry hover:bg-berri-raspberry/10",
+        brandAccent: "bg-berri-coral hover:bg-berri-coral/90 text-white shadow-md shadow-berri-coral/25",
+
+        // Subtle variants
+        subtle: "bg-berri-raspberry/10 text-berri-raspberry hover:bg-berri-raspberry/20",
+        subtleGray: "bg-gray-100 text-gray-700 hover:bg-gray-200",
       },
       size: {
         default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        sm: "h-9 rounded-lg px-3 text-xs",
+        lg: "h-12 rounded-xl px-6 text-base",
+        xl: "h-14 rounded-xl px-8 text-base",
+        icon: "h-10 w-10 rounded-full",
+        iconSm: "h-8 w-8 rounded-full",
       },
     },
     defaultVariants: {

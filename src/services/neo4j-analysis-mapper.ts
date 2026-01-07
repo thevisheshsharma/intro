@@ -6,9 +6,9 @@ interface AnalysisData {
 }
 
 interface ClassificationData {
-  org_type?: string;
-  org_subtype?: string[];
-  web3_focus?: string;
+  orgType?: string;
+  orgSubtype?: string[];
+  web3Focus?: string;
 }
 
 export class Neo4jAnalysisMapper {
@@ -52,16 +52,16 @@ export class Neo4jAnalysisMapper {
     // Add metadata
     properties.last_icp_analysis = new Date().toISOString();
     
-    // ✅ FIXED: Store classification data in individual fields instead of JSON
+    // Store classification data in individual fields instead of JSON
     if (classification) {
-      if (classification.org_type) {
-        properties.org_type = classification.org_type;
+      if (classification.orgType) {
+        properties.orgType = classification.orgType;
       }
-      if (classification.org_subtype) {
-        properties.org_subtype = JSON.stringify(classification.org_subtype);
+      if (classification.orgSubtype) {
+        properties.orgSubtype = JSON.stringify(classification.orgSubtype);
       }
-      if (classification.web3_focus) {
-        properties.web3_focus = classification.web3_focus;
+      if (classification.web3Focus) {
+        properties.web3Focus = classification.web3Focus;
       }
     }
     

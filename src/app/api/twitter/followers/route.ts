@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuth } from '@clerk/nextjs/server'
 import { logExternalServiceError, logParsingError } from '@/lib/error-utils'
 
 export async function GET(request: NextRequest) {
@@ -48,8 +47,7 @@ export async function GET(request: NextRequest) {
       try {
         followersData = JSON.parse(followersText)
       } catch (e) {
-        const { userId } = getAuth(request)
-        logParsingError(e, 'parsing Twitter followers response', 'JSON', userId || undefined)
+        logParsingError(e, 'parsing Twitter followers response', 'JSON', undefined)
         return NextResponse.json({ error: 'Invalid response from Twitter API' }, { status: 500 })
       }
       if (!followersRes.ok) {

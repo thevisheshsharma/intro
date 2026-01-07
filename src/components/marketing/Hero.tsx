@@ -5,57 +5,59 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { ArrowUpRight, Calendar } from 'lucide-react'
-import NetworkAnimation from './NetworkAnimation'
+import LazyNetworkAnimation from './LazyNetworkAnimation'
 
 export default function Hero() {
-    // Initialize Cal.com embed for popup
+    // Initialize Cal.com embed for popup - deferred to not block initial render
     useEffect(() => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const w = window as any
+        // Defer Cal.com loading to after initial render
+        const timer = setTimeout(() => {
+            const w = window as any
 
-            // Cal.com IIFE initialization
-            ; (function (C, A, L) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const p = function (a: any, ar: any) { a.q.push(ar) }
-                const d = C.document
-                C.Cal = C.Cal || function () {
-                    const cal = C.Cal
-                    // eslint-disable-next-line prefer-rest-params
-                    const ar = arguments
-                    if (!cal.loaded) {
-                        cal.ns = {}
-                        cal.q = cal.q || []
-                        d.head.appendChild(d.createElement('script')).src = A
-                        cal.loaded = true
-                    }
-                    if (ar[0] === L) {
-                        const api = function () { p(api, arguments) }
-                        const namespace = ar[1]
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            ; (api as any).q = (api as any).q || []
-                        if (typeof namespace === 'string') {
-                            cal.ns[namespace] = cal.ns[namespace] || api
-                            p(cal.ns[namespace], ar)
-                            p(cal, ['initNamespace', namespace])
-                        } else {
-                            p(cal, ar)
+                // Cal.com IIFE initialization
+                ; (function (C, A, L) {
+                    const p = function (a: any, ar: any) { a.q.push(ar) }
+                    const d = C.document
+                    C.Cal = C.Cal || function () {
+                        const cal = C.Cal
+                        // eslint-disable-next-line prefer-rest-params
+                        const ar = arguments
+                        if (!cal.loaded) {
+                            cal.ns = {}
+                            cal.q = cal.q || []
+                            d.head.appendChild(d.createElement('script')).src = A
+                            cal.loaded = true
                         }
-                        return
+                        if (ar[0] === L) {
+                            const api = function () { p(api, arguments) }
+                            const namespace = ar[1]
+                                ; (api as any).q = (api as any).q || []
+                            if (typeof namespace === 'string') {
+                                cal.ns[namespace] = cal.ns[namespace] || api
+                                p(cal.ns[namespace], ar)
+                                p(cal, ['initNamespace', namespace])
+                            } else {
+                                p(cal, ar)
+                            }
+                            return
+                        }
+                        p(cal, ar)
                     }
-                    p(cal, ar)
-                }
-            })(w, 'https://app.cal.com/embed/embed.js', 'init')
+                })(w, 'https://app.cal.com/embed/embed.js', 'init')
 
-        w.Cal('init', 'berri', { origin: 'https://app.cal.com' })
+            w.Cal('init', 'berri', { origin: 'https://app.cal.com' })
 
-        w.Cal.ns.berri('ui', {
-            cssVarsPerTheme: {
-                light: { 'cal-brand': '#E54868' },
-                dark: { 'cal-brand': '#FF7F6B' }
-            },
-            hideEventTypeDetails: true,
-            layout: 'month_view'
-        })
+            w.Cal.ns.berri('ui', {
+                cssVarsPerTheme: {
+                    light: { 'cal-brand': '#E54868' },
+                    dark: { 'cal-brand': '#FF7F6B' }
+                },
+                hideEventTypeDetails: true,
+                layout: 'month_view'
+            })
+        }, 1500) // Delay by 1.5s to prioritize initial render
+
+        return () => clearTimeout(timer)
     }, [])
     return (
         <section className="min-h-screen bg-gray-50 pt-24 pb-16 overflow-visible relative">
@@ -239,7 +241,7 @@ export default function Hero() {
                         transition={{ duration: 0.6, delay: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
                         className="relative h-[500px] lg:h-[600px] w-full"
                     >
-                        <NetworkAnimation />
+                        <LazyNetworkAnimation />
                     </motion.div>
                 </div>
             </div>

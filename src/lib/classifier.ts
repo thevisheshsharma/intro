@@ -11,9 +11,9 @@ export interface ClassificationResult {
   past_organizations?: string[];
   member_of?: string[];
   department?: 'engineering' | 'product' | 'marketing' | 'business' | 'operations' | 'research' | 'community' | 'leadership' | 'other';
-  org_type?: 'defi' | 'gaming' | 'social' | 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community' | 'nft';
-  org_subtype?: string[];
-  web3_focus?: 'native' | 'adjacent' | 'traditional';
+  orgType?: 'defi' | 'gaming' | 'social' | 'protocol' | 'infrastructure' | 'exchange' | 'investment' | 'service' | 'community' | 'nft';
+  orgSubtype?: string[];
+  web3Focus?: 'native' | 'adjacent' | 'traditional';
   last_updated: string;
 }
 
@@ -57,9 +57,9 @@ const ClassificationSchema = z.object({
     past_organizations: z.array(z.string()).nullable().optional(),
     member_of: z.array(z.string()).nullable().optional(),
     department: z.enum(['engineering', 'product', 'marketing', 'business', 'operations', 'research', 'community', 'leadership', 'other']).nullable().optional(),
-    org_type: z.enum(['defi', 'gaming', 'social', 'protocol', 'infrastructure', 'exchange', 'investment', 'service', 'community', 'nft']).nullable().optional(),
-    org_subtype: z.array(z.string()).nullable().optional(),
-    web3_focus: z.enum(['native', 'adjacent', 'traditional']).nullable().optional()
+    orgType: z.enum(['defi', 'gaming', 'social', 'protocol', 'infrastructure', 'exchange', 'investment', 'service', 'community', 'nft']).nullable().optional(),
+    orgSubtype: z.array(z.string()).nullable().optional(),
+    web3Focus: z.enum(['native', 'adjacent', 'traditional']).nullable().optional()
   }))
 });
 
@@ -193,11 +193,12 @@ Examples: "@org1 @org2" = [@org1, @org2], "Role @X | Title @Y" = [@X, @Y]
 STEP 2 - CATEGORIZE EACH @MENTION:
 
 current_organizations (DEFAULT for all @mentions):
-• Any @mention WITHOUT explicit past indicators
+• Any @mention WITHOUT explicit past indicators goes here by DEFAULT
 • Consecutive @mentions: "@org1 @org2" = both current
 • With roles: "CEO @org", "Head of X @org", "Ambassador @org"
 • With verbs: building/cooking/working/vibing/yapping/shipping @org
 • After sentence breaks: "past @old. @new" = @new is current
+• RULE: When in doubt, put in current_organizations
 
 past_organizations (ONLY with explicit markers):
 • "ex-@org", "ex @org", "formerly @org", "prev @org", "fka @org"
@@ -205,24 +206,30 @@ past_organizations (ONLY with explicit markers):
 • "Past:" section, date ranges like "@org '19-'22"
 • NOTE: "ex-baby @org" = past (the "ex-" marker applies)
 
-member_of (non-work affiliations):
+member_of (ONLY for clearly non-employment affiliations):
 • Universities/schools: @USC, @UCSB, @NUSingapore, @stanford, etc.
-• "cs @univ", "studied @univ", education context
 • Investment: "invested in @org", "backed @org", "LP @org"
 • NFT/community: "holder", "staker", "#1234 @collection"
-• Explicit: "member of @org", "part of @org"
+• Explicit membership: "member of @org", "part of @org"
+• NOT for @mentions that could be work - use current_organizations instead
+
+CRITICAL RULE:
+• NEVER leave all three arrays (current_organizations, past_organizations, member_of) as null if @mentions exist
+• DEFAULT = current_organizations (unless clearly past or clearly non-employment)
+• It's better to have a current_organizations relationship than no relationship at all
 
 RULES:
 1. Process EVERY @mention - do not skip any
-2. Default = current (unless explicit past marker exists)
-3. Universities/education → member_of
-4. Case-insensitive matching, preserve original casing in output
-5. Self-mentions (profile's own handle) → skip
+2. Default = current_organizations (unless explicit past marker or member_of)
+3. Explicit past marker → past_organizations
+4. Universities/investment/NFT/community → member_of
+5. Case-insensitive matching, preserve original casing in output
+6. Self-mentions (profile's own handle) → skip
 
 vibe: individual | organization | spam
 department: leadership|engineering|product|marketing|business|research|community|operations|other
-org_type: defi|gaming|social|protocol|infrastructure|exchange|investment|service|community|nft
-web3_focus: native|adjacent|traditional`;
+orgType: defi|gaming|social|protocol|infrastructure|exchange|investment|service|community|nft
+web3Focus: native|adjacent|traditional`;
 
   const userPrompt = `Classify these profiles:
 
@@ -260,14 +267,14 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
         console.log(`   └─ member_of: ${normalized.member_of?.length ? normalized.member_of.join(', ') : 'none'}`);
         console.log(`   └─ department: ${normalized.department}`);
       } else if (r.vibe === 'organization') {
-        normalized.org_type = r.org_type || 'service';
-        normalized.org_subtype = r.org_subtype || ['other'];
-        normalized.web3_focus = r.web3_focus || 'traditional';
+        normalized.orgType = r.orgType || 'service';
+        normalized.orgSubtype = r.orgSubtype || ['other'];
+        normalized.web3Focus = r.web3Focus || 'traditional';
 
         // Detailed per-profile logging for organizations
         console.log(`🏢 @${r.screen_name} (${r.vibe}):`);
-        console.log(`   └─ org_type: ${normalized.org_type}`);
-        console.log(`   └─ web3_focus: ${normalized.web3_focus}`);
+        console.log(`   └─ orgType: ${normalized.orgType}`);
+        console.log(`   └─ web3Focus: ${normalized.web3Focus}`);
       } else {
         console.log(`🚫 @${r.screen_name} (${r.vibe})`);
       }
@@ -275,8 +282,45 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
       return normalized;
     });
 
-    console.log(`✅ Successfully classified ${normalizedResults.length} profiles`);
-    return isArray ? normalizedResults : normalizedResults[0];
+    // POST-PROCESSING: Capture orgs that Grok returned as separate entries
+    // When we ask to classify 1 individual, but Grok returns extra organization entries,
+    // those orgs should be added to the individual's member_of
+    const inputScreenNames = new Set(profiles.map(p => p.screen_name.toLowerCase()));
+    const individuals = normalizedResults.filter(r => r.vibe === 'individual');
+    const extraOrgs = normalizedResults.filter(r =>
+      r.vibe === 'organization' && !inputScreenNames.has(r.screen_name.toLowerCase())
+    );
+
+    if (individuals.length > 0 && extraOrgs.length > 0) {
+      console.log(`🔗 Post-processing: Found ${extraOrgs.length} extra org(s) to link to individual(s)`);
+
+      // Add extra orgs to each individual's member_of
+      for (const individual of individuals) {
+        const existingMemberOf = new Set((individual.member_of || []).map(m => m.toLowerCase().replace(/^@/, '')));
+        const existingCurrent = new Set((individual.current_organizations || []).map(m => m.toLowerCase().replace(/^@/, '')));
+        const existingPast = new Set((individual.past_organizations || []).map(m => m.toLowerCase().replace(/^@/, '')));
+
+        for (const org of extraOrgs) {
+          const orgScreenName = org.screen_name.toLowerCase();
+          // Only add if not already in any relationship
+          if (!existingMemberOf.has(orgScreenName) &&
+            !existingCurrent.has(orgScreenName) &&
+            !existingPast.has(orgScreenName)) {
+            individual.member_of = individual.member_of || [];
+            individual.member_of.push(`@${org.screen_name}`);
+            console.log(`   → Added @${org.screen_name} to @${individual.screen_name}'s member_of`);
+          }
+        }
+      }
+    }
+
+    // Filter out extra orgs from final results (they're now linked to individuals)
+    const finalResults = normalizedResults.filter(r =>
+      inputScreenNames.has(r.screen_name.toLowerCase())
+    );
+
+    console.log(`✅ Successfully classified ${finalResults.length} profiles`);
+    return isArray ? finalResults : finalResults[0];
 
   } catch (error) {
     console.error(`❌ Classification failed:`, error);
@@ -285,21 +329,21 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
     const fallbackResults: ClassificationResult[] = profiles.map(profile => {
       const description = (profile.description || '').toLowerCase();
       const isLikelyOrg = description.includes('protocol') ||
-                         description.includes('platform') ||
-                         description.includes('ecosystem') ||
-                         description.includes('foundation') ||
-                         description.includes('dao') ||
-                         description.includes('fund') ||
-                         description.includes('vc');
+        description.includes('platform') ||
+        description.includes('ecosystem') ||
+        description.includes('foundation') ||
+        description.includes('dao') ||
+        description.includes('fund') ||
+        description.includes('vc');
 
       if (isLikelyOrg) {
         return {
           screen_name: profile.screen_name,
           vibe: 'organization' as const,
           last_updated: new Date().toISOString(),
-          org_type: 'service' as const,
-          org_subtype: ['other'],
-          web3_focus: 'traditional' as const
+          orgType: 'service' as const,
+          orgSubtype: ['other'],
+          web3Focus: 'traditional' as const
         };
       } else {
         return {
@@ -346,7 +390,7 @@ async function cleanConflictingFields(userId: string, vibe: string): Promise<voi
   if (vibe === 'individual') {
     cleanupQuery = `
       MATCH (u:User {userId: $userId})
-      REMOVE u.org_type, u.org_subtype, u.web3_focus
+      REMOVE u.orgType, u.orgSubtype, u.web3Focus
       RETURN u.userId as userId
     `
   } else if (vibe === 'organization') {
@@ -359,7 +403,7 @@ async function cleanConflictingFields(userId: string, vibe: string): Promise<voi
     cleanupQuery = `
       MATCH (u:User {userId: $userId})
       REMOVE u.current_organizations, u.past_organizations, u.department,
-             u.org_type, u.org_subtype, u.web3_focus
+             u.orgType, u.orgSubtype, u.web3Focus
       RETURN u.userId as userId
     `
   }
@@ -408,9 +452,9 @@ export async function saveClassificationToNeo4j(
         neo4jUser.department = classification.department
       }
     } else if (classification.vibe === 'organization') {
-      neo4jUser.org_type = classification.org_type || 'service';
-      neo4jUser.org_subtype = JSON.stringify(classification.org_subtype || ['other']);
-      neo4jUser.web3_focus = classification.web3_focus || 'traditional';
+      neo4jUser.orgType = classification.orgType || 'service';
+      neo4jUser.orgSubtype = JSON.stringify(classification.orgSubtype || ['other']);
+      neo4jUser.web3Focus = classification.web3Focus || 'traditional';
     }
 
     neo4jUser.lastUpdated = new Date().toISOString()
@@ -464,15 +508,15 @@ export async function getCachedClassification(twitterUsername: string): Promise<
         result.department = userData.department as ClassificationResult['department']
       }
     } else if (userVibe === 'organization') {
-      if (userData.org_type) {
-        result.org_type = userData.org_type as ClassificationResult['org_type']
+      if (userData.orgType) {
+        result.orgType = userData.orgType as ClassificationResult['orgType']
       }
-      if (userData.org_subtype) {
-        const orgSubtype = userData.org_subtype;
-        result.org_subtype = typeof orgSubtype === 'string' ? JSON.parse(orgSubtype) : orgSubtype as string[];
+      if (userData.orgSubtype) {
+        const orgSubtype = userData.orgSubtype;
+        result.orgSubtype = typeof orgSubtype === 'string' ? JSON.parse(orgSubtype) : orgSubtype as string[];
       }
-      if (userData.web3_focus) {
-        result.web3_focus = userData.web3_focus as ClassificationResult['web3_focus']
+      if (userData.web3Focus) {
+        result.web3Focus = userData.web3Focus as ClassificationResult['web3Focus']
       }
     }
 
@@ -520,7 +564,7 @@ export async function classifyProfileComplete(
   if (cached) {
     const isIncompleteOrganization = (
       cached.vibe === 'organization' &&
-      (!cached.org_type || !cached.org_subtype || !cached.web3_focus)
+      (!cached.orgType || !cached.orgSubtype || !cached.web3Focus)
     )
 
     if (!isIncompleteOrganization) {
@@ -557,9 +601,9 @@ export async function classifyProfileComplete(
 
     // Process employment relationships if individual
     if (finalClassification.vibe === 'individual' &&
-        (finalClassification.current_organizations?.length ||
-         finalClassification.past_organizations?.length ||
-         finalClassification.member_of?.length)) {
+      (finalClassification.current_organizations?.length ||
+        finalClassification.past_organizations?.length ||
+        finalClassification.member_of?.length)) {
 
       console.log('  → Processing employment relationships...')
 

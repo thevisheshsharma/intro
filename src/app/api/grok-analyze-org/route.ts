@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuth } from '@clerk/nextjs/server'
+import { verifyPrivyToken } from '@/lib/privy'
 import { createStructuredICPAnalysis, ICPAnalysisConfig } from '@/lib/grok'
 import { logAPIError, logExternalServiceError } from '@/lib/error-utils'
 import { getOrganizationProperties, getOrganizationForUI, getUserByScreenName, updateOrganizationProperties, ensureUserExists, processICPRelationships } from '@/services'
@@ -58,9 +58,9 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
-    const { userId } = getAuth(request)
-    
-    if (!userId) {
+    const { userId, error: authError } = await verifyPrivyToken(request)
+
+    if (authError || !userId) {
       console.log('❌ Unauthorized grok-analyze-org request')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
         }, { status: 400 })
       }
       
-      if (classification.web3_focus === 'traditional') {
+      if (classification.web3Focus === 'traditional') {
         console.log('  → ❌ Organization is not Web3 focused')
         return NextResponse.json({
           error: 'This organization does not appear to be Web3/crypto focused.',
@@ -128,11 +128,11 @@ export async function POST(request: NextRequest) {
           suggestion: 'ICP analysis is currently designed for Web3 organizations.'
         }, { status: 400 })
       }
-      
+
       // Proceed with Web3 organization analysis
       console.log('  → ✅ Valid Web3 organization detected, proceeding with ICP analysis')
-      console.log(`  → Organization type: ${classification.org_type || 'general'}`)
-      console.log(`  → Organization subtype: ${classification.org_subtype || 'general'}`)
+      console.log(`  → Organization type: ${classification.orgType || 'general'}`)
+      console.log(`  → Organization subtype: ${classification.orgSubtype || 'general'}`)
       
     } catch (classificationError: any) {
       console.error('❌ Classification error:', classificationError)
@@ -166,18 +166,18 @@ export async function POST(request: NextRequest) {
     // Create comprehensive ICP analysis
     console.log('🤖 Starting Grok ICP analysis...')
     console.log('  → Using classification:', classification ? {
-      org_type: classification.org_type,
-      org_subtype: classification.org_subtype,
-      web3_focus: classification.web3_focus
+      orgType: classification.orgType,
+      orgSubtype: classification.orgSubtype,
+      web3Focus: classification.web3Focus
     } : 'No classification (fallback to general schema)')
-    
+
     const icpAnalysis = await createStructuredICPAnalysis(
       sanitizedUsername,
       ICPAnalysisConfig.FULL,
       classification ? {
-        org_type: classification.org_type,
-        org_subtype: classification.org_subtype,
-        web3_focus: classification.web3_focus
+        orgType: classification.orgType,
+        orgSubtype: classification.orgSubtype,
+        web3Focus: classification.web3Focus
       } : undefined
     )
     console.log('✅ Grok analysis completed')
@@ -232,11 +232,9 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error: any) {
-    const { userId } = getAuth(request)
-    
     console.error('❌ Grok analysis error:', error)
     // Log the error for monitoring
-    logAPIError(error, 'Organization ICP Analysis', '/api/grok-analyze-org', userId || undefined)
+    logAPIError(error, 'Organization ICP Analysis', '/api/grok-analyze-org', undefined)
 
     // Determine specific error message
     let errorMessage = 'Failed to analyze organization ICP'

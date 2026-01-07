@@ -789,6 +789,10 @@ const ConvergenceBurst = ({ isActive }: { isActive: boolean }) => {
     )
 }
 
+// Refined timing - more breathing room
+const STEP_DELAYS = [0, 800, 1800, 3000, 4400, 6000, 7800, 10500]
+const LOOP_HOLD_DURATION = 6000
+
 // Main component with magnetic interaction
 export default function NetworkAnimation() {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -796,10 +800,7 @@ export default function NetworkAnimation() {
     const [currentStep, setCurrentStep] = useState(0)
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
 
-    // Refined timing - more breathing room
-    const STEP_DELAYS = [0, 800, 1800, 3000, 4400, 6000, 7800, 10500]
     const isConverged = currentStep >= 7
-    const LOOP_HOLD_DURATION = 6000
 
     useEffect(() => {
         const updateDimensions = () => {

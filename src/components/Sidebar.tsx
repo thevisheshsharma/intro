@@ -3,36 +3,55 @@
 import { memo } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { UserButton } from '@clerk/nextjs'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Route, Building2, Users, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Route, Building2, Users, ChevronLeft, ChevronRight, Lock } from 'lucide-react'
+import { PrivyUserButton } from '@/components/PrivyUserButton'
+import { useUserSession } from '@/lib/hooks/useUserSession'
+import { canAccessFeature, type FeatureKey } from '@/lib/features'
 
 interface SidebarProps {
-  user: any
-  profile: any
-  twitterUsername: string | null
+  displayName: string
+  plan?: string | null
   collapsed: boolean
   setCollapsed: (c: boolean | ((c: boolean) => boolean)) => void
 }
 
-const navItems = [
-  { key: 'pathfinder', href: '/app', icon: Route, label: 'Pathfinder' },
-  { key: 'company', href: '/app/manage-org', icon: Building2, label: 'Company Intel' },
-  { key: 'people', href: '/app/find-from-org', icon: Users, label: 'People Intel' },
+interface NavItem {
+  key: string
+  href: string
+  icon: typeof Route
+  label: string
+  feature: FeatureKey
+}
+
+const navItems: NavItem[] = [
+  { key: 'pathfinder', href: '/app', icon: Route, label: 'Pathfinder', feature: 'pathfinder' },
+  { key: 'company', href: '/app/manage-org', icon: Building2, label: 'Company Intel', feature: 'companyIntel' },
+  { key: 'people', href: '/app/find-from-org', icon: Users, label: 'People Intel', feature: 'peopleIntel' },
 ]
 
-const Sidebar = memo(function Sidebar({ user, collapsed, setCollapsed }: SidebarProps) {
+const Sidebar = memo(function Sidebar({ displayName, plan, collapsed, setCollapsed }: SidebarProps) {
   const pathname = usePathname()
-  const displayName = user?.firstName || user?.emailAddresses?.[0]?.emailAddress?.split('@')[0] || 'User'
+  const { session } = useUserSession()
 
   const isActive = (href: string) => {
     if (href === '/app') return pathname === '/app'
     return pathname.startsWith(href)
   }
 
+  const isFeatureLocked = (feature: FeatureKey) => {
+    if (!session) return false // Don't show locked until we know status
+    const subscriptionPlan = session.subscription?.plan ?? null
+    const status = session.subscription?.status ?? null
+    return !canAccessFeature(subscriptionPlan, status, feature)
+  }
+
   // Sidebar widths
   const COLLAPSED_WIDTH = 72
   const EXPANDED_WIDTH = 260
+
+  // Plan display
+  const planLabel = plan ? `${plan.charAt(0).toUpperCase() + plan.slice(1)} plan` : 'Free trial'
 
   return (
     <motion.aside
@@ -70,8 +89,8 @@ const Sidebar = memo(function Sidebar({ user, collapsed, setCollapsed }: Sidebar
       <motion.button
         animate={{ x: 0 }}
         onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 bottom-20 w-6 h-6 rounded-full bg-white border border-gray-100 
-                   flex items-center justify-center text-gray-400 hover:text-gray-600 
+        className="absolute -right-3 bottom-20 w-6 h-6 rounded-full bg-white border border-gray-100
+                   flex items-center justify-center text-gray-400 hover:text-gray-600
                    shadow-md z-[60] transition-transform hover:scale-110"
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
@@ -83,21 +102,24 @@ const Sidebar = memo(function Sidebar({ user, collapsed, setCollapsed }: Sidebar
         <div className="flex flex-col gap-1">
           {navItems.map((item) => {
             const active = isActive(item.href)
+            const locked = isFeatureLocked(item.feature)
             const Icon = item.icon
 
             return (
               <Link
                 key={item.key}
-                href={item.href}
+                href={locked ? '/app/settings/billing' : item.href}
                 className={`flex items-center transition-all duration-200 relative group h-11
-                  ${active
-                    ? 'text-berri-raspberry'
-                    : 'text-gray-500 hover:text-gray-900'
+                  ${locked
+                    ? 'text-gray-400 cursor-not-allowed'
+                    : active
+                      ? 'text-berri-raspberry'
+                      : 'text-gray-500 hover:text-gray-900'
                   }`}
-                title={collapsed ? item.label : undefined}
+                title={collapsed ? (locked ? `${item.label} (Locked)` : item.label) : undefined}
               >
                 {/* Active Highlight Overlay */}
-                {active && (
+                {active && !locked && (
                   <motion.div
                     layoutId="activeNavHighlight"
                     className="absolute inset-y-0 left-2 right-2 bg-berri-raspberry/8 rounded-xl z-[-1]"
@@ -105,29 +127,41 @@ const Sidebar = memo(function Sidebar({ user, collapsed, setCollapsed }: Sidebar
                 )}
 
                 {/* ICON ZONE: Exactly 72px wide to center icons perfectly at X=36 */}
-                <div className="w-[72px] min-w-[72px] h-full flex items-center justify-center flex-shrink-0">
-                  <Icon className={`w-5 h-5 ${active ? 'text-berri-raspberry' : 'group-hover:text-gray-700'} transition-colors`} />
+                <div className="w-[72px] min-w-[72px] h-full flex items-center justify-center flex-shrink-0 relative">
+                  <Icon className={`w-5 h-5 ${locked ? 'text-gray-400' : active ? 'text-berri-raspberry' : 'group-hover:text-gray-700'} transition-colors`} />
+                  {locked && (
+                    <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-gray-100 rounded-full flex items-center justify-center">
+                      <Lock className="w-2 h-2 text-gray-500" />
+                    </div>
+                  )}
                 </div>
 
                 <AnimatePresence mode="wait">
                   {!collapsed && (
-                    <motion.span
+                    <motion.div
                       initial={{ opacity: 0, x: -5 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: -5 }}
                       transition={{ duration: 0.2 }}
-                      className={`text-sm whitespace-nowrap overflow-hidden ${active ? 'font-medium' : ''}`}
+                      className="flex items-center gap-2"
                     >
-                      {item.label}
-                    </motion.span>
+                      <span className={`text-sm whitespace-nowrap overflow-hidden ${active && !locked ? 'font-medium' : ''} ${locked ? 'text-gray-400' : ''}`}>
+                        {item.label}
+                      </span>
+                      {locked && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded font-medium">
+                          LOCKED
+                        </span>
+                      )}
+                    </motion.div>
                   )}
                 </AnimatePresence>
 
                 {/* Tooltip for collapsed state */}
                 {collapsed && (
-                  <span className="absolute left-full ml-3 px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-medium 
+                  <span className="absolute left-full ml-3 px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-medium
                                    whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-50">
-                    {item.label}
+                    {item.label}{locked ? ' (Locked)' : ''}
                   </span>
                 )}
               </Link>
@@ -140,14 +174,7 @@ const Sidebar = memo(function Sidebar({ user, collapsed, setCollapsed }: Sidebar
       <div className="border-t border-gray-100 p-4 flex-shrink-0">
         <div className="flex items-center">
           <div className="w-[40px] h-10 flex items-center justify-center flex-shrink-0">
-            <UserButton
-              afterSignOutUrl="/"
-              appearance={{
-                elements: {
-                  avatarBox: "w-8 h-8"
-                }
-              }}
-            />
+            <PrivyUserButton size="sm" />
           </div>
           <AnimatePresence mode="wait">
             {!collapsed && (
@@ -159,7 +186,7 @@ const Sidebar = memo(function Sidebar({ user, collapsed, setCollapsed }: Sidebar
                 className="flex-1 min-w-0 ml-3"
               >
                 <p className="text-sm font-medium text-gray-900 truncate">{displayName}</p>
-                <p className="text-xs text-gray-400">Free plan</p>
+                <p className="text-xs text-gray-400">{planLabel}</p>
               </motion.div>
             )}
           </AnimatePresence>

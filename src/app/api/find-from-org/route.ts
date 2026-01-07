@@ -1204,9 +1204,9 @@ export async function POST(request: NextRequest) {
       screenName: string, 
       profile: any,
       classification?: {
-        org_type?: string,
-        org_subtype?: string,
-        web3_focus?: string
+        orgType?: string,
+        orgSubtype?: string,
+        web3Focus?: string
       }
     }> = []
 
@@ -1382,9 +1382,9 @@ export async function POST(request: NextRequest) {
                 current_organizations: result.current_organizations,
                 department: result.department,
                 past_organizations: result.past_organizations,
-                org_type: result.org_type,
-                org_subtype: result.org_subtype,
-                web3_focus: result.web3_focus
+                orgType: result.orgType,
+                orgSubtype: result.orgSubtype,
+                web3Focus: result.web3Focus
               }))
             }
             
@@ -1440,9 +1440,9 @@ export async function POST(request: NextRequest) {
                     screenName: analyzed.screen_name || originalProfile.screen_name,
                     profile: originalProfile,
                     classification: {
-                      org_type: analyzed.org_type,
-                      org_subtype: analyzed.org_subtype,
-                      web3_focus: analyzed.web3_focus
+                      orgType: analyzed.orgType,
+                      orgSubtype: analyzed.orgSubtype,
+                      web3Focus: analyzed.web3Focus
                     }
                   })
                 } else if (analyzed.vibe === 'spam') {
@@ -1569,30 +1569,30 @@ export async function POST(request: NextRequest) {
         
         // Separate existing and new organizations
         const orgsToUpdate: Array<{
-          screenName: string, 
+          screenName: string,
           userId: string,
           classification?: {
-            org_type?: string,
-            org_subtype?: string,
-            web3_focus?: string
+            orgType?: string,
+            orgSubtype?: string,
+            web3Focus?: string
           }
         }> = []
         const orgsToFetch: Array<{
-          screenName: string, 
+          screenName: string,
           profile: any,
           classification?: {
-            org_type?: string,
-            org_subtype?: string,
-            web3_focus?: string
+            orgType?: string,
+            orgSubtype?: string,
+            web3Focus?: string
           }
         }> = []
-        
+
         grokIdentifiedOrganizations.forEach(({ screenName, profile, classification }) => {
           const existingOrg = existingOrgMap.get(screenName.toLowerCase())
-          
+
           if (existingOrg) {
             // Organization exists - always update classification if we have new data from Grok
-            if (classification && (classification.org_type || classification.org_subtype || classification.web3_focus)) {
+            if (classification && (classification.orgType || classification.orgSubtype || classification.web3Focus)) {
               orgsToUpdate.push({
                 screenName: existingOrg.screenName,
                 userId: existingOrg.userId,
@@ -1604,9 +1604,9 @@ export async function POST(request: NextRequest) {
                 screenName: existingOrg.screenName,
                 userId: existingOrg.userId,
                 classification: {
-                  org_type: 'service',
-                  org_subtype: 'other',
-                  web3_focus: 'traditional'
+                  orgType: 'service',
+                  orgSubtype: 'other',
+                  web3Focus: 'traditional'
                 }
               })
               console.log(`     🔄 @${screenName} - EXISTS, will update vibe to 'organization'`)
@@ -1629,9 +1629,9 @@ export async function POST(request: NextRequest) {
             const orgClassificationUpdates = orgsToUpdate.map(org => ({
               userId: org.userId,
               classification: org.classification || {
-                org_type: 'service',
-                org_subtype: 'other',
-                web3_focus: 'traditional'
+                orgType: 'service',
+                orgSubtype: 'other',
+                web3Focus: 'traditional'
               }
             }))
             
@@ -1703,13 +1703,13 @@ export async function POST(request: NextRequest) {
               
               // Apply classification data if available
               if (classification) {
-                orgUser.org_type = classification.org_type || 'service'
-                orgUser.org_subtype = classification.org_subtype || 'other'
-                orgUser.web3_focus = classification.web3_focus || 'traditional'
+                orgUser.orgType = classification.orgType || 'service'
+                orgUser.orgSubtype = classification.orgSubtype || 'other'
+                orgUser.web3Focus = classification.web3Focus || 'traditional'
               } else {
-                orgUser.org_type = 'service'
-                orgUser.org_subtype = 'other'
-                orgUser.web3_focus = 'traditional'
+                orgUser.orgType = 'service'
+                orgUser.orgSubtype = 'other'
+                orgUser.web3Focus = 'traditional'
               }
               
               return orgUser

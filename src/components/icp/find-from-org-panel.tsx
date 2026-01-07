@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Search, Loader, Users, AlertCircle, User } from 'lucide-react'
 import { ErrorDisplay } from '@/components/ui/error-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { FollowingsTable } from '@/components/twitter/followings-table'
@@ -50,35 +49,22 @@ export default function FindFromOrgPanel() {
     setSearchStatus('Initializing search...')
 
     try {
-      // Normalize username: remove '@' and trim
       const normalizedUsername = orgHandle.replace(/^@/, '').trim()
-      
-      console.log('🔍 Searching for organization:', normalizedUsername)
       setSearchStatus('Contacting API...')
 
       const response = await fetch('/api/find-from-org', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          orgUsername: normalizedUsername
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgUsername: normalizedUsername })
       })
 
       setSearchStatus('Processing results...')
       const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || data.details || 'Failed to search organization')
-      }
+      if (!response.ok) throw new Error(data.error || data.details || 'Failed to search organization')
 
       setResults(data)
       setSearchStatus('')
-      console.log('✅ Search completed:', data.summary)
-
     } catch (err: any) {
-      console.error('❌ Search error:', err)
       setError(err.message || 'An error occurred while searching')
       setSearchStatus('')
     } finally {
@@ -88,259 +74,199 @@ export default function FindFromOrgPanel() {
   }
 
   const isValidHandle = orgHandle.trim().length > 0
-
-  // Show search form if no results or if there was an error
   const showSearchForm = !results || error
 
   return (
-    <div className="w-full flex flex-col items-center bg-[#181818] px-4 py-8 min-h-screen">
+    <div className="w-full flex flex-col items-center bg-gray-50 px-6 py-10 min-h-screen">
       {showSearchForm ? (
-        // Search Form View
         <div className="flex flex-col items-center justify-center min-h-screen max-w-md w-full">
-          <h2 className="text-3xl text-white mb-2 text-center">
-            Find from org
-          </h2>
-          <p className="text-gray-300 mb-8 text-center">
-            Discover people associated with an organisation<br />
-            using their Twitter handle
+          <h2 className="text-3xl font-bold text-gray-900 mb-2 text-center">Find from org</h2>
+          <p className="text-gray-500 mb-8 text-center">
+            Discover people associated with an organisation<br />using their Twitter handle
           </p>
-          
+
           <form onSubmit={handleSubmit} className="w-full space-y-4">
-            <div className="relative">
-              <input
-                type="text"
-                value={orgHandle}
-                onChange={(e) => setOrgHandle(e.target.value)}
-                placeholder="Enter the organisation's Twitter handle"
-                className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                disabled={searching}
-              />
-            </div>
-            
+            <input
+              type="text"
+              value={orgHandle}
+              onChange={(e) => setOrgHandle(e.target.value)}
+              placeholder="Enter the organisation's Twitter handle"
+              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-berri-raspberry/20 focus:border-berri-raspberry transition-all shadow-sm"
+              disabled={searching}
+            />
+
             <button
               type="submit"
               disabled={!isValidHandle || searching}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-berri-raspberry hover:bg-berri-raspberry/90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl transition-all shadow-md shadow-berri-raspberry/25 flex items-center justify-center gap-2 font-medium"
             >
               {searching ? (
                 <>
-                  <Loader className="w-5 h-5 animate-spin" />
+                  <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                   {searchStatus || 'Searching...'}
                 </>
               ) : (
                 <>
-                  <Search className="w-5 h-5" />
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
                   Search
                 </>
               )}
             </button>
           </form>
 
-          {/* Error Display */}
           {error && (
             <div className="mt-6 w-full">
               <ErrorDisplay message={error} />
-              <button
-                onClick={() => setError(null)}
-                className="mt-4 text-blue-400 hover:text-blue-300 transition-colors"
-              >
+              <button onClick={() => setError(null)} className="mt-4 text-berri-raspberry hover:text-berri-coral transition-colors font-medium">
                 Try again
               </button>
             </div>
           )}
         </div>
       ) : (
-        // Results View
         <div className="w-full max-w-6xl">
-          {/* Header with Search Again Option */}
+          {/* Header */}
           <div className="mb-8 text-center">
-            <h2 className="text-3xl text-white mb-2">
-              Results for @{results.orgUsername}
-            </h2>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Results for @{results.orgUsername}</h2>
             <button
-              onClick={() => {
-                setResults(null)
-                setError(null)
-                setOrgHandle('')
-              }}
-              className="text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-2 mx-auto"
+              onClick={() => { setResults(null); setError(null); setOrgHandle('') }}
+              className="text-berri-raspberry hover:text-berri-coral transition-colors flex items-center gap-2 mx-auto font-medium"
             >
-              <Search className="w-4 h-4" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
               Search another organization
             </button>
           </div>
 
           {/* Summary Stats */}
           <div className="mb-8 grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div className="bg-gray-800/50 border border-gray-600 rounded-lg p-4 text-center">
-              <Users className="w-6 h-6 text-blue-400 mx-auto mb-2" />
-              <div className="text-2xl font-bold text-white">{results.summary.totalProfilesFound}</div>
-              <div className="text-sm text-gray-400">Relevant Found</div>
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 text-center shadow-sm">
+              <svg className="w-6 h-6 text-berri-raspberry mx-auto mb-2" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+              </svg>
+              <div className="text-2xl font-bold text-gray-900">{results.summary.totalProfilesFound}</div>
+              <div className="text-sm text-gray-500">Relevant Found</div>
             </div>
-            <div className="bg-gray-800/50 border border-gray-600 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-green-400">{results.summary.individualsFound}</div>
-              <div className="text-sm text-gray-400">Individuals</div>
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 text-center shadow-sm">
+              <div className="text-2xl font-bold text-green-600">{results.summary.individualsFound}</div>
+              <div className="text-sm text-gray-500">Individuals</div>
             </div>
-            <div className="bg-gray-800/50 border border-gray-600 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-amber-400">{results.summary.rejectedProfilesCount || 0}</div>
-              <div className="text-sm text-gray-400">Rejected</div>
-            </div>
-          </div>
-
-          {/* Data Sources Stats */}
-          <div className="mb-8 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-yellow-400">{results.summary.affiliatesFound}</div>
-              <div className="text-xs text-gray-400">API Affiliates</div>
-            </div>
-            <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-orange-400">{results.summary.searchResultsFound}</div>
-              <div className="text-xs text-gray-400">Search Results</div>
-            </div>
-            <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-pink-400">{results.summary.grokSuggestionsFound}</div>
-              <div className="text-xs text-gray-400">AI Suggestions</div>
-            </div>
-            <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-3 text-center">
-              <div className="text-lg font-bold text-cyan-400">{results.summary.followingAffiliatesFound}</div>
-              <div className="text-xs text-gray-400">Following List</div>
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 text-center shadow-sm">
+              <div className="text-2xl font-bold text-amber-600">{results.summary.rejectedProfilesCount || 0}</div>
+              <div className="text-sm text-gray-500">Rejected</div>
             </div>
           </div>
 
-          {/* Grok Analysis Stats */}
+          {/* Data Sources */}
+          <div className="mb-8 grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { value: results.summary.affiliatesFound, label: 'API Affiliates', color: 'text-amber-600' },
+              { value: results.summary.searchResultsFound, label: 'Search Results', color: 'text-orange-600' },
+              { value: results.summary.grokSuggestionsFound, label: 'AI Suggestions', color: 'text-pink-600' },
+              { value: results.summary.followingAffiliatesFound, label: 'Following List', color: 'text-cyan-600' }
+            ].map((item, i) => (
+              <div key={i} className="bg-white border border-gray-100 rounded-xl p-3 text-center shadow-sm">
+                <div className={`text-lg font-bold ${item.color}`}>{item.value}</div>
+                <div className="text-xs text-gray-500">{item.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* AI Analysis Stats */}
           {results.summary.grokOrganizationsRemoved !== undefined && results.summary.grokOrganizationsRemoved > 0 && (
-            <div className="mb-6 bg-purple-900/20 border border-purple-800 rounded-lg p-4">
+            <div className="mb-6 bg-purple-50 border border-purple-100 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-4 h-4 bg-purple-400 rounded"></div>
-                <h3 className="text-purple-200 font-semibold">AI Analysis Results</h3>
+                <div className="w-4 h-4 bg-purple-500 rounded" />
+                <h3 className="text-purple-900 font-semibold">AI Analysis Results</h3>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="text-purple-100">
-                  <span className="font-medium text-purple-300">{results.summary.grokOrganizationsRemoved}</span> organization accounts identified and filtered out
-                </div>
-                <div className="text-purple-100">
-                  <span className="font-medium text-purple-300">{results.summary.individualsFound}</span> individuals with role/organization data extracted
-                </div>
+                <div className="text-purple-800"><span className="font-medium">{results.summary.grokOrganizationsRemoved}</span> organization accounts filtered</div>
+                <div className="text-purple-800"><span className="font-medium">{results.summary.individualsFound}</span> individuals with roles extracted</div>
               </div>
             </div>
           )}
 
-          {/* Warnings/Errors */}
+          {/* Warnings */}
           {results.errors && results.errors.length > 0 && (
-            <div className="mb-6 bg-yellow-900/50 border border-yellow-600 rounded-lg p-4">
+            <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-2">
-                <AlertCircle className="w-5 h-5 text-yellow-400" />
-                <h3 className="text-yellow-200 font-semibold">Warnings</h3>
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                <h3 className="text-amber-900 font-semibold">Warnings</h3>
               </div>
-              <ul className="text-yellow-100 text-sm space-y-1">
-                {results.errors.map((error, idx) => (
-                  <li key={idx}>• {error}</li>
-                ))}
+              <ul className="text-amber-800 text-sm space-y-1">
+                {results.errors.map((error, idx) => <li key={idx}>• {error}</li>)}
               </ul>
             </div>
           )}
 
           {/* Results Layout */}
           <div className="flex flex-row gap-8 items-start">
-            {/* Organization Profile Card (left, 25%) */}
             {results.orgProfile && (
-              <div 
-                style={{ width: '25%', minWidth: 200, maxWidth: 280 }} 
-                className="flex-shrink-0"
-              >
+              <div style={{ width: '25%', minWidth: 200, maxWidth: 280 }} className="flex-shrink-0">
                 <SearchedProfileCard user={transformTwitterUser(results.orgProfile)} />
               </div>
             )}
 
-            {/* People Results (right, remaining space) */}
             <div className="flex-1 min-w-0">
-              {(results.directAffiliates && results.directAffiliates.length > 0) || (results.otherIndividuals && results.otherIndividuals.length > 0) ? (
+              {(results.directAffiliates?.length > 0) || (results.otherIndividuals?.length > 0) ? (
                 <div className="space-y-8">
-                  {/* Direct Affiliates Section */}
-                  {results.directAffiliates && results.directAffiliates.length > 0 && (
+                  {results.directAffiliates?.length > 0 && (
                     <div>
                       <div className="flex items-center gap-2 mb-4">
-                        <User className="w-5 h-5 text-green-400" />
-                        <h3 className="text-xl font-semibold text-white">
-                          Direct Employees ({results.directAffiliates.length})
-                        </h3>
-                        <span className="text-sm text-gray-400">
-                          (Currently working at @{results.orgUsername})
-                        </span>
+                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                        </svg>
+                        <h3 className="text-lg font-semibold text-gray-900">Direct Employees ({results.directAffiliates.length})</h3>
+                        <span className="text-sm text-gray-500">(Currently at @{results.orgUsername})</span>
                       </div>
-                      <div className="bg-green-900/20 border border-green-800 rounded-lg p-4">
-                        <FollowingsTable 
-                          followings={results.directAffiliates.map(transformTwitterUser)} 
-                          loading={false} 
-                          compact 
-                        />
+                      <div className="bg-green-50 border border-green-100 rounded-2xl p-4">
+                        <FollowingsTable followings={results.directAffiliates.map(transformTwitterUser)} loading={false} compact />
                       </div>
                     </div>
                   )}
 
-                  {/* Other Individuals Section */}
-                  {results.otherIndividuals && results.otherIndividuals.length > 0 && (
+                  {results.otherIndividuals?.length > 0 && (
                     <div>
                       <div className="flex items-center gap-2 mb-4">
-                        <User className="w-5 h-5 text-blue-400" />
-                        <h3 className="text-xl font-semibold text-white">
-                          Related Individuals ({results.otherIndividuals.length})
-                        </h3>
-                        <span className="text-sm text-gray-400">
-                          (Associated but not current employees)
-                        </span>
+                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                        </svg>
+                        <h3 className="text-lg font-semibold text-gray-900">Related Individuals ({results.otherIndividuals.length})</h3>
+                        <span className="text-sm text-gray-500">(Associated but not current employees)</span>
                       </div>
-                      <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4">
-                        <FollowingsTable 
-                          followings={results.otherIndividuals.map(transformTwitterUser)} 
-                          loading={false} 
-                          compact 
-                        />
+                      <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
+                        <FollowingsTable followings={results.otherIndividuals.map(transformTwitterUser)} loading={false} compact />
                       </div>
                     </div>
                   )}
 
-                  {/* Rejected Profiles Section */}
-                  {results.rejectedProfiles && results.rejectedProfiles.length > 0 && (
+                  {results.rejectedProfiles?.length > 0 && (
                     <div>
                       <div className="flex items-center gap-2 mb-4">
-                        <AlertCircle className="w-5 h-5 text-amber-400" />
-                        <h3 className="text-xl font-semibold text-white">
-                          Rejected Profiles ({results.rejectedProfiles.length})
-                        </h3>
-                        <span className="text-sm text-gray-400">
-                          (Filtered out profiles)
-                        </span>
+                        <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                        </svg>
+                        <h3 className="text-lg font-semibold text-gray-900">Rejected Profiles ({results.rejectedProfiles.length})</h3>
                       </div>
-                      <div className="bg-amber-900/20 border border-amber-800 rounded-lg p-4">
-                        <p className="text-amber-200 text-sm mb-4">
-                          These profiles were filtered out for various reasons:
-                        </p>
-                        <ul className="text-amber-200 text-sm mb-4 space-y-1 ml-4">
-                          <li>• <strong>Organization accounts:</strong> Verified business accounts</li>
-                          <li>• <strong>Spam-filtered:</strong> Accounts with &lt;10 followers AND &lt;10 following</li>
-                          <li>• <strong>No name match:</strong> Profiles that don&apos;t contain variations of the organization&apos;s name</li>
-                        </ul>
-                        <p className="text-amber-200 text-sm mb-4">
-                          While filtered out, some of these profiles may still be relevant to your search.
-                        </p>
-                        <FollowingsTable 
-                          followings={results.rejectedProfiles.map(transformTwitterUser)} 
-                          loading={false} 
-                          compact 
-                        />
+                      <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
+                        <p className="text-amber-800 text-sm mb-4">Profiles filtered for: organization accounts, spam, or no name match.</p>
+                        <FollowingsTable followings={results.rejectedProfiles.map(transformTwitterUser)} loading={false} compact />
                       </div>
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-white mb-2">No associated people found</h3>
-                  <p className="text-gray-400">
-                    We couldn&apos;t find any people currently working at or associated with this organization.
-                    This could mean the organization has limited public employee data or uses private profiles.
-                  </p>
+                  <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                  </svg>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No associated people found</h3>
+                  <p className="text-gray-500">Limited public employee data or private profiles.</p>
                 </div>
               )}
             </div>

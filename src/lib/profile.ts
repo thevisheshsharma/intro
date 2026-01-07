@@ -7,6 +7,10 @@ export interface Profile {
   email: string | null;
   updated_at: string | null;
   bio: string | null;
+  // Subscription fields (Phase 2)
+  plan?: 'founder' | 'standard' | 'enterprise' | null;
+  subscriptionStatus?: 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired' | null;
+  trialEndsAt?: string | null;
 }
 
 export async function getProfile(userId: string): Promise<Profile | null> {

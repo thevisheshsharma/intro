@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuth } from '@clerk/nextjs/server'
+import { verifyPrivyToken } from '@/lib/privy'
 import { logAPIError } from '@/lib/error-utils'
 import { getOrganizationProperties, getOrganizationForUI, updateOrganizationProperties, getUserByScreenName, createOrganizationUser } from '@/services'
 
@@ -14,8 +14,8 @@ interface Organization {
 
 // GET: Retrieve organization and ICP (global, not user-specific)
 export async function GET(request: NextRequest) {
-  const { userId } = getAuth(request)
-  
+  const { userId } = await verifyPrivyToken(request)
+
   try {
     const { searchParams } = new URL(request.url)
     let twitter_username = searchParams.get('twitter_username')
@@ -67,10 +67,10 @@ export async function GET(request: NextRequest) {
 
 // POST: Save organization (check if exists globally first)
 export async function POST(request: NextRequest) {
-  const { userId } = getAuth(request)
-  
+  const { userId, error: authError } = await verifyPrivyToken(request)
+
   try {
-    if (!userId) {
+    if (authError || !userId) {
       console.log('❌ Unauthorized POST request')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -169,15 +169,16 @@ export async function POST(request: NextRequest) {
 
 // PUT: Update ICP (custom edits)
 export async function PUT(request: NextRequest) {
+  const { userId, error: authError } = await verifyPrivyToken(request)
+
+  if (authError || !userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
-    const { userId } = getAuth(request)
     const body = await request.json()
     const { icp, customNotes } = body
     let { twitter_username } = body
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
     
     if (!twitter_username) {
       return NextResponse.json({ 
@@ -211,10 +212,9 @@ export async function PUT(request: NextRequest) {
     
     return NextResponse.json({ icp: savedICP })
   } catch (error: any) {
-    const { userId } = getAuth(request)
     logAPIError(error, 'updating ICP', '/api/organization-icp-analysis/save', userId || undefined)
-    return NextResponse.json({ 
-      error: error.message || 'Failed to update ICP' 
+    return NextResponse.json({
+      error: error.message || 'Failed to update ICP'
     }, { status: 500 })
   }
 }

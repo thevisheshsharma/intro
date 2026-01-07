@@ -23,6 +23,16 @@ const nextConfig = {
     deviceSizes: [640, 750, 828, 1080, 1200],
     imageSizes: [16, 32, 48, 64, 96, 128, 256],
   },
+  webpack: (config, { isServer }) => {
+    // Fixes "Module not found: Can't resolve 'encoding'"
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        encoding: false,
+      }
+    }
+    return config
+  },
 }
 
 module.exports = nextConfig

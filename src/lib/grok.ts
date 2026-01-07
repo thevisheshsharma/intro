@@ -225,11 +225,11 @@ const schemaCache = new Map<string, z.ZodObject<any>>();
  * Generate dynamic ICP Analysis schema based on classification
  */
 export function createClassificationSpecificSchema(classification?: {
-  org_type?: string
-  org_subtype?: string[]
-  web3_focus?: string
+  orgType?: string
+  orgSubtype?: string[]
+  web3Focus?: string
 }): z.ZodObject<any> {
-  const orgType = classification?.org_type || 'protocol';
+  const orgType = classification?.orgType || 'protocol';
   const cacheKey = orgType;
 
   if (schemaCache.has(cacheKey)) {
@@ -284,8 +284,8 @@ export const ICPAnalysisSchema = createClassificationSpecificSchema();
 /**
  * Get classification-specific context for ICP analysis
  */
-function getClassificationSpecificContext(classification?: { org_type?: string }) {
-  const orgType = classification?.org_type || 'protocol';
+function getClassificationSpecificContext(classification?: { orgType?: string }) {
+  const orgType = classification?.orgType || 'protocol';
 
   const contextMap: Record<string, any> = {
     defi: {
@@ -348,7 +348,8 @@ function getClassificationSpecificContext(classification?: { org_type?: string }
 export async function createStructuredICPAnalysis(
   twitterUsername: string,
   config: ICPAnalysisConfig = ICPAnalysisConfig.FULL,
-  classification?: { org_type?: string; org_subtype?: string[]; web3_focus?: string }
+  classification?: { orgType?: string; orgSubtype?: string[]; web3Focus?: string },
+  options?: { skipCache?: boolean }
 ): Promise<z.infer<ReturnType<typeof createClassificationSpecificSchema>>> {
 
   if (!process.env.XAI_API_KEY) {
@@ -358,12 +359,36 @@ export async function createStructuredICPAnalysis(
   const cleanUsername = twitterUsername.replace('@', '');
   console.log(`🚀 Starting ICP analysis for @${cleanUsername}`);
 
-  const dynamicSchema = createClassificationSpecificSchema(classification);
-  const context = getClassificationSpecificContext(classification);
-
-  // Fetch existing Neo4j data
+  // Fetch existing Neo4j data first
   console.log(`🔍 Fetching existing Neo4j data...`);
   const neo4jData = await getOrganizationProperties(twitterUsername);
+
+  // Check if we have fresh ICP data (skip cache check if explicitly requested)
+  const ICP_STALE_DAYS = 90;
+  console.log(`🔍 [ICP Cache] Checking cache for @${cleanUsername}: skipCache=${options?.skipCache}, hasData=${!!neo4jData}, last_icp_analysis=${neo4jData?.last_icp_analysis}`);
+
+  if (!options?.skipCache && neo4jData?.last_icp_analysis) {
+    const icpUpdatedAt = neo4jData.last_icp_analysis;
+    console.log(`🔍 [ICP Cache] Found last_icp_analysis for @${cleanUsername}: ${icpUpdatedAt}`);
+    if (icpUpdatedAt) {
+      const updateDate = new Date(icpUpdatedAt);
+      const staleThreshold = new Date(Date.now() - ICP_STALE_DAYS * 24 * 60 * 60 * 1000);
+
+      if (updateDate > staleThreshold) {
+        console.log(`✅ [ICP Cache] Fresh ICP data found for @${cleanUsername} (updated ${icpUpdatedAt}), skipping Grok analysis`);
+        return neo4jData as any; // Return cached data
+      } else {
+        console.log(`⚠️ [ICP Cache] Stale ICP data for @${cleanUsername} (updated ${icpUpdatedAt}), running fresh analysis`);
+      }
+    } else {
+      console.log(`⚠️ [ICP Cache] No timestamp found for @${cleanUsername}, running fresh analysis`);
+    }
+  } else {
+    console.log(`⚠️ [ICP Cache] No last_icp_analysis for @${cleanUsername}, running fresh analysis`);
+  }
+
+  const dynamicSchema = createClassificationSpecificSchema(classification);
+  const context = getClassificationSpecificContext(classification);
 
   // Build the prompt
   const systemPrompt = `You are an expert Web3 analyst specializing in Ideal Customer Profile (ICP) analysis.
@@ -384,9 +409,9 @@ REQUIREMENTS:
 
 ${neo4jData && Object.keys(neo4jData).length > 0 ? `KNOWN DATA FROM DATABASE:
 ${Object.entries(neo4jData)
-  .filter(([_, value]) => value != null && value !== '' && !(Array.isArray(value) && value.length === 0))
-  .map(([key, value]) => `✅ ${key}: ${Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value}`)
-  .join('\n')}
+        .filter(([_, value]) => value != null && value !== '' && !(Array.isArray(value) && value.length === 0))
+        .map(([key, value]) => `✅ ${key}: ${Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value}`)
+        .join('\n')}
 
 ` : ''}SEARCH PLAN:
 - Search "@${cleanUsername}" on X for official profile and posts

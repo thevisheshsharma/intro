@@ -1,13 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Check, Sparkles, ArrowUpRight, TrendingUp, Star, Clock, CalendarDays, Users, LogOut, RefreshCcw, CreditCard } from 'lucide-react'
+import { Check, Sparkles, ArrowUpRight, TrendingUp, Star, Clock, CalendarDays, Users, LogOut, RefreshCcw, CreditCard, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import Image from 'next/image'
 import CTA from '@/components/marketing/CTA'
 import FAQ from '@/components/marketing/FAQ'
+import { usePrivy } from '@privy-io/react-auth'
+import { useSearchParams } from 'next/navigation'
 
 type ButtonVariant = 'brandOutline' | 'brandAction' | 'brandAccent'
 
@@ -124,6 +126,57 @@ const pricingFaqs = [
 
 export default function PricingPage() {
     const [annual, setAnnual] = useState(true)
+    const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null)
+    const [checkoutMessage, setCheckoutMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const { authenticated, login, getAccessToken } = usePrivy()
+    const searchParams = useSearchParams()
+
+    // Handle checkout result from URL params
+    useEffect(() => {
+        const checkout = searchParams.get('checkout')
+        if (checkout === 'success') {
+            setCheckoutMessage({ type: 'success', text: 'Welcome to Berri! Your subscription is now active.' })
+        } else if (checkout === 'canceled') {
+            setCheckoutMessage({ type: 'error', text: 'Checkout was canceled. You can try again anytime.' })
+        }
+    }, [searchParams])
+
+    const handleCheckout = async (plan: 'founder' | 'standard') => {
+        if (!authenticated) {
+            login()
+            return
+        }
+
+        try {
+            setCheckoutLoading(plan)
+            setCheckoutMessage(null)
+
+            const token = await getAccessToken()
+            const response = await fetch('/api/subscription/checkout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    plan,
+                    interval: annual ? 'annual' : 'monthly',
+                }),
+            })
+
+            const data = await response.json()
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to start checkout')
+            }
+
+            // Redirect to Stripe Checkout
+            window.location.href = data.url
+        } catch (error: any) {
+            setCheckoutMessage({ type: 'error', text: error.message || 'Something went wrong' })
+            setCheckoutLoading(null)
+        }
+    }
 
     return (
         <>
@@ -290,6 +343,21 @@ export default function PricingPage() {
                         >
                             Switch to annual and save <span className="font-semibold text-berri-raspberry">$1,104/year</span> on Standard
                         </motion.p>
+
+                        {/* Checkout message */}
+                        {checkoutMessage && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className={`mt-6 px-6 py-3 rounded-xl text-sm font-medium ${
+                                    checkoutMessage.type === 'success'
+                                        ? 'bg-green-100 text-green-800 border border-green-200'
+                                        : 'bg-red-100 text-red-800 border border-red-200'
+                                }`}
+                            >
+                                {checkoutMessage.text}
+                            </motion.div>
+                        )}
                     </div>
                 </div>
             </section>
@@ -392,17 +460,39 @@ export default function PricingPage() {
                                     </div>
 
                                     {/* CTA */}
-                                    <Button
-                                        asChild
-                                        className={`w-full rounded-full group/btn ${tier.highlight ? 'shadow-lg shadow-berri-raspberry/20' : ''}`}
-                                        variant={tier.variant}
-                                        size="lg"
-                                    >
-                                        <Link href={tier.href} className="flex items-center justify-center gap-2">
-                                            {tier.cta}
-                                            <ArrowUpRight className="w-4 h-4 transition-transform group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5" />
-                                        </Link>
-                                    </Button>
+                                    {tier.name === 'Enterprise' ? (
+                                        <Button
+                                            asChild
+                                            className={`w-full rounded-full group/btn`}
+                                            variant={tier.variant}
+                                            size="lg"
+                                        >
+                                            <Link href={tier.href} className="flex items-center justify-center gap-2">
+                                                {tier.cta}
+                                                <ArrowUpRight className="w-4 h-4 transition-transform group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5" />
+                                            </Link>
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            onClick={() => handleCheckout(tier.name.toLowerCase() as 'founder' | 'standard')}
+                                            disabled={checkoutLoading === tier.name.toLowerCase()}
+                                            className={`w-full rounded-full group/btn ${tier.highlight ? 'shadow-lg shadow-berri-raspberry/20' : ''}`}
+                                            variant={tier.variant}
+                                            size="lg"
+                                        >
+                                            {checkoutLoading === tier.name.toLowerCase() ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                                    Processing...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {tier.cta}
+                                                    <ArrowUpRight className="w-4 h-4 ml-2 transition-transform group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5" />
+                                                </>
+                                            )}
+                                        </Button>
+                                    )}
                                 </div>
                             </motion.div>
                         ))}

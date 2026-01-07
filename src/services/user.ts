@@ -1,4 +1,4 @@
-import { runQuery, runBatchQuery } from '@/lib/neo4j'
+import { runQuery, runBatchQuery, runQueryWithoutRetry } from '@/lib/neo4j'
 import { validateVibe, logValidationError } from '@/lib/validation'
 import { fetchUserFromSocialAPI } from '@/lib/socialapi-pagination'
 
@@ -36,9 +36,10 @@ export interface Neo4jUser {
   vibe?: string               // Primary entity classification: 'individual', 'organization', 'spam'
   department?: string         // current department/role from flattened employment data
   // Organization classification fields (can be null for individuals/spam accounts)
-  org_type?: string           // Organization type: protocol, infrastructure, exchange, investment, service, community, nft
-  org_subtype?: string        // Organization subtype: defi, gaming, vc, etc.
-  web3_focus?: string         // Web3 focus: native, adjacent, traditional
+  orgType?: string            // Organization type: protocol, infrastructure, exchange, investment, service, community, nft
+  orgSubtype?: string         // Organization subtype: defi, gaming, vc, etc.
+  web3Focus?: string          // Web3 focus: native, adjacent, traditional
+  screenNameLower?: string    // Lowercase screen name for case-insensitive queries
 }
 
 // Types for enhanced mutual finding with organizational relationships
@@ -168,9 +169,10 @@ function buildUserQueryParams(user: Neo4jUser) {
     verificationReason: user.verificationReason || null,
     vibe: user.vibe || null,
     department: user.department || null,
-    org_type: user.org_type || null,
-    org_subtype: user.org_subtype || null,
-    web3_focus: user.web3_focus || null
+    orgType: user.orgType || null,
+    orgSubtype: user.orgSubtype || null,
+    web3Focus: user.web3Focus || null,
+    screenNameLower: user.screenNameLower || user.screenName?.toLowerCase() || null
   }
 }
 
@@ -211,22 +213,23 @@ export function transformToNeo4jUser(apiUser: TwitterApiUser, vibe?: string): Ne
     vibe: sanitizedVibe || undefined,
     department: undefined,       // Initialize department field
     // Organization classification fields - set to undefined by default, updated by classifier
-    org_type: undefined,
-    org_subtype: undefined,
-    web3_focus: undefined
+    orgType: undefined,
+    orgSubtype: undefined,
+    web3Focus: undefined,
+    screenNameLower: apiUser.screen_name?.toLowerCase()
   }
 }
 
 // Check if multiple users exist in Neo4j (returns array of existing user IDs)
 export async function checkUsersExist(userIds: string[]): Promise<string[]> {
   if (userIds.length === 0) return []
-  
+
   const query = `
     UNWIND $userIds AS userId
     MATCH (u:User {userId: userId})
     RETURN u.userId as existingUserId
   `
-  
+
   const results = await runBatchQuery(query, { userIds })
   return results.map(record => record.existingUserId)
 }
@@ -234,14 +237,14 @@ export async function checkUsersExist(userIds: string[]): Promise<string[]> {
 // Batch lookup users by screen names (case-insensitive)
 export async function getUsersByScreenNames(screenNames: string[]): Promise<Neo4jUser[]> {
   if (screenNames.length === 0) return []
-  
+
   const query = `
     UNWIND $screenNames AS screenName
     MATCH (u:User)
     WHERE toLower(u.screenName) = toLower(screenName)
     RETURN u, screenName
   `
-  
+
   const results = await runBatchQuery(query, { screenNames })
   return results.map(record => record.u.properties)
 }
@@ -249,13 +252,13 @@ export async function getUsersByScreenNames(screenNames: string[]): Promise<Neo4
 // Batch lookup users by user IDs
 export async function getUsersByUserIds(userIds: string[]): Promise<Neo4jUser[]> {
   if (userIds.length === 0) return []
-  
+
   const query = `
     UNWIND $userIds AS userId
     MATCH (u:User {userId: userId})
     RETURN u
   `
-  
+
   const results = await runBatchQuery(query, { userIds })
   return results.map(record => record.u.properties)
 }
@@ -263,9 +266,9 @@ export async function getUsersByUserIds(userIds: string[]): Promise<Neo4jUser[]>
 // Batched version of screenName merge for much better performance
 export async function createOrUpdateUsersWithScreenNameMergeBatch(users: Neo4jUser[]): Promise<void> {
   if (users.length === 0) return
-  
+
   console.log(`🚀 Starting batched screenName merge for ${users.length} users...`)
-  
+
   // Step 1: Bulk conflict detection for all users at once
   const conflictCheckQuery = `
     UNWIND $users AS userData
@@ -282,11 +285,11 @@ export async function createOrUpdateUsersWithScreenNameMergeBatch(users: Neo4jUs
       byUserId.userId as existingByUserId,
       byUserId.screenName as existingByUserIdScreenName
   `
-  
-  const conflictResults = await runQuery(conflictCheckQuery, { 
+
+  const conflictResults = await runQuery(conflictCheckQuery, {
     users: users.map(user => ({ userId: user.userId, screenName: user.screenName }))
   })
-  
+
   // Build conflict maps for efficient lookup
   const conflictMap = new Map<string, {
     existingByScreenName?: string,
@@ -294,7 +297,7 @@ export async function createOrUpdateUsersWithScreenNameMergeBatch(users: Neo4jUs
     existingScreenName?: string,
     existingByUserIdScreenName?: string
   }>()
-  
+
   conflictResults.forEach(result => {
     conflictMap.set(result.inputUserId, {
       existingByScreenName: result.existingByScreenName,
@@ -303,36 +306,36 @@ export async function createOrUpdateUsersWithScreenNameMergeBatch(users: Neo4jUs
       existingByUserIdScreenName: result.existingByUserIdScreenName
     })
   })
-  
+
   // Step 2: Categorize users based on conflict analysis
-  const usersToUpdate: Array<{user: Neo4jUser, targetUserId: string}> = []
+  const usersToUpdate: Array<{ user: Neo4jUser, targetUserId: string }> = []
   const usersToCreate: Neo4jUser[] = []
   let conflictErrors = 0
-  
+
   users.forEach(user => {
     const conflicts = conflictMap.get(user.userId)
-    
+
     if (!conflicts) {
       usersToCreate.push(user)
       return
     }
-    
+
     const { existingByScreenName, existingByUserId, existingScreenName, existingByUserIdScreenName } = conflicts
-    
+
     // Handle conflicts according to the same logic as single user merge
     if (existingByScreenName && existingByUserId && existingByScreenName !== existingByUserId) {
       console.log(`⚠️ CONFLICT: User ${user.screenName} (${user.userId}) conflicts with both screenName user ${existingByScreenName} and userId user ${existingByUserId}`)
       conflictErrors++
       return
     }
-    
+
     if (existingByScreenName) {
       // ScreenName conflict: update existing user, store the incoming userId
       console.log(`🔄 ScreenName merge: @${user.screenName} exists as ${existingScreenName}, updating with data from ${user.userId}`)
       usersToUpdate.push({ user, targetUserId: existingByScreenName })
       return
     }
-    
+
     if (existingByUserId) {
       // UserId conflict: create new user with unique screenName
       const newScreenName = `${user.screenName}_${Date.now()}`
@@ -340,19 +343,19 @@ export async function createOrUpdateUsersWithScreenNameMergeBatch(users: Neo4jUs
       usersToCreate.push({ ...user, screenName: newScreenName })
       return
     }
-    
+
     // No conflicts
     usersToCreate.push(user)
   })
-  
+
   console.log(`📊 Batch analysis complete:`)
   console.log(`   - Users to create: ${usersToCreate.length}`)
   console.log(`   - Users to update: ${usersToUpdate.length}`)
   console.log(`   - Conflict errors: ${conflictErrors}`)
-  
+
   // Step 3: Execute batch operations with error handling
   const results = []
-  
+
   // Batch create new users
   if (usersToCreate.length > 0) {
     console.log(`🆕 Starting batch creation of ${usersToCreate.length} users...`)
@@ -364,7 +367,7 @@ export async function createOrUpdateUsersWithScreenNameMergeBatch(users: Neo4jUs
       // The individual error handling is already done in batchCreateUsers
     }
   }
-  
+
   // Batch update existing users
   if (usersToUpdate.length > 0) {
     console.log(`🔄 Starting batch update of ${usersToUpdate.length} users...`)
@@ -376,7 +379,7 @@ export async function createOrUpdateUsersWithScreenNameMergeBatch(users: Neo4jUs
       // The individual error handling is already done in batchUpdateUsers
     }
   }
-  
+
   console.log(`✅ Batched screenName merge complete for ${users.length} users`)
 }
 
@@ -415,9 +418,10 @@ async function batchCreateUsers(users: Neo4jUser[]): Promise<void> {
       u.verificationReason = userData.verificationReason,
       u.vibe = userData.vibe,
       u.department = userData.department,
-      u.org_type = userData.org_type,
-      u.org_subtype = userData.org_subtype,
-      u.web3_focus = userData.web3_focus
+      u.orgType = userData.orgType,
+      u.orgSubtype = userData.orgSubtype,
+      u.web3Focus = userData.web3Focus,
+      u.screenNameLower = userData.screenNameLower
     ON MATCH SET
       u.name = userData.name,
       u.lastUpdated = userData.lastUpdated,
@@ -438,9 +442,10 @@ async function batchCreateUsers(users: Neo4jUser[]): Promise<void> {
       u.verificationReason = userData.verificationReason,
       u.vibe = CASE WHEN userData.vibe IS NOT NULL THEN userData.vibe ELSE u.vibe END,
       u.department = CASE WHEN userData.department IS NOT NULL THEN userData.department ELSE u.department END,
-      u.org_type = CASE WHEN userData.org_type IS NOT NULL THEN userData.org_type ELSE u.org_type END,
-      u.org_subtype = CASE WHEN userData.org_subtype IS NOT NULL THEN userData.org_subtype ELSE u.org_subtype END,
-      u.web3_focus = CASE WHEN userData.web3_focus IS NOT NULL THEN userData.web3_focus ELSE u.web3_focus END
+      u.orgType = CASE WHEN userData.orgType IS NOT NULL THEN userData.orgType ELSE u.orgType END,
+      u.orgSubtype = CASE WHEN userData.orgSubtype IS NOT NULL THEN userData.orgSubtype ELSE u.orgSubtype END,
+      u.web3Focus = CASE WHEN userData.web3Focus IS NOT NULL THEN userData.web3Focus ELSE u.web3Focus END,
+      u.screenNameLower = CASE WHEN userData.screenNameLower IS NOT NULL THEN userData.screenNameLower ELSE COALESCE(u.screenNameLower, toLower(u.screenName)) END
     RETURN u.userId as finalUserId
   `
 
@@ -468,9 +473,10 @@ async function batchCreateUsers(users: Neo4jUser[]): Promise<void> {
     verificationReason: user.verificationReason || null,
     vibe: user.vibe || null,
     department: user.department || null,
-    org_type: user.org_type || null,
-    org_subtype: user.org_subtype || null,
-    web3_focus: user.web3_focus || null
+    orgType: user.orgType || null,
+    orgSubtype: user.orgSubtype || null,
+    web3Focus: user.web3Focus || null,
+    screenNameLower: user.screenNameLower || user.screenName?.toLowerCase() || null
   }))
 
   // Process batches in parallel groups
@@ -511,7 +517,7 @@ async function batchCreateUsers(users: Neo4jUser[]): Promise<void> {
 }
 
 // Batch update existing users with new data, with parallel processing
-async function batchUpdateUsers(updates: Array<{user: Neo4jUser, targetUserId: string}>): Promise<void> {
+async function batchUpdateUsers(updates: Array<{ user: Neo4jUser, targetUserId: string }>): Promise<void> {
   if (updates.length === 0) return
 
   const batchSize = OPTIMAL_BATCH_SIZES.USER_UPSERT
@@ -544,14 +550,15 @@ async function batchUpdateUsers(updates: Array<{user: Neo4jUser, targetUserId: s
       u.verificationReason = updateData.userData.verificationReason,
       u.vibe = updateData.userData.vibe,
       u.department = updateData.userData.department,
-      u.org_type = CASE WHEN updateData.userData.org_type IS NOT NULL THEN updateData.userData.org_type ELSE u.org_type END,
-      u.org_subtype = CASE WHEN updateData.userData.org_subtype IS NOT NULL THEN updateData.userData.org_subtype ELSE u.org_subtype END,
-      u.web3_focus = CASE WHEN updateData.userData.web3_focus IS NOT NULL THEN updateData.userData.web3_focus ELSE u.web3_focus END
+      u.orgType = CASE WHEN updateData.userData.orgType IS NOT NULL THEN updateData.userData.orgType ELSE u.orgType END,
+      u.orgSubtype = CASE WHEN updateData.userData.orgSubtype IS NOT NULL THEN updateData.userData.orgSubtype ELSE u.orgSubtype END,
+      u.web3Focus = CASE WHEN updateData.userData.web3Focus IS NOT NULL THEN updateData.userData.web3Focus ELSE u.web3Focus END,
+      u.screenNameLower = CASE WHEN updateData.userData.screenNameLower IS NOT NULL THEN updateData.userData.screenNameLower ELSE COALESCE(u.screenNameLower, toLower(u.screenName)) END
     RETURN u.userId as finalUserId
   `
 
   // Helper to sanitize a batch
-  const sanitizeBatch = (batch: Array<{user: Neo4jUser, targetUserId: string}>) => batch.map(({ user, targetUserId }) => ({
+  const sanitizeBatch = (batch: Array<{ user: Neo4jUser, targetUserId: string }>) => batch.map(({ user, targetUserId }) => ({
     targetUserId,
     userData: {
       userId: user.userId,
@@ -574,9 +581,10 @@ async function batchUpdateUsers(updates: Array<{user: Neo4jUser, targetUserId: s
       verificationReason: user.verificationReason || null,
       vibe: user.vibe || null,
       department: user.department || null,
-      org_type: user.org_type || null,
-      org_subtype: user.org_subtype || null,
-      web3_focus: user.web3_focus || null
+      orgType: user.orgType || null,
+      orgSubtype: user.orgSubtype || null,
+      web3Focus: user.web3Focus || null,
+      screenNameLower: user.screenNameLower || user.screenName?.toLowerCase() || null
     }
   }))
 
@@ -632,98 +640,157 @@ const UPDATE_BY_SCREENNAME_QUERY = `
     u.verificationType = $verificationType, u.verificationReason = $verificationReason,
     u.vibe = CASE WHEN $vibe IS NOT NULL AND $vibe <> '' THEN $vibe ELSE u.vibe END,
     u.department = CASE WHEN $department IS NOT NULL AND $department <> '' THEN $department ELSE u.department END,
-    u.org_type = CASE WHEN $org_type IS NOT NULL THEN $org_type ELSE u.org_type END,
-    u.org_subtype = CASE WHEN $org_subtype IS NOT NULL THEN $org_subtype ELSE u.org_subtype END,
-    u.web3_focus = CASE WHEN $web3_focus IS NOT NULL THEN $web3_focus ELSE u.web3_focus END
+    u.orgType = CASE WHEN $orgType IS NOT NULL THEN $orgType ELSE u.orgType END,
+    u.orgSubtype = CASE WHEN $orgSubtype IS NOT NULL THEN $orgSubtype ELSE u.orgSubtype END,
+    u.web3Focus = CASE WHEN $web3Focus IS NOT NULL THEN $web3Focus ELSE u.web3Focus END,
+    u.screenNameLower = CASE WHEN $screenNameLower IS NOT NULL THEN $screenNameLower ELSE COALESCE(u.screenNameLower, toLower(u.screenName)) END
   RETURN u.userId as finalUserId
 `
 
 // Create or update a single user, merging by screenName to avoid duplicates
 // This is the ONLY function that should create User nodes to ensure screenName uniqueness
+// ⚠️ CRITICAL: This function prevents duplicate users by:
+//   1. FIRST checking if a user with the same screenName exists (case-insensitive)
+//   2. If found, UPDATE that user (and optionally update its userId if different)
+//   3. If not found, CREATE a new user with the given userId
 export async function createOrUpdateUserWithScreenNameMerge(user: Neo4jUser): Promise<string> {
-  const conflictCheckQuery = `
-    OPTIONAL MATCH (byScreenName:User)
-    WHERE toLower(byScreenName.screenName) = toLower($screenName)
-    OPTIONAL MATCH (byUserId:User {userId: $userId})
-    RETURN
-      byScreenName.userId as existingByScreenName,
-      byScreenName.screenName as existingScreenName,
-      byUserId.userId as existingByUserId,
-      byUserId.screenName as existingByUserIdScreenName
+  const params = buildUserQueryParams(user)
+  const screenNameLower = user.screenName.toLowerCase()
+
+  // Step 1: Check if user already exists by screenName (case-insensitive)
+  const checkQuery = `
+    MATCH (u:User)
+    WHERE toLower(u.screenName) = $screenNameLower
+    RETURN u.userId as existingUserId
+    LIMIT 1
   `
 
-  const conflictResult = await runQuery(conflictCheckQuery, {
-    screenName: user.screenName,
-    userId: user.userId
-  })
+  try {
+    const existing = await runQueryWithoutRetry(checkQuery, { screenNameLower })
 
-  const result = conflictResult[0]
-  const existingByScreenName = result?.existingByScreenName
-  const existingByUserId = result?.existingByUserId
-  const params = buildUserQueryParams(user)
+    if (existing.length > 0) {
+      // User exists - update it (use the existing userId to match)
+      const existingUserId = existing[0].existingUserId
 
-  // Case 1: Both screenName and userId conflict with DIFFERENT users
-  if (existingByScreenName && existingByUserId && existingByScreenName !== existingByUserId) {
-    console.log(`⚠️ Conflict detected: screenName @${user.screenName} exists as ${existingByScreenName}, userId ${user.userId} exists as ${existingByUserId}`)
-    console.log(`🎯 Resolving conflict: Using screenName match ${existingByScreenName}, updating with data from ${user.userId}`)
-    const updateResult = await runQuery(UPDATE_BY_SCREENNAME_QUERY, params)
-    return updateResult[0]?.finalUserId || existingByScreenName
-  }
+      // Update the existing user, preserving its userId but updating all other fields
+      const updateQuery = `
+        MATCH (u:User {userId: $existingUserId})
+        SET
+          u.screenName = $screenName,
+          u.name = $name,
+          u.lastUpdated = $lastUpdated,
+          u.profileImageUrl = $profileImageUrl,
+          u.description = $description,
+          u.location = $location,
+          u.url = $url,
+          u.followersCount = $followersCount,
+          u.followingCount = $followingCount,
+          u.verified = $verified,
+          u.listedCount = $listedCount,
+          u.statusesCount = $statusesCount,
+          u.favouritesCount = $favouritesCount,
+          u.protected = $protected,
+          u.canDm = $canDm,
+          u.profileBannerUrl = $profileBannerUrl,
+          u.verificationType = $verificationType,
+          u.verificationReason = $verificationReason,
+          u.vibe = CASE WHEN $vibe IS NOT NULL AND $vibe <> '' THEN $vibe ELSE u.vibe END,
+          u.department = CASE WHEN $department IS NOT NULL AND $department <> '' THEN $department ELSE u.department END,
+          u.orgType = CASE WHEN $orgType IS NOT NULL THEN $orgType ELSE u.orgType END,
+          u.orgSubtype = CASE WHEN $orgSubtype IS NOT NULL THEN $orgSubtype ELSE u.orgSubtype END,
+          u.web3Focus = CASE WHEN $web3Focus IS NOT NULL THEN $web3Focus ELSE u.web3Focus END,
+          u.screenNameLower = $screenNameLower
+        RETURN u.userId as finalUserId
+      `
 
-  // Case 2: ScreenName conflict - update existing user
-  if (existingByScreenName) {
-    if (existingByScreenName !== user.userId) {
-      console.log(`🔄 ScreenName merge: @${user.screenName} exists as ${existingByScreenName}, updating with data from ${user.userId}`)
+      const updateResult = await runQueryWithoutRetry(updateQuery, {
+        ...params,
+        existingUserId,
+        screenNameLower
+      })
+      return updateResult[0]?.finalUserId || existingUserId
     }
-    const updateResult = await runQuery(UPDATE_BY_SCREENNAME_QUERY, params)
-    return updateResult[0]?.finalUserId || existingByScreenName
-  }
 
-  // Case 3: UserId conflict - update screenName
-  if (existingByUserId) {
-    console.log(`🔄 UserId merge: ${user.userId} exists with screenName @${result.existingByUserIdScreenName}, updating to @${user.screenName}`)
-    const updateByUserIdQuery = `
-      MATCH (u:User {userId: $userId})
-      SET
-        u.screenName = $screenName, u.name = $name, u.profileImageUrl = $profileImageUrl,
-        u.description = $description, u.location = $location, u.url = $url,
-        u.followersCount = $followersCount, u.followingCount = $followingCount,
-        u.verified = $verified, u.lastUpdated = $lastUpdated,
-        u.listedCount = $listedCount, u.statusesCount = $statusesCount,
-        u.favouritesCount = $favouritesCount, u.protected = $protected,
-        u.canDm = $canDm, u.profileBannerUrl = $profileBannerUrl,
-        u.verificationType = $verificationType, u.verificationReason = $verificationReason,
+    // Step 2: No existing user - create new one with MERGE on userId
+    // This handles race conditions where another process might create the same userId
+    const createQuery = `
+      MERGE (u:User {userId: $userId})
+      ON CREATE SET
+        u.screenName = $screenName,
+        u.name = $name,
+        u.createdAt = $createdAt,
+        u.lastUpdated = $lastUpdated,
+        u.profileImageUrl = $profileImageUrl,
+        u.description = $description,
+        u.location = $location,
+        u.url = $url,
+        u.followersCount = $followersCount,
+        u.followingCount = $followingCount,
+        u.verified = $verified,
+        u.listedCount = $listedCount,
+        u.statusesCount = $statusesCount,
+        u.favouritesCount = $favouritesCount,
+        u.protected = $protected,
+        u.canDm = $canDm,
+        u.profileBannerUrl = $profileBannerUrl,
+        u.verificationType = $verificationType,
+        u.verificationReason = $verificationReason,
+        u.vibe = $vibe,
+        u.department = $department,
+        u.orgType = $orgType,
+        u.orgSubtype = $orgSubtype,
+        u.web3Focus = $web3Focus,
+        u.screenNameLower = $screenNameLower
+      ON MATCH SET
+        u.screenName = $screenName,
+        u.name = $name,
+        u.lastUpdated = $lastUpdated,
+        u.profileImageUrl = $profileImageUrl,
+        u.description = $description,
+        u.location = $location,
+        u.url = $url,
+        u.followersCount = $followersCount,
+        u.followingCount = $followingCount,
+        u.verified = $verified,
+        u.listedCount = $listedCount,
+        u.statusesCount = $statusesCount,
+        u.favouritesCount = $favouritesCount,
+        u.protected = $protected,
+        u.canDm = $canDm,
+        u.profileBannerUrl = $profileBannerUrl,
+        u.verificationType = $verificationType,
+        u.verificationReason = $verificationReason,
         u.vibe = CASE WHEN $vibe IS NOT NULL AND $vibe <> '' THEN $vibe ELSE u.vibe END,
         u.department = CASE WHEN $department IS NOT NULL AND $department <> '' THEN $department ELSE u.department END,
-        u.org_type = CASE WHEN $org_type IS NOT NULL THEN $org_type ELSE u.org_type END,
-        u.org_subtype = CASE WHEN $org_subtype IS NOT NULL THEN $org_subtype ELSE u.org_subtype END,
-        u.web3_focus = CASE WHEN $web3_focus IS NOT NULL THEN $web3_focus ELSE u.web3_focus END
+        u.orgType = CASE WHEN $orgType IS NOT NULL THEN $orgType ELSE u.orgType END,
+        u.orgSubtype = CASE WHEN $orgSubtype IS NOT NULL THEN $orgSubtype ELSE u.orgSubtype END,
+        u.web3Focus = CASE WHEN $web3Focus IS NOT NULL THEN $web3Focus ELSE u.web3Focus END,
+        u.screenNameLower = $screenNameLower
       RETURN u.userId as finalUserId
     `
-    const updateResult = await runQuery(updateByUserIdQuery, params)
-    return updateResult[0]?.finalUserId || user.userId
-  }
 
-  // Case 4: No conflicts - create new user
-  const createQuery = `
-    CREATE (u:User)
-    SET
-      u.userId = $userId, u.screenName = $screenName, u.name = $name,
-      u.createdAt = $createdAt, u.lastUpdated = $lastUpdated,
-      u.profileImageUrl = $profileImageUrl, u.description = $description,
-      u.location = $location, u.url = $url,
-      u.followersCount = $followersCount, u.followingCount = $followingCount,
-      u.verified = $verified, u.listedCount = $listedCount,
-      u.statusesCount = $statusesCount, u.favouritesCount = $favouritesCount,
-      u.protected = $protected, u.canDm = $canDm,
-      u.profileBannerUrl = $profileBannerUrl, u.verificationType = $verificationType,
-      u.verificationReason = $verificationReason, u.vibe = $vibe,
-      u.department = $department, u.org_type = $org_type,
-      u.org_subtype = $org_subtype, u.web3_focus = $web3_focus
-    RETURN u.userId as finalUserId
-  `
-  const createResult = await runQuery(createQuery, params)
-  return createResult[0]?.finalUserId || user.userId
+    const createResult = await runQueryWithoutRetry(createQuery, {
+      ...params,
+      screenNameLower
+    })
+    return createResult[0]?.finalUserId || user.userId
+
+  } catch (error: any) {
+    // Handle race condition: another process created a user with same screenName between our check and create
+    const isConstraintViolation = error.code === 'Neo.ClientError.Schema.ConstraintValidationFailed' ||
+      error.message?.includes('already exists with label')
+
+    if (isConstraintViolation) {
+      console.log(`🔄 Constraint violation for @${user.screenName} - retrying lookup`)
+      // Someone else just created a user with this screenName - fetch and return that userId
+      const retryResult = await runQueryWithoutRetry(checkQuery, { screenNameLower })
+      if (retryResult.length > 0) {
+        return retryResult[0].existingUserId
+      }
+    }
+
+    throw error
+  }
 }
 
 // Create a FOLLOWS relationship between two users
@@ -733,7 +800,7 @@ export async function createFollowsRelationship(followerUserId: string, followin
     MATCH (following:User {userId: $followingUserId})
     MERGE (follower)-[:FOLLOWS]->(following)
   `
-  
+
   await runQuery(query, { followerUserId, followingUserId })
 }
 
@@ -751,7 +818,7 @@ export async function getUserFollowerCount(userId: string): Promise<number> {
     MATCH (follower:User)-[:FOLLOWS]->(u:User {userId: $userId})
     RETURN count(follower) as followerCount
   `
-  
+
   const results = await runQuery(query, { userId })
   return results[0]?.followerCount?.low || 0
 }
@@ -762,7 +829,7 @@ export async function getUserFollowingCount(userId: string): Promise<number> {
     MATCH (u:User {userId: $userId})-[:FOLLOWS]->(following:User)
     RETURN count(following) as followingCount
   `
-  
+
   const results = await runQuery(query, { userId })
   return results[0]?.followingCount?.low || 0
 }
@@ -775,7 +842,7 @@ export async function getUserByScreenName(screenName: string): Promise<Neo4jUser
     WHERE toLower(u.screenName) = toLower($screenName)
     RETURN u
   `
-  
+
   const results = await runQuery(query, { screenName })
   return results.length > 0 ? results[0].u.properties : null
 }
@@ -786,7 +853,7 @@ export async function getUserByUserId(userId: string): Promise<Neo4jUser | null>
     MATCH (u:User {userId: $userId})
     RETURN u
   `
-  
+
   const results = await runQuery(query, { userId })
   return results.length > 0 ? results[0].u.properties : null
 }
@@ -817,20 +884,21 @@ export async function createOrganizationUser(screenName: string, name: string): 
     verificationReason: undefined,
     vibe: 'organization',
     department: undefined,
-    org_type: undefined,
-    org_subtype: undefined,
-    web3_focus: undefined
+    orgType: undefined,
+    orgSubtype: undefined,
+    web3Focus: undefined,
+    screenNameLower: undefined
   }
-  
+
   // Use screenName-based merge to prevent duplicates
   const finalUserId = await createOrUpdateUserWithScreenNameMerge(neo4jUser)
-  
+
   // Return the user from the database to get the correct userId
   const user = await getUserByScreenName(screenName)
   if (!user) {
     throw new Error(`Failed to create or retrieve user for screenName: ${screenName}`)
   }
-  
+
   return user
 }
 
@@ -838,22 +906,22 @@ export async function createOrganizationUser(screenName: string, name: string): 
  * Ensure single user exists for screen name - prevents duplicates
  */
 export async function ensureUserExists(
-  screenName: string, 
+  screenName: string,
   name?: string
 ): Promise<Neo4jUser> {
   // Check if user already exists
   let user = await getUserByScreenName(screenName)
-  
+
   if (user) {
     console.log(`✅ User exists: ${user.userId}`)
     return user
   }
-  
+
   // Create new user
   console.log(`🆕 Creating user for @${screenName}`)
   user = await createOrganizationUser(screenName, name || screenName)
   console.log(`✅ User created: ${user.userId}`)
-  
+
   return user
 }
 
@@ -891,7 +959,7 @@ export async function userNeedsClassification(screenName: string): Promise<boole
 export async function getOrgsNeedingConnectionDiscovery(
   userScreenName: string,
   excludeScreenNames: string[]
-): Promise<Array<{screenName: string, userId: string}>> {
+): Promise<Array<{ screenName: string, userId: string }>> {
   const query = `
     MATCH (u:User {screenNameLower: $userScreenNameLower})-[:WORKS_AT|WORKED_AT|MEMBER_OF|AFFILIATED_WITH]->(org:User {vibe: 'organization'})
 
@@ -919,19 +987,19 @@ export async function getOrgsNeedingConnectionDiscovery(
 // Find mutual connections between two users
 export async function findMutualConnections(userScreenName: string, prospectScreenName: string): Promise<Neo4jUser[]> {
   console.log(`Finding mutuals between ${userScreenName} and ${prospectScreenName}`)
-  
+
   // First check if both users exist in the database
   const userExists = await getUserByScreenName(userScreenName)
   const prospectExists = await getUserByScreenName(prospectScreenName)
-  
+
   console.log(`User ${userScreenName} exists:`, !!userExists)
   console.log(`Prospect ${prospectScreenName} exists:`, !!prospectExists)
-  
+
   if (!userExists || !prospectExists) {
     console.log(`One or both users not found in database`)
     return []
   }
-  
+
   // Case-insensitive query with debugging
   const query = `
     MATCH (user:User)
@@ -943,14 +1011,14 @@ export async function findMutualConnections(userScreenName: string, prospectScre
     RETURN mutual, user.screenName as userScreen, prospect.screenName as prospectScreen
     ORDER BY mutual.followersCount DESC
   `
-  
+
   const results = await runQuery(query, { userScreenName, prospectScreenName })
   console.log(`Found ${results.length} mutual connections`)
-  
+
   if (results.length > 0) {
     console.log(`Sample mutual:`, results[0].mutual.properties.screenName)
   }
-  
+
   return results.map(record => record.mutual.properties)
 }
 
@@ -2493,15 +2561,15 @@ export function calculateConnectionDifferences(currentIds: string[], newIds: str
 } {
   const currentSet = new Set(currentIds)
   const newSet = new Set(newIds)
-  
+
   const toAdd = newIds.filter(id => !currentSet.has(id))
   const toRemove = currentIds.filter(id => !newSet.has(id))
-  
+
   return { toAdd, toRemove }
 }
 
 // Pre-filter duplicate relationships before database operations
-function deduplicateRelationships<T extends {userId: string, orgUserId: string}>(relationships: T[]): T[] {
+function deduplicateRelationships<T extends { userId: string, orgUserId: string }>(relationships: T[]): T[] {
   const seen = new Set<string>()
   return relationships.filter(rel => {
     const key = `${rel.userId}|${rel.orgUserId}`
@@ -2512,7 +2580,7 @@ function deduplicateRelationships<T extends {userId: string, orgUserId: string}>
 }
 
 // Create FOLLOWS relationships for specific user IDs only (optimized)
-export async function addFollowsRelationships(relationships: Array<{followerUserId: string, followingUserId: string}>): Promise<void> {
+export async function addFollowsRelationships(relationships: Array<{ followerUserId: string, followingUserId: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   // Deduplicate relationships first
@@ -2562,7 +2630,7 @@ export async function addFollowsRelationships(relationships: Array<{followerUser
 }
 
 // Remove FOLLOWS relationships for specific user IDs only - PARALLEL VERSION
-export async function removeFollowsRelationships(relationships: Array<{followerUserId: string, followingUserId: string}>): Promise<void> {
+export async function removeFollowsRelationships(relationships: Array<{ followerUserId: string, followingUserId: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   const batchSize = OPTIMAL_BATCH_SIZES.RELATIONSHIP_BATCH
@@ -2606,7 +2674,7 @@ export async function removeFollowsRelationships(relationships: Array<{followerU
 }
 
 // Incrementally update follower relationships (who follows this user)
-export async function incrementalUpdateFollowers(userId: string, newFollowerUsers: TwitterApiUser[]): Promise<{added: number, removed: number}> {
+export async function incrementalUpdateFollowers(userId: string, newFollowerUsers: TwitterApiUser[]): Promise<{ added: number, removed: number }> {
   console.log(`=== INCREMENTAL FOLLOWER UPDATE FOR ${userId} ===`)
 
   // Get current follower IDs from Neo4j (inlined query)
@@ -2653,7 +2721,7 @@ export async function incrementalUpdateFollowers(userId: string, newFollowerUser
 }
 
 // Incrementally update following relationships (who this user follows)
-export async function incrementalUpdateFollowings(userId: string, newFollowingUsers: TwitterApiUser[]): Promise<{added: number, removed: number}> {
+export async function incrementalUpdateFollowings(userId: string, newFollowingUsers: TwitterApiUser[]): Promise<{ added: number, removed: number }> {
   console.log(`=== INCREMENTAL FOLLOWING UPDATE FOR ${userId} ===`)
 
   // Get current following IDs from Neo4j (inlined query)
@@ -2694,7 +2762,7 @@ export async function incrementalUpdateFollowings(userId: string, newFollowingUs
     followingUserId: followingId
   }))
   await removeFollowsRelationships(relationshipsToRemove)
-  
+
   console.log(`Incremental following update complete: +${toAdd.length}, -${toRemove.length}`)
   return { added: toAdd.length, removed: toRemove.length }
 }
@@ -2706,7 +2774,7 @@ export async function hasFollowingData(orgUserId: string): Promise<boolean> {
     MATCH (org:User {userId: $orgUserId})-[:FOLLOWS]->(:User)
     RETURN count(*) > 0 as hasFollowings
   `
-  
+
   const results = await runQuery(query, { orgUserId })
   const hasFollowings = results[0]?.hasFollowings || false
   console.log(`🔍 [Neo4j] User ${orgUserId} has followings: ${hasFollowings}`)
@@ -2721,7 +2789,7 @@ export async function getOrganizationFollowingUsers(orgUserId: string): Promise<
     RETURN following
     ORDER BY following.followersCount DESC
   `
-  
+
   const results = await runQuery(query, { orgUserId })
   const followingUsers = results.map(record => record.following.properties)
   console.log(`✅ [Neo4j] Retrieved ${followingUsers.length} following users for organization ${orgUserId}`)
@@ -2755,14 +2823,15 @@ export function transformToNeo4jOrganization(apiUser: TwitterApiUser): Neo4jUser
     vibe: 'organization', // Mark as organization using vibe field
     department: undefined,      // Not applicable for organizations
     // Organization classification fields - set to undefined by default, updated by classifier
-    org_type: undefined,
-    org_subtype: undefined,
-    web3_focus: undefined
+    orgType: undefined,
+    orgSubtype: undefined,
+    web3Focus: undefined,
+    screenNameLower: undefined
   }
 }
 
 // Create multiple WORKS_AT relationships in batch with parallel processing
-export async function addWorksAtRelationships(relationships: Array<{userScreenName: string, orgScreenName: string}>): Promise<void> {
+export async function addWorksAtRelationships(relationships: Array<{ userScreenName: string, orgScreenName: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   // Deduplicate relationships based on screenNames
@@ -2816,7 +2885,7 @@ export async function addWorksAtRelationships(relationships: Array<{userScreenNa
 }
 
 // Create multiple WORKED_AT relationships in batch with parallel processing
-export async function addWorkedAtRelationships(relationships: Array<{userScreenName: string, orgScreenName: string}>): Promise<void> {
+export async function addWorkedAtRelationships(relationships: Array<{ userScreenName: string, orgScreenName: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   // Deduplicate relationships based on screenNames
@@ -2870,7 +2939,7 @@ export async function addWorkedAtRelationships(relationships: Array<{userScreenN
 }
 
 // Create multiple MEMBER_OF relationships in batch with parallel processing
-export async function addMemberOfRelationships(relationships: Array<{userScreenName: string, orgScreenName: string}>): Promise<void> {
+export async function addMemberOfRelationships(relationships: Array<{ userScreenName: string, orgScreenName: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   // Deduplicate relationships based on screenNames
@@ -2923,7 +2992,7 @@ export async function addMemberOfRelationships(relationships: Array<{userScreenN
 }
 
 // Create multiple AFFILIATED_WITH relationships in batch with parallel processing
-export async function addAffiliateRelationships(relationships: Array<{orgUserId: string, affiliateUserId: string}>): Promise<void> {
+export async function addAffiliateRelationships(relationships: Array<{ orgUserId: string, affiliateUserId: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   const batchSize = OPTIMAL_BATCH_SIZES.RELATIONSHIP_BATCH
@@ -2976,7 +3045,7 @@ export async function addAffiliateRelationships(relationships: Array<{orgUserId:
  * Add bidirectional COMPETES_WITH relationships between organizations
  * Both orgs are marked as competitors of each other
  */
-export async function addCompetitorRelationships(relationships: Array<{orgScreenName: string, competitorScreenName: string}>): Promise<void> {
+export async function addCompetitorRelationships(relationships: Array<{ orgScreenName: string, competitorScreenName: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   const uniqueRelationships = Array.from(
@@ -3006,7 +3075,7 @@ export async function addCompetitorRelationships(relationships: Array<{orgScreen
  * Add bidirectional PARTNERS_WITH relationships between organizations
  * Both orgs are marked as partners of each other
  */
-export async function addPartnerRelationships(relationships: Array<{orgScreenName: string, partnerScreenName: string}>): Promise<void> {
+export async function addPartnerRelationships(relationships: Array<{ orgScreenName: string, partnerScreenName: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   const uniqueRelationships = Array.from(
@@ -3036,7 +3105,7 @@ export async function addPartnerRelationships(relationships: Array<{orgScreenNam
  * Add INVESTED_IN relationships from investors to organizations
  * Direction: (investor)-[:INVESTED_IN]->(org)
  */
-export async function addInvestorRelationships(relationships: Array<{investorScreenName: string, orgScreenName: string}>): Promise<void> {
+export async function addInvestorRelationships(relationships: Array<{ investorScreenName: string, orgScreenName: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   const uniqueRelationships = Array.from(
@@ -3065,7 +3134,7 @@ export async function addInvestorRelationships(relationships: Array<{investorScr
  * Add AUDITS relationships from auditors to organizations
  * Direction: (auditor)-[:AUDITS]->(org)
  */
-export async function addAuditorRelationships(relationships: Array<{auditorScreenName: string, orgScreenName: string}>): Promise<void> {
+export async function addAuditorRelationships(relationships: Array<{ auditorScreenName: string, orgScreenName: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   const uniqueRelationships = Array.from(
@@ -3325,13 +3394,13 @@ export async function processICPRelationships(
 
 // Check if employment relationships already exist using screenName lookups
 export async function checkExistingEmploymentRelationshipsScreenName(
-  worksAtRelationships: Array<{userScreenName: string, orgScreenName: string}>,
-  workedAtRelationships: Array<{userScreenName: string, orgScreenName: string}>,
-  memberOfRelationships: Array<{userScreenName: string, orgScreenName: string}> = []
+  worksAtRelationships: Array<{ userScreenName: string, orgScreenName: string }>,
+  workedAtRelationships: Array<{ userScreenName: string, orgScreenName: string }>,
+  memberOfRelationships: Array<{ userScreenName: string, orgScreenName: string }> = []
 ): Promise<{
-  existingWorksAt: Array<{userScreenName: string, orgScreenName: string}>
-  existingWorkedAt: Array<{userScreenName: string, orgScreenName: string}>
-  existingMemberOf: Array<{userScreenName: string, orgScreenName: string}>
+  existingWorksAt: Array<{ userScreenName: string, orgScreenName: string }>
+  existingWorkedAt: Array<{ userScreenName: string, orgScreenName: string }>
+  existingMemberOf: Array<{ userScreenName: string, orgScreenName: string }>
 }> {
   const allRelationships = [...worksAtRelationships, ...workedAtRelationships, ...memberOfRelationships]
 
@@ -3376,15 +3445,15 @@ export async function checkExistingEmploymentRelationshipsScreenName(
 }
 
 // Check if AFFILIATED_WITH relationships already exist
-export async function checkExistingAffiliateRelationships(relationships: Array<{orgUserId: string, affiliateUserId: string}>): Promise<Array<{orgUserId: string, affiliateUserId: string}>> {
+export async function checkExistingAffiliateRelationships(relationships: Array<{ orgUserId: string, affiliateUserId: string }>): Promise<Array<{ orgUserId: string, affiliateUserId: string }>> {
   if (relationships.length === 0) return []
-  
+
   const query = `
     UNWIND $relationships AS rel
     MATCH (affiliate:User {userId: rel.affiliateUserId})-[:AFFILIATED_WITH]->(org:User {userId: rel.orgUserId})
     RETURN rel.orgUserId as orgUserId, rel.affiliateUserId as affiliateUserId
   `
-  
+
   const results = await runQuery(query, { relationships })
   return results.map(record => ({
     orgUserId: record.orgUserId,
@@ -3393,15 +3462,15 @@ export async function checkExistingAffiliateRelationships(relationships: Array<{
 }
 
 // Check if FOLLOWS relationships already exist
-export async function checkExistingFollowsRelationships(relationships: Array<{followerUserId: string, followingUserId: string}>): Promise<Array<{followerUserId: string, followingUserId: string}>> {
+export async function checkExistingFollowsRelationships(relationships: Array<{ followerUserId: string, followingUserId: string }>): Promise<Array<{ followerUserId: string, followingUserId: string }>> {
   if (relationships.length === 0) return []
-  
+
   const query = `
     UNWIND $relationships AS rel
     MATCH (follower:User {userId: rel.followerUserId})-[:FOLLOWS]->(following:User {userId: rel.followingUserId})
     RETURN rel.followerUserId as followerUserId, rel.followingUserId as followingUserId
   `
-  
+
   const results = await runQuery(query, { relationships })
   return results.map(record => ({
     followerUserId: record.followerUserId,
@@ -3410,18 +3479,18 @@ export async function checkExistingFollowsRelationships(relationships: Array<{fo
 }
 
 // Filter out existing relationships from a list
-export function filterOutExistingRelationships<T extends {[key: string]: string}>(
+export function filterOutExistingRelationships<T extends { [key: string]: string }>(
   allRelationships: T[],
   existingRelationships: T[],
   keyFields: string[]
 ): T[] {
   const existingSet = new Set(
-    existingRelationships.map(rel => 
+    existingRelationships.map(rel =>
       keyFields.map(field => rel[field]).join('|')
     )
   )
-  
-  return allRelationships.filter(rel => 
+
+  return allRelationships.filter(rel =>
     !existingSet.has(keyFields.map(field => rel[field]).join('|'))
   )
 }
@@ -3429,7 +3498,7 @@ export function filterOutExistingRelationships<T extends {[key: string]: string}
 // Batch fetch organizations from SocialAPI to avoid N+1 queries
 export async function fetchOrganizationsBatch(usernames: string[]): Promise<TwitterApiUser[]> {
   if (usernames.length === 0) return []
-  
+
   if (!process.env.SOCIALAPI_BEARER_TOKEN) {
     console.error('[Config] SOCIALAPI_BEARER_TOKEN not configured')
     return []
@@ -3437,12 +3506,12 @@ export async function fetchOrganizationsBatch(usernames: string[]): Promise<Twit
 
   const results: TwitterApiUser[] = []
   const batchSize = 10 // Conservative batch size for external API
-  
+
   try {
     // Process in small batches to avoid overwhelming the API
     for (let i = 0; i < usernames.length; i += batchSize) {
       const batch = usernames.slice(i, i + batchSize)
-      
+
       // Use Promise.allSettled for parallel requests within batch
       const batchPromises = batch.map(async (username) => {
         try {
@@ -3465,14 +3534,14 @@ export async function fetchOrganizationsBatch(usernames: string[]): Promise<Twit
           return null
         }
       })
-      
+
       const batchResults = await Promise.allSettled(batchPromises)
       batchResults.forEach(result => {
         if (result.status === 'fulfilled' && result.value) {
           results.push(result.value)
         }
       })
-      
+
       // Small delay between batches to be API-friendly
       if (i + batchSize < usernames.length) {
         await new Promise(resolve => setTimeout(resolve, 100))
@@ -3481,7 +3550,7 @@ export async function fetchOrganizationsBatch(usernames: string[]): Promise<Twit
   } catch (error: any) {
     console.error('❌ Error in batch fetch:', error.message)
   }
-  
+
   return results
 }
 
@@ -3595,11 +3664,11 @@ export async function processEmploymentData(profiles: any[]): Promise<void> {
         })
     })
   )
-  
+
   // 2. Update departments in parallel (need to convert to userId-based for now)
   if (departmentUpdates.length > 0) {
     console.log(`   → Converting ${departmentUpdates.length} department updates to userId-based...`)
-    
+
     // Convert screenName-based department updates to userId-based
     const userIdDepartmentUpdates = await Promise.all(
       departmentUpdates.map(async (update) => {
@@ -3613,22 +3682,22 @@ export async function processEmploymentData(profiles: any[]): Promise<void> {
         return result.length > 0 ? { userId: result[0].userId, department: update.department } : null
       })
     )
-    
-    const validDepartmentUpdates = userIdDepartmentUpdates.filter(update => update !== null) as Array<{userId: string, department: string}>
-    
+
+    const validDepartmentUpdates = userIdDepartmentUpdates.filter(update => update !== null) as Array<{ userId: string, department: string }>
+
     if (validDepartmentUpdates.length > 0) {
       console.log(`   → Updating ${validDepartmentUpdates.length} user departments...`)
       operations.push(updateUserDepartmentsOptimized(validDepartmentUpdates))
     }
   }
-  
+
   // Execute all operations in parallel
   const results = await Promise.all(operations)
   const relationshipResults = results[0] as any
-  
+
   const duration = Date.now() - startTime
   console.log(`✅ Employment data processing complete in ${duration}ms`)
-  
+
   if (relationshipResults) {
     console.log(`📈 Final Results:`)
     console.log(`   - New WORKS_AT: ${relationshipResults.newWorksAt?.length || 0} (${relationshipResults.existingWorksAt?.length || 0} already existed)`)
@@ -3642,16 +3711,16 @@ export async function processEmploymentData(profiles: any[]): Promise<void> {
 // Updated to handle flattened employment structure
 export function extractOrganizationData(profiles: any[]): {
   orgUsernames: string[]
-  worksAtRelationships: Array<{userScreenName: string, orgScreenName: string}>
-  workedAtRelationships: Array<{userScreenName: string, orgScreenName: string}>
-  memberOfRelationships: Array<{userScreenName: string, orgScreenName: string}>
-  departmentUpdates: Array<{userScreenName: string, department: string}>
+  worksAtRelationships: Array<{ userScreenName: string, orgScreenName: string }>
+  workedAtRelationships: Array<{ userScreenName: string, orgScreenName: string }>
+  memberOfRelationships: Array<{ userScreenName: string, orgScreenName: string }>
+  departmentUpdates: Array<{ userScreenName: string, department: string }>
 } {
   const orgUsernames = new Set<string>()
-  const worksAtRelationships: Array<{userScreenName: string, orgScreenName: string}> = []
-  const workedAtRelationships: Array<{userScreenName: string, orgScreenName: string}> = []
-  const memberOfRelationships: Array<{userScreenName: string, orgScreenName: string}> = []
-  const departmentUpdates: Array<{userScreenName: string, department: string}> = []
+  const worksAtRelationships: Array<{ userScreenName: string, orgScreenName: string }> = []
+  const workedAtRelationships: Array<{ userScreenName: string, orgScreenName: string }> = []
+  const memberOfRelationships: Array<{ userScreenName: string, orgScreenName: string }> = []
+  const departmentUpdates: Array<{ userScreenName: string, department: string }> = []
 
   let profilesProcessed = 0
   let profilesWithEmploymentData = 0
@@ -3671,16 +3740,16 @@ export function extractOrganizationData(profiles: any[]): {
 
     // Validate that employment data has at least one organization (current, past, or member_of)
     const hasCurrentOrgs = employmentData.current_organizations &&
-                           Array.isArray(employmentData.current_organizations) &&
-                           employmentData.current_organizations.length > 0
+      Array.isArray(employmentData.current_organizations) &&
+      employmentData.current_organizations.length > 0
 
     const hasPastOrgs = employmentData.past_organizations &&
-                        Array.isArray(employmentData.past_organizations) &&
-                        employmentData.past_organizations.length > 0
+      Array.isArray(employmentData.past_organizations) &&
+      employmentData.past_organizations.length > 0
 
     const hasMemberOf = employmentData.member_of &&
-                        Array.isArray(employmentData.member_of) &&
-                        employmentData.member_of.length > 0
+      Array.isArray(employmentData.member_of) &&
+      employmentData.member_of.length > 0
 
     if (!hasCurrentOrgs && !hasPastOrgs && !hasMemberOf) {
       console.log(`ℹ️  Profile @${userScreenName} has empty employment data (no organizations to process)`)
@@ -3746,12 +3815,12 @@ export function extractOrganizationData(profiles: any[]): {
 }
 
 // Check existing employment relationships in batch
-export async function checkExistingEmploymentRelationships(relationships: Array<{userId: string, orgUserId: string}>): Promise<{
-  existingWorksAt: Array<{userId: string, orgUserId: string}>
-  existingWorkedAt: Array<{userId: string, orgUserId: string}>
+export async function checkExistingEmploymentRelationships(relationships: Array<{ userId: string, orgUserId: string }>): Promise<{
+  existingWorksAt: Array<{ userId: string, orgUserId: string }>
+  existingWorkedAt: Array<{ userId: string, orgUserId: string }>
 }> {
   if (relationships.length === 0) return { existingWorksAt: [], existingWorkedAt: [] }
-  
+
   const [worksAtResults, workedAtResults] = await Promise.all([
     // Check WORKS_AT relationships
     runQuery(`
@@ -3759,7 +3828,7 @@ export async function checkExistingEmploymentRelationships(relationships: Array<
       MATCH (u:User {userId: rel.userId})-[:WORKS_AT]->(o:User {userId: rel.orgUserId})
       RETURN rel.userId as userId, rel.orgUserId as orgUserId
     `, { relationships }),
-    
+
     // Check WORKED_AT relationships  
     runQuery(`
       UNWIND $relationships AS rel
@@ -3767,7 +3836,7 @@ export async function checkExistingEmploymentRelationships(relationships: Array<
       RETURN rel.userId as userId, rel.orgUserId as orgUserId
     `, { relationships })
   ])
-  
+
   return {
     existingWorksAt: worksAtResults.map(r => ({ userId: r.userId, orgUserId: r.orgUserId })),
     existingWorkedAt: workedAtResults.map(r => ({ userId: r.userId, orgUserId: r.orgUserId }))
@@ -3776,13 +3845,13 @@ export async function checkExistingEmploymentRelationships(relationships: Array<
 
 // Filter out existing employment relationships to avoid redundant writes
 export function filterOutExistingEmploymentRelationships(
-  worksAtRelationships: Array<{userId: string, orgUserId: string}>,
-  workedAtRelationships: Array<{userId: string, orgUserId: string}>,
-  existingWorksAt: Array<{userId: string, orgUserId: string}>,
-  existingWorkedAt: Array<{userId: string, orgUserId: string}>
+  worksAtRelationships: Array<{ userId: string, orgUserId: string }>,
+  workedAtRelationships: Array<{ userId: string, orgUserId: string }>,
+  existingWorksAt: Array<{ userId: string, orgUserId: string }>,
+  existingWorkedAt: Array<{ userId: string, orgUserId: string }>
 ): {
-  newWorksAt: Array<{userId: string, orgUserId: string}>
-  newWorkedAt: Array<{userId: string, orgUserId: string}>
+  newWorksAt: Array<{ userId: string, orgUserId: string }>
+  newWorkedAt: Array<{ userId: string, orgUserId: string }>
 } {
   const existingWorksAtSet = new Set(
     existingWorksAt.map(rel => `${rel.userId}|${rel.orgUserId}`)
@@ -3790,14 +3859,14 @@ export function filterOutExistingEmploymentRelationships(
   const existingWorkedAtSet = new Set(
     existingWorkedAt.map(rel => `${rel.userId}|${rel.orgUserId}`)
   )
-  
-  const newWorksAt = worksAtRelationships.filter(rel => 
+
+  const newWorksAt = worksAtRelationships.filter(rel =>
     !existingWorksAtSet.has(`${rel.userId}|${rel.orgUserId}`)
   )
-  const newWorkedAt = workedAtRelationships.filter(rel => 
+  const newWorkedAt = workedAtRelationships.filter(rel =>
     !existingWorkedAtSet.has(`${rel.userId}|${rel.orgUserId}`)
   )
-  
+
   return { newWorksAt, newWorkedAt }
 }
 
@@ -3810,32 +3879,32 @@ export async function getStaleOrMissingUsers(users: Neo4jUser[], maxAgeHours: nu
   if (users.length === 0) {
     return { missingUsers: [], staleUsers: [], upToDateUsers: [] }
   }
-  
+
   const userIds = users.map(u => u.userId)
-  
+
   // Get existing users from database
   const query = `
     UNWIND $userIds AS userId
     OPTIONAL MATCH (u:User {userId: userId})
     RETURN userId, u
   `
-  
+
   const results = await runQuery(query, { userIds })
   const existingUserMap = new Map<string, Neo4jUser>()
-  
+
   results.forEach(record => {
     if (record.u?.properties) {
       existingUserMap.set(record.userId, record.u.properties)
     }
   })
-  
+
   const missingUsers: Neo4jUser[] = []
   const staleUsers: Neo4jUser[] = []
   const upToDateUsers: Neo4jUser[] = []
-  
+
   users.forEach(newUser => {
     const existingUser = existingUserMap.get(newUser.userId)
-    
+
     if (!existingUser) {
       // User doesn't exist, needs to be created
       missingUsers.push(newUser)
@@ -3847,7 +3916,7 @@ export async function getStaleOrMissingUsers(users: Neo4jUser[], maxAgeHours: nu
       upToDateUsers.push(newUser)
     }
   })
-  
+
   return { missingUsers, staleUsers, upToDateUsers }
 }
 
@@ -3857,7 +3926,7 @@ export function hasUserDataChanged(existingUser: Neo4jUser, newUser: Neo4jUser):
     'screenName', 'name', 'profileImageUrl', 'description', 'location', 'url',
     'followersCount', 'followingCount', 'verified', 'vibe'
   ]
-  
+
   return keyFields.some(field => {
     const existing = (existingUser as any)[field]
     const newVal = (newUser as any)[field]
@@ -3874,14 +3943,14 @@ export async function createOrUpdateUsersOptimized(users: Neo4jUser[], maxAgeHou
   if (users.length === 0) {
     return { created: 0, updated: 0, skipped: 0 }
   }
-  
+
   console.log(`🔍 Checking ${users.length} users for updates...`)
-  
+
   // Check which users need updates
   const { missingUsers, staleUsers, upToDateUsers } = await getStaleOrMissingUsers(users, maxAgeHours)
-  
+
   console.log(`📊 User analysis: ${missingUsers.length} missing, ${staleUsers.length} stale, ${upToDateUsers.length} up-to-date`)
-  
+
   // Only process users that need updates
   const usersToUpdate = [...missingUsers, ...staleUsers]
 
@@ -3893,7 +3962,7 @@ export async function createOrUpdateUsersOptimized(users: Neo4jUser[], maxAgeHou
 
     console.log(`✅ Batch processing complete for ${usersToUpdate.length} users`)
   }
-  
+
   return {
     created: missingUsers.length,
     updated: staleUsers.length,
@@ -3902,14 +3971,14 @@ export async function createOrUpdateUsersOptimized(users: Neo4jUser[], maxAgeHou
 }
 
 // Optimized: Only update vibes that have actually changed
-export async function updateUserVibesOptimized(updates: Array<{userId: string, vibe: string}>): Promise<number> {
+export async function updateUserVibesOptimized(updates: Array<{ userId: string, vibe: string }>): Promise<number> {
   if (updates.length === 0) return 0
-  
+
   // Validate all vibe values before processing (batch validation)
-  const { validUsers, invalidUsers } = await import('@/lib/validation').then(mod => 
+  const { validUsers, invalidUsers } = await import('@/lib/validation').then(mod =>
     mod.validateVibesBatch(updates)
   )
-  
+
   // Log any validation errors (only in development)
   if (invalidUsers.length > 0 && process.env.NODE_ENV === 'development') {
     console.warn(`🚨 Found ${invalidUsers.length} invalid vibe values in optimized batch update:`)
@@ -3917,11 +3986,11 @@ export async function updateUserVibesOptimized(updates: Array<{userId: string, v
       logValidationError('vibe', originalVibe, error, `updateUserVibesOptimized batch for user ${userId}`)
     })
   }
-  
+
   if (validUsers.length === 0) {
     return 0
   }
-  
+
   // Bulk check which users actually need vibe updates
   const userIds = validUsers.map(u => u.userId)
   const query = `
@@ -3929,24 +3998,24 @@ export async function updateUserVibesOptimized(updates: Array<{userId: string, v
     MATCH (u:User {userId: userId})
     RETURN u.userId as userId, u.vibe as currentVibe
   `
-  
+
   const results = await runQuery(query, { userIds })
   const currentVibes = new Map<string, string>()
-  
+
   results.forEach(record => {
     currentVibes.set(record.userId, record.currentVibe || '')
   })
-  
+
   // Filter to only updates that are actually changing the vibe
   const actualUpdates = validUsers.filter(update => {
     const currentVibe = currentVibes.get(update.userId) || ''
     return currentVibe !== update.vibe
   })
-  
+
   if (actualUpdates.length === 0) {
     return 0
   }
-  
+
   console.log(`📝 Updating vibe for ${actualUpdates.length} users (${validUsers.length - actualUpdates.length} already correct)`)
 
   const batchSize = OPTIMAL_BATCH_SIZES.USER_UPSERT * 10 // Larger batch for simple updates
@@ -3969,7 +4038,7 @@ export async function updateUserVibesOptimized(updates: Array<{userId: string, v
 
       batchPromises.push(
         runQuery(updateQuery, { updates: batch })
-          .then(() => {})
+          .then(() => { })
           .catch((error: any) => console.error(`❌ Vibe update batch failed:`, error.message))
       )
     }
@@ -3981,11 +4050,11 @@ export async function updateUserVibesOptimized(updates: Array<{userId: string, v
 }
 
 // Optimized: Update user departments (for individual users)
-export async function updateUserDepartmentsOptimized(updates: Array<{userId: string, department: string}>): Promise<number> {
+export async function updateUserDepartmentsOptimized(updates: Array<{ userId: string, department: string }>): Promise<number> {
   if (updates.length === 0) return 0
-  
+
   console.log(`🔍 Checking department updates for ${updates.length} users...`)
-  
+
   // First, check which users need department updates (and are individuals or unclassified)
   const userIds = updates.map(u => u.userId)
   const query = `
@@ -3994,21 +4063,21 @@ export async function updateUserDepartmentsOptimized(updates: Array<{userId: str
     WHERE (u.vibe = 'individual' OR u.vibe = '' OR u.vibe IS NULL)
     RETURN u.userId as userId, u.department as currentDepartment
   `
-  
+
   const results = await runQuery(query, { userIds })
   const currentDepartments = new Map<string, string>()
-  
+
   results.forEach(record => {
     currentDepartments.set(record.userId, record.currentDepartment || '')
   })
-  
+
   // Filter to only updates for individual/unclassified users that are actually changing the department
   const actualUpdates = updates.filter(update => {
     const currentDepartment = currentDepartments.get(update.userId)
     // Only update if user exists as individual/unclassified and department is different
     return currentDepartment !== undefined && currentDepartment !== update.department
   })
-  
+
   if (actualUpdates.length === 0) {
     console.log(`✅ All departments are already up-to-date`)
     return 0
@@ -4037,7 +4106,7 @@ export async function updateUserDepartmentsOptimized(updates: Array<{userId: str
 
       batchPromises.push(
         runQuery(updateQuery, { updates: batch })
-          .then(() => {})
+          .then(() => { })
           .catch((error: any) => console.error(`❌ Department update batch failed:`, error.message))
       )
     }
@@ -4092,27 +4161,27 @@ export async function ensureOrganizationsExistOptimized(orgUsernames: string[]):
       orgsToFetch.push(result.inputScreenName)
     }
   })
-  
+
   console.log(`📊 Organization status:`)
   console.log(`   - Already exist: ${orgMap.size}`)
   console.log(`   - Need fetching: ${orgsToFetch.length}`)
   console.log(`   - Need updating: ${orgsToUpdate.length}`)
-  
+
   // Fetch new organizations from SocialAPI
   let fetchedOrgs: any[] = []
   if (orgsToFetch.length > 0) {
     console.log(`📥 Fetching ${orgsToFetch.length} new organizations from SocialAPI`)
     fetchedOrgs = await fetchOrganizationsBatch(orgsToFetch)
   }
-  
+
   // Process all organizations that need creation/updates
   const orgsToProcess: Neo4jUser[] = []
-  
+
   // Add fetched organizations
   fetchedOrgs.forEach(org => {
     orgsToProcess.push(transformToNeo4jOrganization(org))
   })
-  
+
   // Add organizations that need vibe/data updates
   orgsToUpdate.forEach(orgUsername => {
     if (!fetchedOrgs.find(org => org.screen_name.toLowerCase() === orgUsername.toLowerCase())) {
@@ -4140,13 +4209,14 @@ export async function ensureOrganizationsExistOptimized(orgUsernames: string[]):
         verificationReason: undefined,
         vibe: 'organization', // Ensure it's marked as organization
         department: undefined,
-        org_type: undefined,
-        org_subtype: undefined,
-        web3_focus: undefined
+        orgType: undefined,
+        orgSubtype: undefined,
+        web3Focus: undefined,
+        screenNameLower: orgUsername.toLowerCase()
       })
     }
   })
-  
+
   // Process organizations using batch function instead of individual calls
   if (orgsToProcess.length > 0) {
     console.log(`💾 Batch processing ${orgsToProcess.length} organizations...`)
@@ -4165,13 +4235,13 @@ export async function ensureOrganizationsExistOptimized(orgUsernames: string[]):
   }
 
   console.log(`🎯 Organization mapping complete: ${orgMap.size} total organizations available`)
-  
+
   // Log a few examples for debugging
   if (orgMap.size > 0) {
     const examples = Array.from(orgMap.entries()).slice(0, 3)
     console.log(`   Examples: ${examples.map(([name, id]) => `@${name}→${id}`).join(', ')}`)
   }
-  
+
   return orgMap
 }
 
@@ -4190,9 +4260,9 @@ export async function getUsersWithExistingEmploymentRelationships(userIds: strin
   }>
 }>> {
   if (userIds.length === 0) return []
-  
+
   console.log(`🔍 Checking ${userIds.length} users for existing employment relationships with org ${orgUserId}...`)
-  
+
   const query = `
     UNWIND $userIds AS userId
     MATCH (u:User {userId: userId})
@@ -4208,9 +4278,9 @@ export async function getUsersWithExistingEmploymentRelationships(userIds: strin
            EXISTS((u)-[:WORKS_AT]->(org)) as hasWorksAt,
            EXISTS((u)-[:WORKED_AT]->(org)) as hasWorkedAt
   `
-  
+
   const results = await runQuery(query, { userIds, orgUserId })
-  
+
   const usersWithRelationships = results
     .filter(record => record.hasWorksAt || record.hasWorkedAt)
     .map(record => ({
@@ -4226,9 +4296,9 @@ export async function getUsersWithExistingEmploymentRelationships(userIds: strin
         role: record.userVibe || 'Unknown'
       }] : []
     }))
-  
+
   console.log(`✅ Found ${usersWithRelationships.length} users with existing employment relationships`)
-  
+
   return usersWithRelationships
 }
 
@@ -4268,13 +4338,13 @@ export async function batchCheckUserEmploymentData(userIds: string[], orgId: str
       currentEmployers,
       pastEmployers
   `
-  
+
   const results = await runQuery(query, { userIds, orgId })
-  
+
   const existingEmployees: string[] = []
   const hasEmploymentData: string[] = []
   const needsGrokAnalysis: string[] = []
-  
+
   results.forEach(record => {
     if (!record.userExists) {
       needsGrokAnalysis.push(record.userId)
@@ -4286,11 +4356,11 @@ export async function batchCheckUserEmploymentData(userIds: string[], orgId: str
       needsGrokAnalysis.push(record.userId)
     }
   })
-  
+
   console.log(`   → Existing employees: ${existingEmployees.length}`)
   console.log(`   → Has employment data: ${hasEmploymentData.length}`)
   console.log(`   → Needs Grok analysis: ${needsGrokAnalysis.length}`)
-  
+
   return { existingEmployees, hasEmploymentData, needsGrokAnalysis }
 }
 
@@ -4303,10 +4373,10 @@ export async function consolidatedUserExistenceCheck(profileSources: {
   affiliatedUsers?: any[],
   additionalUserIds?: string[]
 }): Promise<Set<string>> {
-  
+
   // Collect ALL possible user IDs from ALL sources at once
   const allUserIds: string[] = []
-  
+
   if (profileSources.memberProfiles) {
     allUserIds.push(...profileSources.memberProfiles.map(p => p.id_str || p.id).filter(Boolean))
   }
@@ -4325,13 +4395,13 @@ export async function consolidatedUserExistenceCheck(profileSources: {
   if (profileSources.additionalUserIds) {
     allUserIds.push(...profileSources.additionalUserIds)
   }
-  
+
   const uniqueUserIds = Array.from(new Set(allUserIds))
-  
+
   if (uniqueUserIds.length === 0) return new Set()
-  
+
   console.log(`🔍 Consolidated existence check for ${uniqueUserIds.length} unique user IDs...`)
-  
+
   try {
     // SINGLE batch existence check for all users
     const existingIds = await checkUsersExist(uniqueUserIds)
@@ -4371,7 +4441,7 @@ export async function getOrganizationEmployeesByScreenName(orgScreenName: string
   endDate?: string
 }>> {
   console.log(`👥 Fetching all employees for organization @${orgScreenName}...`)
-  
+
   const query = `
     MATCH (org:User)
     WHERE toLower(org.screenName) = toLower($orgScreenName)
@@ -4403,9 +4473,9 @@ export async function getOrganizationEmployeesByScreenName(orgScreenName: string
       works.endDate as endDate
     ORDER BY u.screenName
   `
-  
+
   const results = await runQuery(query, { orgScreenName })
-  
+
   const employees = results.map(record => ({
     userId: record.userId,
     screenName: record.screenName,
@@ -4434,14 +4504,14 @@ export async function getOrganizationEmployeesByScreenName(orgScreenName: string
   }))
 
   console.log(`✅ Found ${employees.length} employees for organization @${orgScreenName}`)
-  
+
   return employees
 }
 
 // Lightweight function to get only employee IDs (for filtering operations)
 export async function getOrganizationEmployeeIdsByScreenName(orgScreenName: string): Promise<string[]> {
   console.log(`🔍 Fetching employee IDs for organization @${orgScreenName}...`)
-  
+
   const query = `
     MATCH (org:User)
     WHERE toLower(org.screenName) = toLower($orgScreenName)
@@ -4449,12 +4519,12 @@ export async function getOrganizationEmployeeIdsByScreenName(orgScreenName: stri
     RETURN u.userId as userId
     ORDER BY u.userId
   `
-  
+
   const results = await runQuery(query, { orgScreenName })
   const employeeIds = results.map(record => record.userId)
-  
+
   console.log(`✅ Found ${employeeIds.length} employee IDs for @${orgScreenName}`)
-  
+
   return employeeIds
 }
 
@@ -4463,9 +4533,9 @@ export async function updateOrganizationClassification(
   organizations: Array<{
     userId: string,
     classification: {
-      org_type?: string,
-      org_subtype?: string,
-      web3_focus?: string
+      orgType?: string,
+      orgSubtype?: string,
+      web3Focus?: string
     }
   }>
 ): Promise<void> {
@@ -4476,25 +4546,25 @@ export async function updateOrganizationClassification(
   const query = `
     UNWIND $organizations AS org
     MATCH (u:User {userId: org.userId})
-    SET 
-      u.org_type = CASE 
-        WHEN org.classification.org_type IS NOT NULL AND org.classification.org_type <> '' 
-        THEN org.classification.org_type 
-        ELSE COALESCE(u.org_type, 'service') 
+    SET
+      u.orgType = CASE
+        WHEN org.classification.orgType IS NOT NULL AND org.classification.orgType <> ''
+        THEN org.classification.orgType
+        ELSE COALESCE(u.orgType, 'service')
       END,
-      u.org_subtype = CASE 
-        WHEN org.classification.org_subtype IS NOT NULL AND org.classification.org_subtype <> '' 
-        THEN org.classification.org_subtype 
-        ELSE COALESCE(u.org_subtype, 'other') 
+      u.orgSubtype = CASE
+        WHEN org.classification.orgSubtype IS NOT NULL AND org.classification.orgSubtype <> ''
+        THEN org.classification.orgSubtype
+        ELSE COALESCE(u.orgSubtype, 'other')
       END,
-      u.web3_focus = CASE 
-        WHEN org.classification.web3_focus IS NOT NULL AND org.classification.web3_focus <> '' 
-        THEN org.classification.web3_focus 
-        ELSE COALESCE(u.web3_focus, 'traditional') 
+      u.web3Focus = CASE
+        WHEN org.classification.web3Focus IS NOT NULL AND org.classification.web3Focus <> ''
+        THEN org.classification.web3Focus
+        ELSE COALESCE(u.web3Focus, 'traditional')
       END,
       u.vibe = 'organization',
       u.lastUpdated = datetime()
-    RETURN u.screenName as screenName, u.org_type as orgType, u.org_subtype as orgSubtype, u.web3_focus as web3Focus
+    RETURN u.screenName as screenName, u.orgType as orgType, u.orgSubtype as orgSubtype, u.web3Focus as web3Focus
   `
 
   try {
@@ -4506,7 +4576,7 @@ export async function updateOrganizationClassification(
     }>(query, { organizations })
 
     console.log(`✅ Updated organization classification for ${results.length} organizations`)
-    
+
     // Log the updates for verification
     results.forEach(result => {
       console.log(`     🏢 @${result.screenName}: ${result.orgType}/${result.orgSubtype} (${result.web3Focus})`)
@@ -4527,16 +4597,16 @@ export async function updateOrganizationClassification(
  */
 export async function getOrganizationProperties(identifier: string): Promise<Record<string, any> | null> {
   console.log(`🔍 [Neo4j] Fetching organization properties for: ${identifier}`)
-  
+
   // Try by userId first, then by screenName
   let query = `
     MATCH (u:User {userId: $identifier})
     WHERE u.vibe = 'organization'
     RETURN properties(u) as props
   `
-  
+
   let results = await runQuery(query, { identifier })
-  
+
   if (results.length === 0) {
     // Try by screenName (case-insensitive)
     query = `
@@ -4544,18 +4614,18 @@ export async function getOrganizationProperties(identifier: string): Promise<Rec
       WHERE toLower(u.screenName) = toLower($identifier) AND u.vibe = 'organization'
       RETURN properties(u) as props
     `
-    
+
     results = await runQuery(query, { identifier })
   }
-  
+
   if (results.length === 0) {
     console.log(`❌ [Neo4j] Organization not found: ${identifier}`)
     return null
   }
-  
+
   const properties = results[0].props
   console.log(`✅ [Neo4j] Found organization with ${Object.keys(properties).length} properties`)
-  
+
   return properties
 }
 
@@ -4564,12 +4634,12 @@ export async function getOrganizationProperties(identifier: string): Promise<Rec
  * Uses centralized mapping utilities to eliminate drift
  */
 export async function updateOrganizationProperties(
-  userId: string, 
+  userId: string,
   newProperties: Record<string, any>
 ): Promise<void> {
   console.log(`[Neo4j] Updating organization properties for: ${userId}`)
   console.log(`[Neo4j] Input properties keys: ${Object.keys(newProperties).length}`)
-  
+
   // Filter out null/undefined/empty values
   const validProperties: Record<string, any> = {}
   Object.entries(newProperties).forEach(([key, value]) => {
@@ -4577,28 +4647,28 @@ export async function updateOrganizationProperties(
       validProperties[key] = value
     }
   })
-  
+
   if (Object.keys(validProperties).length === 0) {
     console.log(`[Neo4j] No valid properties to update for ${userId}`)
     return
   }
-  
+
   console.log(`[Neo4j] Processing ${Object.keys(validProperties).length} valid properties`)
-  
+
   // Build dynamic SET clause
   const setClause = Object.keys(validProperties)
     .map(key => `u.${key} = $${key}`)
     .join(', ')
-  
+
   const query = `
     MATCH (u:User {userId: $userId})
     SET ${setClause}, u.lastUpdated = datetime()
     RETURN u.userId as updatedUserId
   `
-  
+
   const params = { userId, ...validProperties }
   await runQuery(query, params)
-  
+
   console.log(`[Neo4j] Updated ${Object.keys(validProperties).length} properties for organization ${userId}`)
 }
 
@@ -4608,25 +4678,25 @@ export async function updateOrganizationProperties(
  * Uses canonical forbidden properties list by default
  */
 export async function removeOrganizationProperties(
-  userId: string, 
+  userId: string,
   keys: string[] = ["password", "email", "privateKey", "secret"] // Basic forbidden list instead of FORBIDDEN_PROPERTIES
 ): Promise<void> {
   if (!keys || keys.length === 0) {
     console.log(`[Neo4j] No properties to remove for ${userId}`)
     return
   }
-  
+
   console.log(`[Neo4j] Removing ${keys.length} properties from ${userId}: ${keys.join(', ')}`)
-  
+
   // Build dynamic SET clause to null (Neo4j removes properties when set to null)
   const removeClause = keys.map(k => `u.${k} = null`).join(', ')
-  
+
   const query = `
     MATCH (u:User {userId: $userId})
     SET ${removeClause}
     RETURN u.userId as updatedUserId
   `
-  
+
   await runQuery(query, { userId })
   console.log(`[Neo4j] Removed ${keys.length} properties for organization ${userId}`)
 }
@@ -4637,16 +4707,16 @@ export async function removeOrganizationProperties(
  */
 export async function getOrganizationForUI(identifier: string): Promise<Record<string, any> | null> {
   console.log(`🔍 [Neo4j] Retrieving organization data for UI: ${identifier}`)
-  
+
   // Try by userId first, then by screenName (same logic as getOrganizationProperties)
   let query = `
     MATCH (u:User {userId: $identifier})
     WHERE u.vibe = 'organization'
     RETURN properties(u) as props
   `
-  
+
   let result = await runQuery(query, { identifier })
-  
+
   if (!result || result.length === 0) {
     // Try by screenName (case-insensitive)
     query = `
@@ -4654,23 +4724,23 @@ export async function getOrganizationForUI(identifier: string): Promise<Record<s
       WHERE toLower(u.screenName) = toLower($identifier) AND u.vibe = 'organization'
       RETURN properties(u) as props
     `
-    
+
     result = await runQuery(query, { identifier })
   }
-  
+
   if (!result || result.length === 0) {
     console.log(`❌ [Neo4j] No organization found for ${identifier}`)
     return null
   }
-  
+
   const nodeProps = result[0].props
   console.log(`✅ [Neo4j] Found organization with ${Object.keys(nodeProps).length} properties`)
-  
+
   // Use centralized inflation that handles mapping and backward compatibility
   const inflatedData = nodeProps // Direct assignment instead of inflateForUI
-  
+
   console.log(`✅ [Neo4j] Inflated ${Object.keys(nodeProps).length} flat properties → ${JSON.stringify(inflatedData).length} chars UI object`)
-  
+
   return inflatedData
 }
 
