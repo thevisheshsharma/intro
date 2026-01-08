@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef } from 'react'
 import { cn } from '@/lib/utils'
+import { BerriLoader } from '@/components/ui/BerriLoader'
 
 // Types matching the API response
 interface OrgConnection {
@@ -335,9 +336,17 @@ export function EnhancedMutualsTable({ mutuals, loading, searchedUserScreenName 
 
   if (loading) {
     return (
-      <div className="w-full mt-8 flex items-center justify-center gap-3">
-        <div className="w-5 h-5 rounded-full border-2 border-berri-raspberry/20 border-t-berri-raspberry animate-spin" />
-        <span className="text-gray-500">Finding mutual connections...</span>
+      <div className="w-full py-12 flex flex-col items-center justify-center gap-4">
+        <BerriLoader
+          steps={[
+            'Analyzing connections',
+            'Finding mutual paths',
+            'Scoring relevancy'
+          ]}
+          currentStep={1}
+          size="md"
+        />
+        <span className="text-gray-500 text-sm">Finding mutual connections...</span>
       </div>
     )
   }

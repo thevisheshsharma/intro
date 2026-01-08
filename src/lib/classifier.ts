@@ -285,10 +285,15 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
     // POST-PROCESSING: Capture orgs that Grok returned as separate entries
     // When we ask to classify 1 individual, but Grok returns extra organization entries,
     // those orgs should be added to the individual's member_of
-    const inputScreenNames = new Set(profiles.map(p => p.screen_name.toLowerCase()));
+    // Normalize input screen names by stripping @ prefix
+    const inputScreenNames = new Set(profiles.map(p => p.screen_name.toLowerCase().replace(/^@/, '')));
+
+    // Helper to normalize screen_name for comparison
+    const normalizeScreenName = (name: string) => name.toLowerCase().replace(/^@/, '');
+
     const individuals = normalizedResults.filter(r => r.vibe === 'individual');
     const extraOrgs = normalizedResults.filter(r =>
-      r.vibe === 'organization' && !inputScreenNames.has(r.screen_name.toLowerCase())
+      r.vibe === 'organization' && !inputScreenNames.has(normalizeScreenName(r.screen_name))
     );
 
     if (individuals.length > 0 && extraOrgs.length > 0) {
@@ -296,12 +301,12 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
 
       // Add extra orgs to each individual's member_of
       for (const individual of individuals) {
-        const existingMemberOf = new Set((individual.member_of || []).map(m => m.toLowerCase().replace(/^@/, '')));
-        const existingCurrent = new Set((individual.current_organizations || []).map(m => m.toLowerCase().replace(/^@/, '')));
-        const existingPast = new Set((individual.past_organizations || []).map(m => m.toLowerCase().replace(/^@/, '')));
+        const existingMemberOf = new Set((individual.member_of || []).map(m => normalizeScreenName(m)));
+        const existingCurrent = new Set((individual.current_organizations || []).map(m => normalizeScreenName(m)));
+        const existingPast = new Set((individual.past_organizations || []).map(m => normalizeScreenName(m)));
 
         for (const org of extraOrgs) {
-          const orgScreenName = org.screen_name.toLowerCase();
+          const orgScreenName = normalizeScreenName(org.screen_name);
           // Only add if not already in any relationship
           if (!existingMemberOf.has(orgScreenName) &&
             !existingCurrent.has(orgScreenName) &&
@@ -315,11 +320,31 @@ ${profiles.map(p => `@${p.screen_name}: ${p.description || 'No bio'}`).join('\n'
     }
 
     // Filter out extra orgs from final results (they're now linked to individuals)
+    // Use normalized comparison to handle @ prefix inconsistency from Grok
     const finalResults = normalizedResults.filter(r =>
-      inputScreenNames.has(r.screen_name.toLowerCase())
+      inputScreenNames.has(normalizeScreenName(r.screen_name))
     );
 
     console.log(`✅ Successfully classified ${finalResults.length} profiles`);
+
+    // Safety check: if finalResults is empty but we had input, something went wrong
+    if (finalResults.length === 0 && profiles.length > 0) {
+      console.warn(`⚠️ Classification result mismatch - Grok returned screen_names that don't match input`);
+      console.warn(`   Input: ${Array.from(inputScreenNames).join(', ')}`);
+      console.warn(`   Results: ${normalizedResults.map(r => r.screen_name).join(', ')}`);
+
+      // Try to find the result by matching without normalization issues
+      const firstProfile = profiles[0];
+      const matchingResult = normalizedResults.find(r =>
+        normalizeScreenName(r.screen_name) === normalizeScreenName(firstProfile.screen_name)
+      );
+
+      if (matchingResult) {
+        console.log(`   → Found matching result via fallback: @${matchingResult.screen_name}`);
+        return isArray ? [matchingResult] : matchingResult;
+      }
+    }
+
     return isArray ? finalResults : finalResults[0];
 
   } catch (error) {
@@ -587,7 +612,19 @@ export async function classifyProfileComplete(
   } else {
     // Grok classification
     const classification = await classifyProfile(profileData)
-    finalClassification = classification
+
+    // Safety check: if classification is undefined, create a fallback
+    if (!classification || !classification.vibe) {
+      console.warn(`  → ⚠️ Classification returned undefined, using fallback for @${normalizedUsername}`)
+      finalClassification = {
+        screen_name: normalizedUsername,
+        vibe: 'individual',
+        last_updated: new Date().toISOString(),
+        department: 'other'
+      }
+    } else {
+      finalClassification = classification
+    }
   }
 
   // Save to Neo4j

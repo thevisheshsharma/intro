@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { usePrivy } from '@privy-io/react-auth'
-import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { BerriLoader } from '@/components/ui/BerriLoader'
 import { ErrorDisplay } from '@/components/ui/error-display'
 import { EnhancedICPDisplay } from '@/components/icp/enhanced-icp-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
@@ -146,7 +146,15 @@ export default function ManageOrgPanel() {
   if (!ready || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <LoadingSpinner />
+        <BerriLoader
+          steps={[
+            'Loading organization',
+            'Checking ICP data',
+            'Preparing dashboard'
+          ]}
+          currentStep={0}
+          size="lg"
+        />
       </div>
     )
   }
@@ -174,6 +182,26 @@ export default function ManageOrgPanel() {
         <SearchForm value={searchValue} onChange={setSearchValue} onSubmit={handleSearchSubmit} loading={searching} />
         {orgTwitterProfile && <SearchedProfileCard user={orgTwitterProfile} />}
       </div>
+
+      {/* Inline Loading State */}
+      {(analyzing || searching) && (
+        <div className="mt-6 w-full max-w-xl bg-white rounded-2xl border border-gray-100 p-8 flex flex-col items-center">
+          <BerriLoader
+            steps={
+              analyzing
+                ? ['Analyzing Twitter presence', 'Understanding market positioning', 'Identifying ideal customers', 'Generating ICP report']
+                : ['Looking up organization', 'Fetching profile data', 'Checking existing analysis']
+            }
+            currentStep={analyzing ? 1 : 0}
+            size="md"
+          />
+          <p className="text-gray-500 text-sm mt-4">
+            {analyzing
+              ? 'Analyzing organization with AI...'
+              : 'Fetching organization details...'}
+          </p>
+        </div>
+      )}
 
       {/* Messages */}
       {error && (

@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import { BerriLoader } from '@/components/ui/BerriLoader'
 import { ErrorDisplay } from '@/components/ui/error-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { FollowingsTable } from '@/components/twitter/followings-table'
@@ -100,21 +101,35 @@ export default function FindFromOrgPanel() {
               disabled={!isValidHandle || searching}
               className="w-full bg-berri-raspberry hover:bg-berri-raspberry/90 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl transition-all shadow-md shadow-berri-raspberry/25 flex items-center justify-center gap-2 font-medium"
             >
-              {searching ? (
-                <>
-                  <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  {searchStatus || 'Searching...'}
-                </>
-              ) : (
-                <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                  </svg>
-                  Search
-                </>
-              )}
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              Search
             </button>
           </form>
+
+          {/* Inline Loading State */}
+          {searching && (
+            <div className="mt-8 w-full bg-white rounded-2xl border border-gray-100 p-8 flex flex-col items-center">
+              <BerriLoader
+                steps={[
+                  'Fetching organization profile',
+                  'Discovering associated people',
+                  'Classifying relationships',
+                  'Filtering results'
+                ]}
+                currentStep={
+                  searchStatus.includes('Initializing') ? 0 :
+                    searchStatus.includes('Contacting') ? 1 :
+                      searchStatus.includes('Processing') ? 2 : 3
+                }
+                size="md"
+              />
+              <p className="text-gray-500 text-sm mt-4">
+                {searchStatus || 'Analyzing organization...'}
+              </p>
+            </div>
+          )}
 
           {error && (
             <div className="mt-6 w-full">

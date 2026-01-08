@@ -10,6 +10,7 @@ import { QuickActions } from '@/components/QuickActions'
 import SearchForm from '@/components/SearchForm'
 import DashboardHeader from '@/components/dashboard/DashboardHeader'
 import { FeatureGate } from '@/components/FeatureGate'
+import { BerriLoader } from '@/components/ui/BerriLoader'
 import {
   extractTwitterUsername,
   transformTwitterUser,
@@ -178,10 +179,31 @@ export default function TwitterPage() {
             />
           </section>
 
-          {/* Quick Actions - only show when no results */}
-          {!hasResults && (
+          {/* Quick Actions - only show when no results and not loading */}
+          {!hasResults && !followingsLoading && (
             <section className="mb-10">
               <QuickActions onSearchFocus={focusSearch} />
+            </section>
+          )}
+
+          {/* Inline Loading State */}
+          {followingsLoading && !hasResults && (
+            <section className="mb-10">
+              <div className="bg-white rounded-2xl border border-gray-100 p-12 flex flex-col items-center justify-center">
+                <BerriLoader
+                  steps={[
+                    'Analyzing profiles',
+                    'Mapping connections',
+                    'Calculating relevancy',
+                    'Finding warm paths'
+                  ]}
+                  currentStep={1}
+                  size="md"
+                />
+                <p className="text-gray-500 text-sm mt-4">
+                  Discovering paths to @{searchUsername.replace('@', '')}...
+                </p>
+              </div>
             </section>
           )}
 
