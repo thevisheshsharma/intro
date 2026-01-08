@@ -5,14 +5,15 @@
 
 import { xai } from '@ai-sdk/xai';
 
-// Model configurations
+// Model configurations - Updated Jan 2026
+// See https://docs.x.ai/docs/models for latest
 export const GROK_MODELS = {
   // Primary model for comprehensive analysis (ICP, detailed classification)
-  ANALYSIS: 'grok-3-beta',
+  ANALYSIS: 'grok-3',
   // Fast model for quick classification tasks
-  CLASSIFICATION: 'grok-2-1212',
+  CLASSIFICATION: 'grok-3-fast',
   // Vision-capable model
-  VISION: 'grok-2-vision-1212',
+  VISION: 'grok-2-vision',
 } as const;
 
 // Default generation settings

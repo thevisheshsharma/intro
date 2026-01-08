@@ -20,6 +20,7 @@ export default function OnboardingPage() {
     const [jobId, setJobId] = useState<string | null>(null)
     const [analysisResult, setAnalysisResult] = useState<any>(null)
     const [error, setError] = useState<string | null>(null)
+    const [checkedCompletion, setCheckedCompletion] = useState(false)
 
     // Check if user has Twitter linked
     const hasTwitter = user?.linkedAccounts?.some(
@@ -29,23 +30,54 @@ export default function OnboardingPage() {
 
     // Check if onboarding is already complete - redirect to dashboard
     useEffect(() => {
-        if (typeof document !== 'undefined') {
-            const cookies = document.cookie.split(';')
-            const onboardingComplete = cookies.some(c => c.trim().startsWith('onboarding-complete='))
-            if (onboardingComplete) {
-                router.replace('/app')
-                return
+        const checkCompletion = async () => {
+            // First check cookie (fast path)
+            if (typeof document !== 'undefined') {
+                const cookies = document.cookie.split(';')
+                const onboardingComplete = cookies.some(c => c.trim().startsWith('onboarding-complete='))
+                if (onboardingComplete) {
+                    router.replace('/app')
+                    return
+                }
             }
+
+            // Also check server-side status (in case cookie was cleared)
+            if (ready && authenticated) {
+                try {
+                    const token = await getAccessToken()
+                    const res = await fetch('/api/user/onboarding-status', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    })
+                    if (res.ok) {
+                        const data = await res.json()
+                        if (data.completed) {
+                            // Re-set cookie and redirect
+                            document.cookie = 'onboarding-complete=true; path=/; max-age=31536000; SameSite=Lax'
+                            router.replace('/app')
+                            return
+                        }
+                    }
+                } catch (err) {
+                    console.error('Failed to check onboarding status:', err)
+                }
+            }
+
+            setCheckedCompletion(true)
         }
-    }, [router])
+
+        if (ready) {
+            checkCompletion()
+        }
+    }, [router, ready, authenticated, getAccessToken])
 
     // Auto-proceed to processing if Twitter is already linked
+    // Only after we've confirmed onboarding isn't already complete
     useEffect(() => {
-        if (ready && authenticated && hasTwitter && currentStep === 'connect-twitter') {
+        if (checkedCompletion && ready && authenticated && hasTwitter && currentStep === 'connect-twitter') {
             startAnalysis()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ready, authenticated, hasTwitter, currentStep])
+    }, [checkedCompletion, ready, authenticated, hasTwitter, currentStep])
 
     const startAnalysis = useCallback(async () => {
         if (!twitterUsername) return
@@ -141,7 +173,8 @@ export default function OnboardingPage() {
         handleProfileComplete()
     }, [handleProfileComplete])
 
-    if (!ready) return null
+    // Show nothing while checking auth and completion status
+    if (!ready || !checkedCompletion) return null
 
     return (
         <div className="min-h-screen flex items-center justify-center px-4 py-12">
