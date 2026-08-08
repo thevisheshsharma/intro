@@ -6,17 +6,31 @@ import {
   linkStripeCustomer,
 } from '@/lib/subscription'
 import Stripe from 'stripe'
+import {
+  claimStripeEvent,
+  completeStripeEvent,
+  failStripeEvent,
+} from '@/lib/stripe-webhook-ledger'
+import { createSafeRouteLogger } from '@/lib/safe-logger'
+
+const logger = createSafeRouteLogger('stripe-webhook')
 
 // Disable body parsing - we need raw body for webhook verification
 export const dynamic = 'force-dynamic'
 
 // POST: Handle Stripe webhooks
 export async function POST(request: NextRequest) {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  if (!webhookSecret) {
+    logger.error('Stripe webhook secret is not configured')
+    return NextResponse.json({ error: 'Webhook unavailable' }, { status: 503 })
+  }
+
   const body = await request.text()
   const signature = request.headers.get('stripe-signature')
 
   if (!signature) {
-    console.error('No Stripe signature found')
+    logger.error('No Stripe signature found')
     return NextResponse.json({ error: 'No signature' }, { status: 400 })
   }
 
@@ -26,14 +40,17 @@ export async function POST(request: NextRequest) {
     event = stripe.webhooks.constructEvent(
       body,
       signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
+      webhookSecret
     )
   } catch (error: any) {
-    console.error('Webhook signature verification failed:', error.message)
+    logger.error('Webhook signature verification failed:', error.message)
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
-  console.log(`Processing Stripe webhook: ${event.type}`)
+  const claim = await claimStripeEvent(event.id, event.type)
+  if (!claim.claimed || !claim.claimToken) {
+    return NextResponse.json({ received: true, duplicate: true })
+  }
 
   try {
     switch (event.type) {
@@ -63,24 +80,26 @@ export async function POST(request: NextRequest) {
       }
 
       default:
-        console.log(`Unhandled event type: ${event.type}`)
+        logger.log(`Unhandled event type: ${event.type}`)
     }
 
+    await completeStripeEvent(event.id, claim.claimToken)
     return NextResponse.json({ received: true })
   } catch (error: any) {
-    console.error('Error processing webhook:', error)
+    await failStripeEvent(event.id, claim.claimToken, 'PROCESSING_FAILED')
+    logger.error('Error processing Stripe webhook')
     return NextResponse.json(
-      { error: error.message || 'Webhook processing failed' },
+      { error: 'Webhook processing failed' },
       { status: 500 }
     )
   }
 }
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-  console.log('Processing checkout.session.completed:', session.id)
+  logger.log('Processing checkout.session.completed:', session.id)
 
   if (session.mode !== 'subscription') {
-    console.log('Not a subscription checkout, skipping')
+    logger.log('Not a subscription checkout, skipping')
     return
   }
 
@@ -88,7 +107,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const subscriptionId = session.subscription as string
 
   if (!customerId || !subscriptionId) {
-    console.error('Missing customer or subscription ID')
+    logger.error('Missing customer or subscription ID')
     return
   }
 
@@ -97,6 +116,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const firstItem = subscription.items.data[0]
   const priceId = firstItem?.price.id
   const plan = getPlanFromPriceId(priceId)
+  if (!plan) {
+    throw new Error('Stripe subscription uses an unknown price')
+  }
 
   // Link Privy user to Stripe customer if metadata exists
   const privyDid = session.metadata?.privyDid || subscription.metadata?.privyDid
@@ -114,20 +136,25 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     stripeSubscriptionId: subscriptionId,
     plan,
     status: mapStripeStatus(subscription.status),
+    trialStartedAt: toIsoDate(subscription.trial_start),
+    trialEndsAt: toIsoDate(subscription.trial_end),
     currentPeriodEnd,
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
   })
 
-  console.log(`Subscription activated for customer ${customerId}`)
+  logger.log(`Subscription activated for customer ${customerId}`)
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  console.log('Processing subscription update:', subscription.id)
+  logger.log('Processing subscription update:', subscription.id)
 
   const customerId = subscription.customer as string
   const firstItem = subscription.items.data[0]
   const priceId = firstItem?.price.id
   const plan = getPlanFromPriceId(priceId)
+  if (!plan) {
+    throw new Error('Stripe subscription uses an unknown price')
+  }
 
   // Get current period end from the first subscription item (Stripe v20+)
   const currentPeriodEnd = firstItem?.current_period_end
@@ -138,15 +165,17 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     stripeSubscriptionId: subscription.id,
     plan,
     status: mapStripeStatus(subscription.status),
+    trialStartedAt: toIsoDate(subscription.trial_start),
+    trialEndsAt: toIsoDate(subscription.trial_end),
     currentPeriodEnd,
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
   })
 
-  console.log(`Subscription updated for customer ${customerId}`)
+  logger.log(`Subscription updated for customer ${customerId}`)
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  console.log('Processing subscription deletion:', subscription.id)
+  logger.log('Processing subscription deletion:', subscription.id)
 
   const customerId = subscription.customer as string
 
@@ -155,16 +184,16 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     cancelAtPeriodEnd: false,
   })
 
-  console.log(`Subscription canceled for customer ${customerId}`)
+  logger.log(`Subscription canceled for customer ${customerId}`)
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {
-  console.log('Processing payment failure:', invoice.id)
+  logger.log('Processing payment failure:', invoice.id)
 
   const customerId = invoice.customer as string
 
   if (!customerId) {
-    console.error('No customer ID in invoice')
+    logger.error('No customer ID in invoice')
     return
   }
 
@@ -172,5 +201,9 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
     status: 'past_due',
   })
 
-  console.log(`Payment failed for customer ${customerId}`)
+  logger.log(`Payment failed for customer ${customerId}`)
+}
+
+function toIsoDate(timestamp: number | null): string | null {
+  return timestamp ? new Date(timestamp * 1000).toISOString() : null
 }

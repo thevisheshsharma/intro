@@ -49,9 +49,9 @@ const tabs: TabContent[] = [
             description: "Don't waste time on cold emails. Use your existing network to find warm intros to top-tier VCs, strategic advisors, and ecosystem partners.",
         },
         stats: [
-            { value: '2x', label: 'Faster Fundraising', description: 'time to close' },
-            { value: '87%', label: 'Meeting Rate', description: 'from warm intros' },
-            { value: '$150M+', label: 'Raised', description: 'by Berri users' },
+            { value: 'Warm', label: 'Investor Paths', description: 'through trusted connections' },
+            { value: 'Context', label: 'Meeting Prep', description: 'from relationship data' },
+            { value: 'Focused', label: 'Fundraising Research', description: 'for each conversation' },
         ],
         features: [
             {
@@ -77,7 +77,7 @@ const tabs: TabContent[] = [
             { step: '01', title: 'Connect Your Network', description: 'Link Twitter, LinkedIn, and Telegram to build your relationship graph.' },
             { step: '02', title: 'Find Target Investors', description: 'Search by thesis, check size, portfolio companies, and stage preference.' },
             { step: '03', title: 'Discover Warm Paths', description: 'Pathfinder shows you who can introduce you to each investor partner.' },
-            { step: '04', title: 'Close Your Round', description: 'Convert warm intros to term sheets at 3x the rate of cold outreach.' },
+            { step: '04', title: 'Run Your Process', description: 'Use trusted context to prepare for each investor conversation.' },
         ],
         testimonial: {
             quote: "We closed our seed round in 6 weeks using Berri. Found warm paths to 8 tier-1 VCs through our existing network.",
@@ -93,20 +93,20 @@ const tabs: TabContent[] = [
         accent: 'raspberry',
         hero: {
             title: 'Build Pipeline',
-            highlight: '3x Faster',
+            highlight: 'Through Warm Paths',
             description: 'Stop prospecting in the dark. Identify high-intent buyers and get introduced by mutual connections for meetings that actually convert.',
         },
         stats: [
-            { value: '3x', label: 'Higher Reply Rates', description: 'vs cold outreach' },
-            { value: '40%', label: 'Faster Sales Cycles', description: 'time to close' },
-            { value: '68%', label: 'Meeting Rate', description: 'from warm intros' },
+            { value: 'Relevant', label: 'Prospect Research', description: 'from social context' },
+            { value: 'Warm', label: 'Sales Paths', description: 'through your network' },
+            { value: 'Focused', label: 'Meeting Prep', description: 'with shared context' },
         ],
         features: [
             {
                 icon: Target,
                 title: 'Precision Targeting',
                 description: 'Filter prospects by on-chain activity, event attendance, investment history, and social engagement.',
-                benefits: ['50+ filter dimensions', 'Real-time activity data', 'ICP matching scores'],
+                benefits: ['Multi-signal filters', 'Current activity data', 'ICP matching context'],
             },
             {
                 icon: Route,
@@ -118,14 +118,14 @@ const tabs: TabContent[] = [
                 icon: Building2,
                 title: 'Company Intelligence',
                 description: 'Access funding data, team composition, tech stack, and recent news for every target account.',
-                benefits: ['200+ data points per company', 'Daily updates', 'Competitive landscape mapping'],
+                benefits: ['Structured company context', 'Current signals', 'Competitive landscape mapping'],
             },
         ],
         workflow: [
-            { step: '01', title: 'Build Your ICP', description: 'Define your ideal customer profile using 50+ filters including funding stage and tech stack.' },
+            { step: '01', title: 'Build Your ICP', description: 'Define your ideal customer profile using funding, role, and company signals.' },
             { step: '02', title: 'Find Warm Paths', description: 'Pathfinder analyzes your network to find the shortest connection to each prospect.' },
             { step: '03', title: 'Request Introductions', description: 'Generate personalized intro requests with context pulled from prospect intelligence.' },
-            { step: '04', title: 'Book Meetings', description: 'Convert warm introductions into meetings at 3x the rate of cold outreach.' },
+            { step: '04', title: 'Book Meetings', description: 'Use warm introductions and shared context to start relevant conversations.' },
         ],
         testimonial: {
             quote: "We closed $2.4M in pipeline in Q4 using Berri. The combination of company intelligence and warm intro paths completely transformed our enterprise sales motion.",
@@ -145,9 +145,9 @@ const tabs: TabContent[] = [
             description: 'Identify the right partners, influencers, and communities to amplify your message. Data-driven community activation for Web3 teams.',
         },
         stats: [
-            { value: '5x', label: 'Event ROI', description: 'improvement' },
-            { value: '150%', label: 'Campaign Reach', description: 'via partners' },
-            { value: '92%', label: 'Partner Match', description: 'success rate' },
+            { value: 'Mapped', label: 'Partner Networks', description: 'from social relationships' },
+            { value: 'Relevant', label: 'Campaign Context', description: 'for outreach' },
+            { value: 'Warm', label: 'Partner Paths', description: 'through trusted contacts' },
         ],
         features: [
             {

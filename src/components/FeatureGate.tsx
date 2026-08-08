@@ -99,7 +99,7 @@ function FeatureLockedFallback({ feature, isExpired }: FeatureLockedFallbackProp
 
         {isExpired ? (
           <p className="text-sm text-berri-raspberry mb-6">
-            Your trial has expired. Upgrade to continue using this feature.
+            Your trial has ended. Your Explorer preview remains available; choose a plan to use this feature again.
           </p>
         ) : (
           <p className="text-sm text-gray-500 mb-6">

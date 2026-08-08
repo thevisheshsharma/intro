@@ -2,16 +2,13 @@
 
 import { useSubscription } from '@/lib/hooks/useSubscription'
 import { Button } from '@/components/ui/button'
-import { Clock, Sparkles, X } from 'lucide-react'
-import { useState } from 'react'
+import { Clock, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 
 export function TrialBanner() {
-  const { isTrialing, trialDaysLeft, isExpired, isLoading } = useSubscription()
-  const [dismissed, setDismissed] = useState(false)
+  const { subscription, isTrialing, trialDaysLeft, isExpired, isLoading } = useSubscription()
 
-  // Don't show if loading, dismissed, or not in trial/expired state
-  if (isLoading || dismissed || (!isTrialing && !isExpired)) {
+  if (isLoading || (!isTrialing && !isExpired)) {
     return null
   }
 
@@ -23,12 +20,12 @@ export function TrialBanner() {
           <div className="flex items-center gap-3">
             <Clock className="w-5 h-5 flex-shrink-0" />
             <p className="text-sm font-medium">
-              Your trial has expired. Upgrade now to continue using Berri.
+              Your trial has ended. Your saved Explorer preview is still available.
             </p>
           </div>
           <Link href="/pricing">
             <Button size="sm" className="bg-white text-red-600 hover:bg-gray-100 rounded-full">
-              Upgrade Now
+              View plans
             </Button>
           </Link>
         </div>
@@ -38,6 +35,9 @@ export function TrialBanner() {
 
   // Trial state
   const isUrgent = trialDaysLeft !== null && trialDaysLeft <= 3
+  const trialEndLabel = subscription?.trialEndsAt
+    ? new Date(subscription.trialEndsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null
   const bgColor = isUrgent
     ? 'bg-gradient-to-r from-amber-500 to-orange-500'
     : 'bg-gradient-to-r from-berri-raspberry to-berri-coral'
@@ -57,22 +57,15 @@ export function TrialBanner() {
                 <span className="font-bold">{trialDaysLeft} days</span> left in your free trial.
               </>
             )}
-            {' '}Upgrade to keep full access.
+            {trialEndLabel ? ` Your plan renews on ${trialEndLabel} unless canceled.` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/pricing">
+          <Link href="/app/settings/billing">
             <Button size="sm" className="bg-white text-berri-raspberry hover:bg-gray-100 rounded-full">
-              Upgrade Now
+              Manage trial
             </Button>
           </Link>
-          <button
-            onClick={() => setDismissed(true)}
-            className="p-1 hover:bg-white/20 rounded-full transition-colors"
-            aria-label="Dismiss"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
       </div>
     </div>

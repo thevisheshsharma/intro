@@ -27,10 +27,27 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
+  const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID
+
+  if (!privyAppId) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <main className="flex min-h-screen items-center justify-center p-6 text-center">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Berri is not configured</h1>
+            <p className="mt-2 text-sm text-gray-600">
+              Set NEXT_PUBLIC_PRIVY_APP_ID to enable authentication.
+            </p>
+          </div>
+        </main>
+      </QueryClientProvider>
+    )
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <PrivyProvider
-      appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID!}
+      appId={privyAppId}
       config={{
         loginMethods: ["wallet", "twitter", "email"],
         appearance: {

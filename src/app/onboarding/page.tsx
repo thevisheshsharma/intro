@@ -7,10 +7,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 import ConnectTwitterStep from '@/components/onboarding/ConnectTwitterStep'
 import ProcessingStep from '@/components/onboarding/ProcessingStep'
-import ProfileStep from '@/components/onboarding/ProfileStep'
 import { extractTwitterUsername } from '@/lib/twitter-helpers'
+import type { OnboardingResult } from '@/lib/onboarding-storage'
+import { Button } from '@/components/ui/button'
+import { AlertCircle, RefreshCcw } from 'lucide-react'
 
-type OnboardingStep = 'connect-twitter' | 'processing' | 'profile' | 'complete'
+type OnboardingStep = 'connect-twitter' | 'processing' | 'completion-error'
 
 export default function OnboardingPage() {
     const { user, ready, authenticated, getAccessToken } = usePrivy()
@@ -18,7 +20,7 @@ export default function OnboardingPage() {
 
     const [currentStep, setCurrentStep] = useState<OnboardingStep>('connect-twitter')
     const [jobId, setJobId] = useState<string | null>(null)
-    const [analysisResult, setAnalysisResult] = useState<any>(null)
+    const [pendingResult, setPendingResult] = useState<OnboardingResult | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [checkedCompletion, setCheckedCompletion] = useState(false)
 
@@ -31,17 +33,7 @@ export default function OnboardingPage() {
     // Check if onboarding is already complete - redirect to dashboard
     useEffect(() => {
         const checkCompletion = async () => {
-            // First check cookie (fast path)
-            if (typeof document !== 'undefined') {
-                const cookies = document.cookie.split(';')
-                const onboardingComplete = cookies.some(c => c.trim().startsWith('onboarding-complete='))
-                if (onboardingComplete) {
-                    router.replace('/app')
-                    return
-                }
-            }
-
-            // Also check server-side status (in case cookie was cleared)
+            // The server is authoritative; cookies are only a navigation hint.
             if (ready && authenticated) {
                 try {
                     const token = await getAccessToken()
@@ -51,8 +43,6 @@ export default function OnboardingPage() {
                     if (res.ok) {
                         const data = await res.json()
                         if (data.completed) {
-                            // Re-set cookie and redirect
-                            document.cookie = 'onboarding-complete=true; path=/; max-age=31536000; SameSite=Lax'
                             router.replace('/app')
                             return
                         }
@@ -118,60 +108,33 @@ export default function OnboardingPage() {
         startAnalysis()
     }, [startAnalysis])
 
-    const handleAnalysisComplete = useCallback((result: any) => {
-        setAnalysisResult(result)
-        setCurrentStep('profile')
-    }, [])
+    const completeOnboarding = useCallback(async (result: OnboardingResult) => {
+        setPendingResult(result)
+        sessionStorage.setItem('onboarding-result', JSON.stringify(result))
 
-    const handleProfileComplete = useCallback(async (profileData?: any) => {
-        // Save profile data if provided
-        if (profileData) {
-            try {
-                const token = await getAccessToken()
-                await fetch('/api/user/profile', {
-                    method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(profileData)
-                })
-            } catch (err) {
-                console.error('Failed to save profile:', err)
-                // Non-fatal, continue anyway
-            }
-        }
-
-        // Store result in session storage for complete page
-        if (analysisResult) {
-            sessionStorage.setItem('onboarding-result', JSON.stringify(analysisResult))
-        }
-
-        // Mark onboarding complete on server (primary source of truth)
         try {
             const token = await getAccessToken()
-            await fetch('/api/user/complete-onboarding', {
+            const completionResponse = await fetch('/api/user/complete-onboarding', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 }
             })
+            if (!completionResponse.ok) {
+                const data = await completionResponse.json().catch(() => ({}))
+                throw new Error(data.error || 'Failed to complete onboarding')
+            }
         } catch (err) {
             console.error('Failed to mark onboarding complete on server:', err)
-            // Non-fatal, continue with cookie fallback
+            setError(err instanceof Error ? err.message : 'Failed to complete onboarding')
+            setCurrentStep('completion-error')
+            return
         }
 
-        // Set cookie to mark onboarding as complete (fallback for immediate redirect)
         document.cookie = 'onboarding-complete=true; path=/; max-age=31536000; SameSite=Lax'
-
-        // Navigate to complete page with results
         router.push('/onboarding/complete')
-    }, [getAccessToken, router, analysisResult])
-
-    const handleSkipProfile = useCallback(() => {
-        handleProfileComplete()
-    }, [handleProfileComplete])
+    }, [getAccessToken, router])
 
     // Show nothing while checking auth and completion status
     if (!ready || !checkedCompletion) return null
@@ -204,7 +167,7 @@ export default function OnboardingPage() {
                     >
                         <ProcessingStep
                             jobId={jobId}
-                            onComplete={handleAnalysisComplete}
+                            onComplete={completeOnboarding}
                             onError={(err) => {
                                 setError(err)
                                 setCurrentStep('connect-twitter')
@@ -213,20 +176,31 @@ export default function OnboardingPage() {
                     </motion.div>
                 )}
 
-                {currentStep === 'profile' && (
+                {currentStep === 'completion-error' && pendingResult && (
                     <motion.div
-                        key="profile"
+                        key="completion-error"
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.4 }}
+                        className="w-full max-w-md rounded-3xl border border-red-100 bg-white p-8 text-center shadow-sm"
                     >
-                        <ProfileStep
-                            twitterUsername={twitterUsername}
-                            analysisResult={analysisResult}
-                            onComplete={handleProfileComplete}
-                            onSkip={handleSkipProfile}
-                        />
+                        <AlertCircle className="mx-auto h-10 w-10 text-red-500" />
+                        <h1 className="mt-5 text-2xl font-heading font-bold text-gray-900">
+                            We saved your network analysis
+                        </h1>
+                        <p className="mt-3 text-gray-600">
+                            We could not finish setting up your account. Retry without analyzing your network again.
+                        </p>
+                        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+                        <Button
+                            onClick={() => completeOnboarding(pendingResult)}
+                            variant="brand"
+                            size="lg"
+                            className="mt-7 rounded-full"
+                        >
+                            <RefreshCcw className="mr-2 h-4 w-4" />
+                            Retry setup
+                        </Button>
                     </motion.div>
                 )}
             </AnimatePresence>

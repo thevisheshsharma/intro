@@ -6,6 +6,7 @@ import { ErrorDisplay } from '@/components/ui/error-display'
 import { SearchedProfileCard } from '@/components/twitter/searched-profile-card'
 import { FollowingsTable } from '@/components/twitter/followings-table'
 import { transformTwitterUser } from '@/lib/twitter-helpers'
+import { usePrivy } from '@privy-io/react-auth'
 
 interface SearchResults {
   success: boolean;
@@ -34,6 +35,7 @@ interface SearchResults {
 }
 
 export default function FindFromOrgPanel() {
+  const { getAccessToken } = usePrivy()
   const [orgHandle, setOrgHandle] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchStatus, setSearchStatus] = useState('')
@@ -51,11 +53,16 @@ export default function FindFromOrgPanel() {
 
     try {
       const normalizedUsername = orgHandle.replace(/^@/, '').trim()
+      const token = await getAccessToken()
+      if (!token) throw new Error('Authentication required')
       setSearchStatus('Contacting API...')
 
       const response = await fetch('/api/find-from-org', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ orgUsername: normalizedUsername })
       })
 

@@ -14,8 +14,8 @@ type ContentType = 'all' | 'stories' | 'insights'
 const blogPosts = [
     {
         type: 'insight' as const,
-        title: 'The Death of Cold Outreach: Why Warm Intros Win in 2024',
-        excerpt: 'Cold emails are dying. Response rates have dropped 40% in the past year. Here\'s why relationship-led growth is the future of B2B sales.',
+        title: 'Why Relationship-Led Outreach Matters',
+        excerpt: 'A practical look at using trusted context and warm introductions in B2B sales.',
         author: 'Sarah Chen',
         role: 'Head of Growth',
         date: 'Dec 15, 2024',
@@ -83,12 +83,12 @@ const caseStudies = [
         company: 'ZK Protocol',
         logo: '⚡',
         industry: 'L2 Infrastructure',
-        challenge: 'Needed to reach 50 enterprise clients for mainnet launch',
+        challenge: 'Needed to reach enterprise clients for a mainnet launch',
         solution: 'Used Pathfinder to map warm intros through investor network',
         results: [
-            { metric: '47', label: 'Enterprise meetings', subtext: 'in 6 weeks' },
-            { metric: '12', label: 'Signed partnerships', subtext: 'from warm intros' },
-            { metric: '68%', label: 'Response rate', subtext: 'vs 3% cold' }
+            { metric: 'Warm', label: 'Enterprise meetings', subtext: 'through trusted paths' },
+            { metric: 'Mapped', label: 'Partnership targets', subtext: 'from the network' },
+            { metric: 'Relevant', label: 'Outreach context', subtext: 'for each account' }
         ],
         quote: 'Berri helped us close more partnerships in 2 months than we did in the previous year of cold outreach.',
         author: 'Alex Chen',
@@ -105,9 +105,9 @@ const caseStudies = [
         challenge: 'Sourcing quality deal flow in a crowded market',
         solution: 'People Intelligence to identify founders before they announce raises',
         results: [
-            { metric: '3x', label: 'Deal flow increase', subtext: 'quality leads' },
-            { metric: '15', label: 'Pre-seed investments', subtext: 'sourced via Berri' },
-            { metric: '40%', label: 'Time saved', subtext: 'on research' }
+            { metric: 'Early', label: 'Founder Signals', subtext: 'before a raise' },
+            { metric: 'Focused', label: 'Deal Research', subtext: 'on relevant teams' },
+            { metric: 'Context', label: 'Research Workflow', subtext: 'in one place' }
         ],
         quote: 'We\'re now getting to founders 2-3 months before they start their official raise.',
         author: 'Sarah Kim',
@@ -154,10 +154,10 @@ const caseStudies = [
 ]
 
 const stats = [
-    { value: '150+', label: 'Companies', description: 'using Berri' },
+    { value: 'Web3', label: 'Companies', description: 'relationship intelligence' },
     { value: '$50M+', label: 'Deals Closed', description: 'via warm intros' },
-    { value: '94%', label: 'Customer Satisfaction', description: 'NPS score' },
-    { value: '3x', label: 'Avg Response Rate', description: 'improvement' }
+    { value: 'Warm', label: 'Introductions', description: 'through trusted contacts' },
+    { value: 'Context', label: 'Outreach', description: 'relationship-aware research' }
 ]
 
 const contentFilters: { label: string; value: ContentType }[] = [

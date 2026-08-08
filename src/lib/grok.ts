@@ -440,7 +440,7 @@ Execute comprehensive live search and build data-driven ICP analysis.`;
 
     // Store to Neo4j
     if (neo4jData?.userId && analysis) {
-      console.log(`💾 Storing analysis to Neo4j for user ${neo4jData.userId}...`);
+      console.log('Storing organization analysis');
       try {
         await Neo4jAnalysisMapper.storeAnalysisToNeo4j(neo4jData.userId, analysis as any, classification);
       } catch (updateError) {

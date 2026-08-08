@@ -62,13 +62,19 @@ export function transformTwitterUser(user: any): TwitterUser {
 }
 
 // API helper function with error handling
-async function makeTwitterApiRequest(endpoint: string, params: Record<string, string>): Promise<any> {
+async function makeTwitterApiRequest(
+  endpoint: string,
+  params: Record<string, string>,
+  accessToken: string
+): Promise<any> {
   const url = new URL(`/api/twitter/${endpoint}`, window.location.origin)
   Object.entries(params).forEach(([key, value]) => {
     url.searchParams.set(key, value)
   })
 
-  const response = await fetch(url.toString())
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
   const data = await response.json()
   
   if (!response.ok) {
@@ -79,8 +85,8 @@ async function makeTwitterApiRequest(endpoint: string, params: Record<string, st
 }
 
 // Fetch and cache followers for a username
-export async function fetchFollowers(username: string): Promise<any[]> {
-  const data = await makeTwitterApiRequest('followers', { username })
+export async function fetchFollowers(username: string, accessToken: string): Promise<any[]> {
+  const data = await makeTwitterApiRequest('followers', { username }, accessToken)
   
   if (!Array.isArray(data.users)) {
     throw new Error('Invalid response format from server (followers)')
@@ -90,8 +96,8 @@ export async function fetchFollowers(username: string): Promise<any[]> {
 }
 
 // Lookup Twitter user by username
-export async function lookupTwitterUser(username: string): Promise<any> {
-  const data = await makeTwitterApiRequest('user-lookup', { screen_name: username })
+export async function lookupTwitterUser(username: string, accessToken: string): Promise<any> {
+  const data = await makeTwitterApiRequest('user-lookup', { screen_name: username }, accessToken)
   
   if (!data.id) {
     throw new Error('User not found')
@@ -101,8 +107,12 @@ export async function lookupTwitterUser(username: string): Promise<any> {
 }
 
 // Fetch followings for a user_id
-export async function fetchFollowings(user_id: string, username: string): Promise<any[]> {
-  const data = await makeTwitterApiRequest('following-list', { user_id, username })
+export async function fetchFollowings(
+  user_id: string,
+  username: string,
+  accessToken: string
+): Promise<any[]> {
+  const data = await makeTwitterApiRequest('following-list', { user_id, username }, accessToken)
   
   if (!Array.isArray(data.users)) {
     throw new Error('Invalid response format from server (followings)')

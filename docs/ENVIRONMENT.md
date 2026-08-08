@@ -25,6 +25,15 @@
 3. Never reuse production secrets locally.
 4. Start with `pnpm dev` and perform only read-safe checks until the target database is confirmed.
 
+## Stripe trial configuration
+
+- Founder monthly and annual Price IDs must belong to the same Stripe mode as `STRIPE_SECRET_KEY`.
+- Checkout creates the fourteen-day trial in code and always collects a payment method.
+- Configure the Stripe customer portal to allow subscription cancellation and payment-method updates.
+- Configure trial-ending and failed-payment notifications in Stripe before launch.
+- Register the webhook endpoint for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`.
+- Test cancellation during trial, automatic conversion, failed first payment, duplicate webhook delivery, and portal return URLs in Stripe test mode.
+
 ## Variable cleanup backlog
 
 - Consolidate `GROK_API_KEY` and `XAI_API_KEY` behind one server-only variable.

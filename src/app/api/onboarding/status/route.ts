@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyPrivyToken } from '@/lib/privy'
 import { analysisJobs, stepLabels } from '@/lib/onboarding-storage'
+import { createSafeRouteLogger } from '@/lib/safe-logger'
+
+const logger = createSafeRouteLogger('onboarding-status')
 
 export const dynamic = 'force-dynamic'
 
@@ -18,18 +21,11 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'jobId required' }, { status: 400 })
         }
 
-        // Verify this job belongs to the user
-        if (!jobId.includes(userId)) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
-        }
-
-        console.log(`[Onboarding Status] Looking for job ${jobId}`)
-
         let job
         try {
             job = await analysisJobs.get(jobId)
         } catch (dbError: any) {
-            console.error(`[Onboarding Status] DB error fetching job ${jobId}:`, dbError.message)
+            logger.error(`[Onboarding Status] DB error fetching job ${jobId}:`, dbError.message)
             // Return a pending status on DB error to allow retries
             return NextResponse.json({
                 status: 'processing',
@@ -40,7 +36,7 @@ export async function GET(request: NextRequest) {
         }
 
         if (!job) {
-            console.log(`[Onboarding Status] Job ${jobId} not found in DB - may still be initializing`)
+            logger.log(`[Onboarding Status] Job ${jobId} not found in DB - may still be initializing`)
             // Return pending instead of 404 for recently created jobs that haven't been written yet
             return NextResponse.json({
                 status: 'processing',
@@ -48,6 +44,10 @@ export async function GET(request: NextRequest) {
                 stepLabel: 'Initializing analysis...',
                 progress: 0
             })
+        }
+
+        if (job.ownerPrivyDid !== userId) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
         }
 
         // Clean up old jobs (older than 60 minutes - matching the DB expiry)
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
             }, { status: 410 })
         }
 
-        console.log(`[Onboarding Status] Job ${jobId} status: ${job.status}, step: ${job.step}, progress: ${job.progress}`)
+        logger.log(`[Onboarding Status] Job ${jobId} status: ${job.status}, step: ${job.step}, progress: ${job.progress}`)
 
         return NextResponse.json({
             status: job.status,
@@ -73,10 +73,9 @@ export async function GET(request: NextRequest) {
         })
 
     } catch (error: any) {
-        console.error('Onboarding status error:', error)
+        logger.error('Onboarding status error:', error)
         return NextResponse.json({
-            error: 'Failed to get status',
-            details: error.message
+            error: 'Failed to get status'
         }, { status: 500 })
     }
 }

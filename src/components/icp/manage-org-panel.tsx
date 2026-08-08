@@ -48,11 +48,17 @@ export default function ManageOrgPanel() {
         if (lastSearched) {
           setSearchValue(lastSearched)
           try {
-            const userData = await lookupTwitterUser(lastSearched)
+            const token = await getAccessToken()
+            if (!token) throw new Error('Authentication required')
+            const userData = await lookupTwitterUser(lastSearched, token)
             const profile = transformTwitterUser(userData)
             setOrgTwitterProfile(profile)
           } catch (e) { }
-          const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${lastSearched}`)
+          const token = await getAccessToken()
+          if (!token) throw new Error('Authentication required')
+          const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${lastSearched}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          })
           const data = await response.json()
           if (response.ok && data.organization) {
             setOrganization(data.organization)
@@ -67,7 +73,7 @@ export default function ManageOrgPanel() {
     }
 
     if (ready && authenticated && user) loadOrganizationData()
-  }, [ready, authenticated, user])
+  }, [ready, authenticated, user, getAccessToken])
 
   const handleAnalyzeICP = async () => {
     try {
@@ -117,11 +123,15 @@ export default function ManageOrgPanel() {
     try {
       const normalizedUsername = searchValue.replace(/^@/, '').toLowerCase()
       localStorage.setItem('lastSearchedOrg', normalizedUsername)
-      const userData = await lookupTwitterUser(normalizedUsername)
+      const token = await getAccessToken()
+      if (!token) throw new Error('Authentication required')
+      const userData = await lookupTwitterUser(normalizedUsername, token)
       const profile = transformTwitterUser(userData)
       setOrgTwitterProfile(profile)
 
-      const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${normalizedUsername}`)
+      const response = await fetch(`/api/organization-icp-analysis/save?twitter_username=${normalizedUsername}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Failed to load organization')
 

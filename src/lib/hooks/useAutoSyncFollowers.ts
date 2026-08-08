@@ -44,12 +44,12 @@ function markSynced(username: string): void {
 }
 
 // Hook to automatically sync followers when user logs in
-export function useAutoSyncFollowers() {
-  const { user, ready, authenticated } = usePrivy()
+export function useAutoSyncFollowers(enabled: boolean = true) {
+  const { user, ready, authenticated, getAccessToken } = usePrivy()
   const syncInProgress = useRef(false)
 
   useEffect(() => {
-    if (!ready || !authenticated || !user || syncInProgress.current) return
+    if (!enabled || !ready || !authenticated || !user || syncInProgress.current) return
 
     const twitterUsername = extractTwitterUsername(user)
     if (!twitterUsername) return
@@ -68,10 +68,14 @@ export function useAutoSyncFollowers() {
       try {
         console.log(`Auto-syncing followers for ${twitterUsername}`)
 
+        const token = await getAccessToken()
+        if (!token) throw new Error('Authentication required')
+
         const response = await fetch('/api/user/sync-followers', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
           },
           body: JSON.stringify({
             username: twitterUsername
@@ -102,7 +106,7 @@ export function useAutoSyncFollowers() {
     // Run sync in background without blocking UI
     syncFollowers()
 
-  }, [ready, authenticated, user])
+  }, [enabled, ready, authenticated, user, getAccessToken])
 
   return {
     isUserLoaded: ready,

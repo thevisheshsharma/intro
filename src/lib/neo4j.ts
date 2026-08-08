@@ -3,9 +3,12 @@ import neo4j, { Driver, Session } from 'neo4j-driver'
 let driver: Driver | null = null
 
 function createDriver(): Driver {
-  const uri = process.env.NEO4J_URI || 'bolt://localhost:7687'
-  const user = process.env.NEO4J_USERNAME || 'neo4j'
-  const password = process.env.NEO4J_PASSWORD || 'password'
+  const uri = process.env.NEO4J_URI
+  const user = process.env.NEO4J_USERNAME
+  const password = process.env.NEO4J_PASSWORD
+  if (!uri || !user || !password) {
+    throw new Error('Neo4j is not configured')
+  }
 
   return neo4j.driver(uri, neo4j.auth.basic(user, password))
 }
@@ -153,6 +156,16 @@ export async function initializeSchema(): Promise<void> {
     await session.run(`
       CREATE INDEX user_department_index IF NOT EXISTS
       FOR (u:User) ON (u.department)
+    `)
+
+    await session.run(`
+      CREATE CONSTRAINT stripe_webhook_event_id_unique IF NOT EXISTS
+      FOR (event:StripeWebhookEvent) REQUIRE event.eventId IS UNIQUE
+    `)
+
+    await session.run(`
+      CREATE CONSTRAINT api_rate_limit_key_unique IF NOT EXISTS
+      FOR (rateLimit:ApiRateLimit) REQUIRE rateLimit.key IS UNIQUE
     `)
 
     console.log('Neo4j schema initialized successfully')

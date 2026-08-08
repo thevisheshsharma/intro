@@ -49,11 +49,9 @@ PRODUCTION_DEBUG_GUIDE.md
 debug-grok.sh
 test-production.sh
 
-# test and utility files
-test-*.js
-test-*.mjs
-test-*.ts
-*.test.js
-*.test.ts
+# legacy root-level utility files
+/test-*.js
+/test-*.mjs
+/test-*.ts
 run-migration.js
 add-research-fields.mjs

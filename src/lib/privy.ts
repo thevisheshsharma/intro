@@ -1,10 +1,17 @@
 import { PrivyClient } from '@privy-io/server-auth';
 
-// Singleton Privy client for server-side auth
-export const privy = new PrivyClient(
-  process.env.NEXT_PUBLIC_PRIVY_APP_ID!,
-  process.env.PRIVY_APP_SECRET!
-);
+let privyClient: PrivyClient | null = null
+
+function getPrivyClient(): PrivyClient {
+  const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID
+  const appSecret = process.env.PRIVY_APP_SECRET
+  if (!appId || !appSecret) {
+    throw new Error('Privy server authentication is not configured')
+  }
+
+  privyClient ??= new PrivyClient(appId, appSecret)
+  return privyClient
+}
 
 // Helper to verify auth token from request
 export async function verifyPrivyToken(request: Request) {
@@ -16,7 +23,7 @@ export async function verifyPrivyToken(request: Request) {
   }
 
   try {
-    const verifiedClaims = await privy.verifyAuthToken(token);
+    const verifiedClaims = await getPrivyClient().verifyAuthToken(token);
     return { userId: verifiedClaims.userId, error: null };
   } catch (error) {
     return { userId: null, error: 'Invalid token' };
@@ -26,7 +33,7 @@ export async function verifyPrivyToken(request: Request) {
 // Helper to get user from Privy
 export async function getPrivyUser(userId: string) {
   try {
-    return await privy.getUser(userId);
+    return await getPrivyClient().getUser(userId);
   } catch (error) {
     return null;
   }

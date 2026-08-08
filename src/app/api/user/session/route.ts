@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyPrivyToken } from '@/lib/privy'
 import {
   getSubscription,
-  createUserWithTrial,
+  ensureUserAccount,
   isSubscriptionActive,
   getTrialDaysLeft,
   isOnboardingComplete,
@@ -20,10 +20,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Fetch subscription (creates with trial if doesn't exist)
+    // Fetch subscription without implicitly starting the trial clock.
     let subscription = await getSubscription(userId)
     if (!subscription) {
-      subscription = await createUserWithTrial(userId)
+      subscription = await ensureUserAccount(userId)
     }
 
     // Check onboarding status
@@ -49,9 +49,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(session)
   } catch (error: any) {
-    console.error('Error fetching user session:', error)
+    console.error('User session lookup failed')
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch session' },
+      { error: 'Failed to fetch session' },
       { status: 500 }
     )
   }

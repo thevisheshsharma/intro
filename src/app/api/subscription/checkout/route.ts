@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyPrivyToken } from '@/lib/privy'
 import { stripe, PRICE_IDS } from '@/lib/stripe'
-import { getSubscription, linkStripeCustomer } from '@/lib/subscription'
-import type { BillingInterval, PlanType } from '@/lib/subscription'
+import { ensureUserAccount, linkStripeCustomer } from '@/lib/subscription'
+import { STRIPE_TRIAL_DAYS } from '@/lib/commercial'
+import { z } from 'zod'
+import { parseJsonBody, RequestValidationError } from '@/lib/security/request'
+import { createSafeRouteLogger } from '@/lib/safe-logger'
 
-interface CheckoutRequest {
-  plan: 'founder' | 'standard'
-  interval: BillingInterval
-}
+const logger = createSafeRouteLogger('subscription-checkout')
+const checkoutSchema = z.object({
+  // Growth remains a private rollout until its collaboration controls ship.
+  plan: z.literal('founder'),
+  interval: z.enum(['monthly', 'annual']),
+  source: z.enum(['onboarding', 'pricing', 'billing']).default('pricing'),
+}).strict()
 
 // POST: Create Stripe checkout session
 export async function POST(request: NextRequest) {
@@ -18,16 +24,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body: CheckoutRequest = await request.json()
-    const { plan, interval } = body
-
-    // Validate plan and interval
-    if (!['founder', 'standard'].includes(plan)) {
-      return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
-    }
-    if (!['monthly', 'annual'].includes(interval)) {
-      return NextResponse.json({ error: 'Invalid billing interval' }, { status: 400 })
-    }
+    const body = await parseJsonBody(request, checkoutSchema, 4 * 1024)
+    const { plan, interval, source } = body
 
     // Get price ID
     const priceId = PRICE_IDS[plan][interval]
@@ -38,8 +36,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get existing subscription to check for Stripe customer
-    const subscription = await getSubscription(userId)
+    // Ensure the application account exists, but do not start the trial until
+    // Stripe has collected a payment method.
+    const subscription = await ensureUserAccount(userId)
+    if (
+      subscription.stripeSubscriptionId &&
+      (subscription.status === 'active' || subscription.status === 'trialing')
+    ) {
+      return NextResponse.json(
+        { error: 'You already have an active subscription. Manage it from Billing.' },
+        { status: 409 }
+      )
+    }
+
     let customerId = subscription?.stripeCustomerId
 
     // Create or get Stripe customer
@@ -53,20 +62,40 @@ export async function POST(request: NextRequest) {
       await linkStripeCustomer(userId, customerId)
     }
 
-    // Create checkout session
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const cancelPath = source === 'onboarding'
+      ? '/onboarding/complete?checkout=canceled'
+      : source === 'billing'
+        ? '/app/settings/billing?checkout=canceled'
+        : '/pricing?checkout=canceled'
+
+    // Create a card-required trial. Stripe owns the trial dates and converts
+    // the subscription automatically at the end unless the user cancels.
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
       payment_method_types: ['card'],
+      payment_method_collection: 'always',
       line_items: [
         {
           price: priceId,
           quantity: 1,
         },
       ],
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/app?checkout=success`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/pricing?checkout=canceled`,
+      success_url: `${appUrl}/app/settings/billing?checkout=trial-started`,
+      cancel_url: `${appUrl}${cancelPath}`,
+      metadata: {
+        privyDid: userId,
+        plan,
+        source,
+      },
       subscription_data: {
+        trial_period_days: STRIPE_TRIAL_DAYS,
+        trial_settings: {
+          end_behavior: {
+            missing_payment_method: 'cancel',
+          },
+        },
         metadata: {
           privyDid: userId,
           plan,
@@ -77,9 +106,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ url: session.url })
   } catch (error: any) {
-    console.error('Error creating checkout session:', error)
+    if (error instanceof RequestValidationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
+    logger.error('Error creating checkout session:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to create checkout session' },
+      { error: 'Failed to create checkout session' },
       { status: 500 }
     )
   }

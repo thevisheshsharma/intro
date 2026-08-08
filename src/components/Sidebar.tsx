@@ -51,7 +51,7 @@ const Sidebar = memo(function Sidebar({ displayName, plan, collapsed, setCollaps
   const EXPANDED_WIDTH = 260
 
   // Plan display
-  const planLabel = plan ? `${plan.charAt(0).toUpperCase() + plan.slice(1)} plan` : 'Free trial'
+  const planLabel = plan === 'standard' ? 'Growth plan' : plan ? `${plan.charAt(0).toUpperCase() + plan.slice(1)} plan` : 'Explorer'
 
   return (
     <motion.aside

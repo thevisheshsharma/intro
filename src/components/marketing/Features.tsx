@@ -39,7 +39,7 @@ const features = [
     },
     {
         title: 'Global Coverage',
-        desc: '150+ countries indexed.',
+        desc: 'Explore company context across markets.',
         icon: Globe,
         href: '/platform/company-intelligence',
         size: 'small',

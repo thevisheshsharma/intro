@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
-import { verifyPrivyToken, getPrivyUser, extractTwitterFromPrivyUser, extractEmailFromPrivyUser } from '@/lib/privy'
+import { getPrivyUser, extractTwitterFromPrivyUser, extractEmailFromPrivyUser } from '@/lib/privy'
 import { fetchTwitterProfile, classifyProfileComplete } from '@/lib/classifier'
-import { createUserWithTrial } from '@/lib/subscription'
+import { ensureUserAccount } from '@/lib/subscription'
 import { runQuery } from '@/services'
 import { analysisJobs, type OnboardingResult, type OrgInfo } from '@/lib/onboarding-storage'
+import { COST_BEARING_RATE_LIMITS, requireUserAccess } from '@/lib/security/api-access'
+import { createSafeRouteLogger } from '@/lib/safe-logger'
+
+const logger = createSafeRouteLogger('onboarding-analysis')
 
 export const maxDuration = 60 // Allow up to 60 seconds for analysis
 
 export async function POST(request: NextRequest) {
     try {
-        const { userId, error: authError } = await verifyPrivyToken(request)
-        if (authError || !userId) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        }
+        const access = await requireUserAccess(request, {
+            rateLimit: COST_BEARING_RATE_LIMITS.onboarding,
+        })
+        if (!access.ok) return access.response
+        const userId = access.actor.userId
 
         // Get user from Privy to extract Twitter info
         const privyUser = await getPrivyUser(userId)
@@ -28,23 +33,24 @@ export async function POST(request: NextRequest) {
         }
 
         // Generate job ID
-        const jobId = `onboard_${userId}_${Date.now()}`
+        const jobId = `onboard_${crypto.randomUUID()}`
 
         // Initialize job in shared storage
         await analysisJobs.set(jobId, {
+            ownerPrivyDid: userId,
             status: 'pending',
             step: 'initializing',
             progress: 0,
             startedAt: new Date()
         })
 
-        console.log(`[Onboarding] Created job ${jobId}`)
+        logger.log(`[Onboarding] Created job ${jobId}`)
 
         // Use waitUntil to keep the function alive for background analysis
         // This is critical for Vercel serverless - without it, the function terminates
         // immediately after returning the response, killing the background work
         const analysisPromise = runAnalysis(jobId, userId, twitterUsername, email).catch(async err => {
-            console.error('[Onboarding] Analysis failed:', err)
+            logger.error('[Onboarding] Analysis failed:', err)
             try {
                 const job = await analysisJobs.get(jobId)
                 if (job) {
@@ -53,7 +59,7 @@ export async function POST(request: NextRequest) {
                     await analysisJobs.set(jobId, job)
                 }
             } catch (setError) {
-                console.error('[Onboarding] Failed to set error state:', setError)
+                logger.error('[Onboarding] Failed to set error state:', setError)
             }
         })
 
@@ -68,10 +74,9 @@ export async function POST(request: NextRequest) {
         })
 
     } catch (error: any) {
-        console.error('Onboarding analyze error:', error)
+        logger.error('Onboarding analyze error:', error)
         return NextResponse.json({
-            error: 'Failed to start analysis',
-            details: error.message
+            error: 'Failed to start analysis'
         }, { status: 500 })
     }
 }
@@ -87,19 +92,20 @@ async function runAnalysis(
     const normalizedUsername = twitterUsername.replace('@', '').toLowerCase()
 
     try {
-        // Step 1: Create/update user with trial subscription
+        // Step 1: Ensure the application user exists. Starting a trial is an
+        // explicit Stripe Checkout action after the personalized preview.
         await updateJob(jobId, 'processing', 'profile', 10)
-        await createUserWithTrial(privyDid, email || undefined)
+        await ensureUserAccount(privyDid, email || undefined)
 
         // Step 2: Fetch Twitter profile from SocialAPI
         await updateJob(jobId, 'processing', 'fetching', 20)
         const twitterProfile = await fetchTwitterProfile(normalizedUsername)
-        console.log(`[Onboarding] Fetched profile for @${normalizedUsername}`)
+        logger.log(`[Onboarding] Fetched profile for @${normalizedUsername}`)
 
         // Step 3: Classify user with Grok
         await updateJob(jobId, 'processing', 'classifying', 40)
         const classification = await classifyProfileComplete(normalizedUsername, twitterProfile)
-        console.log(`[Onboarding] Classification: ${classification.vibe}`)
+        logger.log(`[Onboarding] Classification: ${classification.vibe}`)
 
         // Step 4: Extract organizations - first try Neo4j, then fallback to classification
         await updateJob(jobId, 'processing', 'extracting_orgs', 60)
@@ -122,19 +128,19 @@ async function runAnalysis(
                     collect(DISTINCT workedAt) as workedAtOrgs,
                     collect(DISTINCT memberOf) as memberOfOrgs
             `
-            console.log(`[Onboarding] Querying Neo4j for orgs with screenName: ${normalizedUsername}`)
+            logger.log(`[Onboarding] Querying Neo4j for orgs with screenName: ${normalizedUsername}`)
             const records = await runQuery(orgQuery, { screenName: normalizedUsername })
-            console.log(`[Onboarding] Neo4j returned ${records.length} records`)
+            logger.log(`[Onboarding] Neo4j returned ${records.length} records`)
 
             if (records.length > 0) {
                 const record = records[0]
                 const foundUser = record.userScreenName
-                console.log(`[Onboarding] Found user in Neo4j: ${foundUser}`)
+                logger.log(`[Onboarding] Found user in Neo4j: ${foundUser}`)
 
                 const worksAtRaw = record.worksAtOrgs || []
                 const workedAtRaw = record.workedAtOrgs || []
                 const memberOfRaw = record.memberOfOrgs || []
-                console.log(`[Onboarding] Raw data - worksAt: ${worksAtRaw?.length}, workedAt: ${workedAtRaw?.length}, memberOf: ${memberOfRaw?.length}`)
+                logger.log(`[Onboarding] Raw data - worksAt: ${worksAtRaw?.length}, workedAt: ${workedAtRaw?.length}, memberOf: ${memberOfRaw?.length}`)
 
                 const mapOrgs = (orgs: any[]): OrgInfo[] =>
                     (orgs || []).filter(o => o).map(o => ({
@@ -147,10 +153,10 @@ async function runAnalysis(
                 works_at = mapOrgs(worksAtRaw)
                 worked_at = mapOrgs(workedAtRaw)
                 member_of = mapOrgs(memberOfRaw)
-                console.log(`[Onboarding] Mapped Neo4j relationships: works_at=${works_at.length}, worked_at=${worked_at.length}, member_of=${member_of.length}`)
+                logger.log(`[Onboarding] Mapped Neo4j relationships: works_at=${works_at.length}, worked_at=${worked_at.length}, member_of=${member_of.length}`)
             }
         } catch (err) {
-            console.error('[Onboarding] Error querying Neo4j for orgs:', err)
+            logger.error('[Onboarding] Error querying Neo4j for orgs:', err)
         }
 
         // Fallback to classification data if Neo4j didn't have any relationships
@@ -165,7 +171,7 @@ async function runAnalysis(
             works_at = toOrgInfo(classification.current_organizations)
             worked_at = toOrgInfo(classification.past_organizations)
             member_of = toOrgInfo(classification.member_of)
-            console.log(`[Onboarding] Using classification data: works_at=${works_at.length}, worked_at=${worked_at.length}, member_of=${member_of.length}`)
+            logger.log(`[Onboarding] Using classification data: works_at=${works_at.length}, worked_at=${worked_at.length}, member_of=${member_of.length}`)
         }
 
         // Collect all unique orgs for ICP analysis
@@ -181,10 +187,10 @@ async function runAnalysis(
         // Step 6: Queue ICP analysis for missing orgs (background, non-blocking)
         const orgsNeedingIcp = missingIcp
         if (orgsNeedingIcp.length > 0) {
-            console.log(`[Onboarding] Queuing ICP analysis for ${orgsNeedingIcp.length} orgs`)
+            logger.log(`[Onboarding] Queuing ICP analysis for ${orgsNeedingIcp.length} orgs`)
             // Fire and forget - don't block onboarding
             queueIcpAnalysis(orgsNeedingIcp, privyDid).catch(err => {
-                console.error('[Onboarding] Background ICP analysis error:', err)
+                logger.error('[Onboarding] Background ICP analysis error:', err)
             })
         }
 
@@ -217,11 +223,11 @@ async function runAnalysis(
         }
 
         await updateJob(jobId, 'complete', 'done', 100, result)
-        console.log(`[Onboarding] Analysis complete for @${normalizedUsername}, job ${jobId} marked complete`)
-        console.log(`[Onboarding] Orgs found: works_at=${works_at.length}, worked_at=${worked_at.length}, member_of=${member_of.length}`)
+        logger.log(`[Onboarding] Analysis complete for @${normalizedUsername}, job ${jobId} marked complete`)
+        logger.log(`[Onboarding] Orgs found: works_at=${works_at.length}, worked_at=${worked_at.length}, member_of=${member_of.length}`)
 
     } catch (error: any) {
-        console.error(`[Onboarding] Analysis error:`, error)
+        logger.error(`[Onboarding] Analysis error:`, error)
         const job = await analysisJobs.get(jobId)
         if (job) {
             job.status = 'error'
@@ -246,7 +252,7 @@ async function updateJob(
         job.progress = progress
         if (result) job.result = result
         await analysisJobs.set(jobId, job)
-        console.log(`[Onboarding] Job ${jobId} updated: ${status} - ${step} (${progress}%)`)
+        logger.log(`[Onboarding] Job ${jobId} updated: ${status} - ${step} (${progress}%)`)
     }
 }
 
@@ -328,14 +334,14 @@ async function fetchIcpRelationships(
                 })
                 .map((status: any) => status.orgName)
 
-            console.log(`[Onboarding] ICP check: ${orgStatuses.length} orgs, ${result.missingIcp.length} need analysis`)
+            logger.log(`[Onboarding] ICP check: ${orgStatuses.length} orgs, ${result.missingIcp.length} need analysis`)
         } else {
             // If query fails, assume all orgs need ICP
             result.missingIcp = orgScreenNames
         }
 
     } catch (error) {
-        console.error('[Onboarding] Error fetching ICP relationships:', error)
+        logger.error('[Onboarding] Error fetching ICP relationships:', error)
         // On error, assume all orgs need ICP analysis
         result.missingIcp = orgScreenNames
     }
@@ -346,7 +352,7 @@ async function fetchIcpRelationships(
 async function queueIcpAnalysis(orgScreenNames: string[], requesterPrivyDid: string) {
     const analyzeOrg = async (screenName: string) => {
         try {
-            console.log(`[Onboarding] Starting background ICP analysis for @${screenName}`)
+            logger.log(`[Onboarding] Starting background ICP analysis for @${screenName}`)
 
             const { createStructuredICPAnalysis, ICPAnalysisConfig } = await import('@/lib/grok')
             const { processICPRelationships } = await import('@/services')
@@ -365,9 +371,9 @@ async function queueIcpAnalysis(orgScreenNames: string[], requesterPrivyDid: str
                 })
             }
 
-            console.log(`[Onboarding] Completed background ICP analysis for @${screenName}`)
+            logger.log(`[Onboarding] Completed background ICP analysis for @${screenName}`)
         } catch (error) {
-            console.error(`[Onboarding] Background ICP analysis failed for @${screenName}:`, error)
+            logger.error(`[Onboarding] Background ICP analysis failed for @${screenName}:`, error)
         }
     }
 
@@ -404,7 +410,7 @@ async function updateOnboardingStatus(
 
     if (records.length > 0 && records[0].twitterUserId) {
         // Twitter user exists! Merge Privy data onto it
-        console.log(`[Onboarding] Linking Privy ${privyDid} to existing Twitter user ${records[0].twitterUserId}`)
+        logger.log(`[Onboarding] Linking Privy ${privyDid} to existing Twitter user ${records[0].twitterUserId}`)
 
         const mergeQuery = `
             // Update the Twitter user with Privy data
@@ -443,7 +449,7 @@ async function updateOnboardingStatus(
             stripeCustomerId: records[0].stripeCustomerId
         })
 
-        console.log(`[Onboarding] Successfully merged Privy user into Twitter user for @${twitterUsername}`)
+        logger.log(`[Onboarding] Successfully merged Privy user into Twitter user for @${twitterUsername}`)
     } else {
         // No separate Twitter user exists, update the Privy user directly
         const query = `

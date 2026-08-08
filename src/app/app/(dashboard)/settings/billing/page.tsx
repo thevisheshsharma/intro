@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePrivy } from '@privy-io/react-auth'
 import { useSubscription } from '@/lib/hooks/useSubscription'
 import { PLAN_NAMES, PLAN_DESCRIPTIONS, PLAN_FEATURES } from '@/lib/features'
@@ -20,9 +20,19 @@ import Link from 'next/link'
 
 export default function BillingPage() {
   const { getAccessToken } = usePrivy()
-  const { subscription, isLoading, isTrialing, isActive, trialDaysLeft } = useSubscription()
+  const { subscription, isLoading, isTrialing, isActive, trialDaysLeft, refetch } = useSubscription()
   const [portalLoading, setPortalLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [checkoutStarted, setCheckoutStarted] = useState(false)
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('checkout') !== 'trial-started') return
+
+    setCheckoutStarted(true)
+    void refetch()
+    const refreshTimer = window.setTimeout(() => void refetch(), 1500)
+    return () => window.clearTimeout(refreshTimer)
+  }, [refetch])
 
   const handleManageBilling = async () => {
     try {
@@ -58,8 +68,10 @@ export default function BillingPage() {
     )
   }
 
-  const planName = subscription?.plan ? PLAN_NAMES[subscription.plan] : 'Free'
-  const planDescription = subscription?.plan ? PLAN_DESCRIPTIONS[subscription.plan] : ''
+  const planName = subscription?.plan ? PLAN_NAMES[subscription.plan] : 'Explorer'
+  const planDescription = subscription?.plan
+    ? PLAN_DESCRIPTIONS[subscription.plan]
+    : 'Your limited personalized preview and saved network context'
   const features = subscription?.plan ? PLAN_FEATURES[subscription.plan] : null
 
   return (
@@ -76,6 +88,19 @@ export default function BillingPage() {
           <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
             <p className="text-red-800">{error}</p>
+          </div>
+        )}
+
+        {checkoutStarted && (
+          <div className="mb-6 rounded-xl border border-green-200 bg-green-50 p-4 text-green-900">
+            <p className="font-medium">
+              {isTrialing ? 'Your 14-day Founder trial has started.' : 'Stripe checkout is complete.'}
+            </p>
+            <p className="mt-1 text-sm text-green-800">
+              {isTrialing
+                ? 'You can manage or cancel it from this page at any time.'
+                : 'We are confirming the subscription. Your trial details will appear here shortly.'}
+            </p>
           </div>
         )}
 
@@ -102,7 +127,9 @@ export default function BillingPage() {
                     : `${trialDaysLeft} days left in your trial`}
                 </p>
                 <p className="text-amber-700 text-sm">
-                  Upgrade to continue using all features after your trial ends.
+                  {subscription?.trialEndsAt
+                    ? `Your plan renews on ${new Date(subscription.trialEndsAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} unless you cancel before then.`
+                    : 'Cancel before the trial ends and you will not be charged.'}
                 </p>
               </div>
             </div>
@@ -133,10 +160,10 @@ export default function BillingPage() {
             <Link href="/pricing">
               <Button variant="brand" className="rounded-full">
                 <Crown className="w-4 h-4 mr-2" />
-                {isActive && !isTrialing ? 'Change Plan' : 'Upgrade Plan'}
+                {isActive && !isTrialing ? 'Change Plan' : 'View Plans'}
               </Button>
             </Link>
-            {subscription?.stripeCustomerId && (
+            {subscription?.stripeCustomerId && subscription.plan && (
               <Button
                 variant="outline"
                 className="rounded-full"
@@ -151,7 +178,7 @@ export default function BillingPage() {
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4 mr-2" />
-                    Manage Billing
+                    {isTrialing ? 'Manage Trial' : 'Manage Billing'}
                     <ExternalLink className="w-3 h-3 ml-1" />
                   </>
                 )}
@@ -168,7 +195,7 @@ export default function BillingPage() {
               <div className="flex items-center justify-between py-3 border-b border-gray-100">
                 <div className="flex items-center gap-3">
                   <Calendar className="w-5 h-5 text-gray-400" />
-                  <span className="text-gray-600">Next billing date</span>
+                  <span className="text-gray-600">{isTrialing ? 'First charge date' : 'Next billing date'}</span>
                 </div>
                 <span className="text-gray-900 font-medium">
                   {new Date(subscription.currentPeriodEnd).toLocaleDateString('en-US', {
@@ -182,7 +209,9 @@ export default function BillingPage() {
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
                   <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
                   <p className="text-amber-800">
-                    Your subscription will be canceled at the end of the current billing period.
+                    {isTrialing
+                      ? 'Your trial is canceled. You will keep access until it ends and will not be charged.'
+                      : 'Your subscription will be canceled at the end of the current billing period.'}
                   </p>
                 </div>
               )}

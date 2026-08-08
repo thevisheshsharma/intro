@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { usePrivy } from '@privy-io/react-auth'
 import { motion } from 'framer-motion'
 import {
     ArrowRight,
@@ -13,10 +14,14 @@ import {
     History,
     Users2,
     HandCoins,
-    Handshake
+    Handshake,
+    CreditCard,
+    Loader2,
+    AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BerriLoader } from '@/components/ui/BerriLoader'
+import { getTrialEndDate, SELF_SERVE_PLANS, STRIPE_TRIAL_DAYS } from '@/lib/commercial'
 
 interface OrgInfo {
     screenName: string
@@ -47,26 +52,54 @@ interface OnboardingResult {
 
 export default function OnboardingCompletePage() {
     const router = useRouter()
+    const { getAccessToken } = usePrivy()
     const [result, setResult] = useState<OnboardingResult | null>(null)
     const [loading, setLoading] = useState(true)
+    const [checkoutLoading, setCheckoutLoading] = useState(false)
+    const [checkoutError, setCheckoutError] = useState<string | null>(null)
 
     useEffect(() => {
-        // Ensure onboarding-complete cookie is set when reaching this page
-        document.cookie = 'onboarding-complete=true; path=/; max-age=31536000'
-
         // Get result from session storage (set by onboarding flow)
         const storedResult = sessionStorage.getItem('onboarding-result')
         if (storedResult) {
             setResult(JSON.parse(storedResult))
-            sessionStorage.removeItem('onboarding-result')
+        }
+        if (new URLSearchParams(window.location.search).get('checkout') === 'canceled') {
+            setCheckoutError('Checkout was canceled. Your Explorer preview is still available.')
         }
         setLoading(false)
     }, [])
 
     const handleGoToDashboard = () => {
-        // Ensure cookie is set before navigating
-        document.cookie = 'onboarding-complete=true; path=/; max-age=31536000'
         router.push('/app')
+    }
+
+    const handleStartTrial = async () => {
+        try {
+            setCheckoutLoading(true)
+            setCheckoutError(null)
+            const token = await getAccessToken()
+            const response = await fetch('/api/subscription/checkout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    plan: 'founder',
+                    interval: 'monthly',
+                    source: 'onboarding',
+                }),
+            })
+            const data = await response.json()
+            if (!response.ok) {
+                throw new Error(data.error || 'Could not start checkout')
+            }
+            window.location.assign(data.url)
+        } catch (error) {
+            setCheckoutError(error instanceof Error ? error.message : 'Could not start checkout')
+            setCheckoutLoading(false)
+        }
     }
 
     if (loading) {
@@ -132,7 +165,7 @@ export default function OnboardingCompletePage() {
                         transition={{ delay: 0.3 }}
                         className="text-3xl font-heading font-bold text-gray-900 mb-2"
                     >
-                        Welcome to Berri! 🍇
+                        Your Berri preview is ready
                     </motion.h1>
 
                     <motion.p
@@ -253,22 +286,68 @@ export default function OnboardingCompletePage() {
                     </motion.div>
                 )}
 
-                {/* CTA */}
+                {/* Trial conversion */}
                 <motion.div
                     initial={{ y: 20, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     transition={{ delay: 0.8 }}
-                    className="text-center"
+                    className="rounded-3xl bg-gray-950 p-7 text-white shadow-xl shadow-gray-900/10"
                 >
-                    <Button
-                        onClick={handleGoToDashboard}
-                        variant="brand"
-                        size="lg"
-                        className="rounded-full h-14 px-8 text-base font-medium shadow-lg shadow-berri-raspberry/20"
-                    >
-                        Start Exploring
-                        <ArrowRight className="w-5 h-5 ml-2" />
-                    </Button>
+                    <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+                        <div className="max-w-md">
+                            <p className="text-sm font-semibold text-berri-coral">Founder plan</p>
+                            <h2 className="mt-2 text-2xl font-heading font-bold text-white">
+                                Put your network to work for {STRIPE_TRIAL_DAYS} days
+                            </h2>
+                            <p className="mt-3 text-sm leading-6 text-gray-300">
+                                Full individual access with no usage meter. Add a payment method now;
+                                you will pay $0 today, then ${SELF_SERVE_PLANS.founder.monthlyPrice}/month on{' '}
+                                {getTrialEndDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                                {' '}unless you cancel.
+                            </p>
+                        </div>
+                        <div className="shrink-0 text-left sm:text-right">
+                            <p className="text-3xl font-heading font-bold tabular-nums">
+                                ${SELF_SERVE_PLANS.founder.monthlyPrice}<span className="text-sm font-medium text-gray-400">/month</span>
+                            </p>
+                            <p className="mt-1 text-xs text-gray-400">after the free trial</p>
+                        </div>
+                    </div>
+
+                    {checkoutError && (
+                        <div className="mt-5 flex items-start gap-2 rounded-xl bg-red-500/10 p-3 text-sm text-red-100">
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <span>{checkoutError}</span>
+                        </div>
+                    )}
+
+                    <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <Button
+                            onClick={handleStartTrial}
+                            disabled={checkoutLoading}
+                            variant="brand"
+                            size="lg"
+                            className="h-14 rounded-full px-7"
+                        >
+                            {checkoutLoading ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                                <CreditCard className="mr-2 h-4 w-4" />
+                            )}
+                            Start my {STRIPE_TRIAL_DAYS}-day trial
+                        </Button>
+                        <button
+                            type="button"
+                            onClick={handleGoToDashboard}
+                            className="inline-flex min-h-11 items-center justify-center px-4 text-sm font-medium text-gray-300 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-berri-coral"
+                        >
+                            Continue with limited Explorer
+                            <ArrowRight className="ml-2 h-4 w-4" />
+                        </button>
+                    </div>
+                    <p className="mt-4 text-xs text-gray-500">
+                        Cancel during the trial from Settings → Billing. You will keep access until the trial ends.
+                    </p>
                 </motion.div>
             </motion.div>
         </div>

@@ -32,7 +32,7 @@ interface UserStats {
 }
 
 export default function TwitterPage() {
-  const { user, ready, authenticated } = usePrivy()
+  const { user, ready, authenticated, getAccessToken } = usePrivy()
   const [searchUsername, setSearchUsername] = useState('')
   const [followingsLoading, setFollowingsLoading] = useState(false)
   const [followings, setFollowings] = useState<any[]>([])
@@ -62,7 +62,9 @@ export default function TwitterPage() {
   const fetchUserStats = async (username: string) => {
     try {
       // Use the existing lookupTwitterUser helper
-      const data = await lookupTwitterUser(username)
+      const token = await getAccessToken()
+      if (!token) throw new Error('Authentication required')
+      const data = await lookupTwitterUser(username, token)
       if (data) {
         setUserStats({
           followers: data.followers_count || 0,
@@ -116,12 +118,17 @@ export default function TwitterPage() {
 
     try {
       const username = searchUsername.replace('@', '')
-      const userData = await lookupTwitterUser(username)
+      const token = await getAccessToken()
+      if (!token) throw new Error('Authentication required')
+      const userData = await lookupTwitterUser(username, token)
       setSearchedProfile(transformTwitterUser(userData))
 
       const response = await fetch('/api/find-mutuals', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           loggedInUserUsername: twitterUsername,
           searchUsername: username
@@ -148,7 +155,7 @@ export default function TwitterPage() {
     } finally {
       setFollowingsLoading(false)
     }
-  }, [searchUsername, twitterUsername])
+  }, [searchUsername, twitterUsername, getAccessToken])
 
   const focusSearch = () => {
     searchInputRef.current?.focus()

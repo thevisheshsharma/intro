@@ -8,12 +8,12 @@ import { useRouter, usePathname } from 'next/navigation'
  * AuthRedirectHandler - Handles post-login redirects for authenticated users
  *
  * When a user is authenticated on a marketing page, this component will:
- * 1. Check if onboarding is complete (via cookie and server-side check)
+ * 1. Check server-authoritative onboarding state with a Privy bearer token
  * 2. Redirect to /onboarding if not complete
  * 3. Redirect to /app if onboarding is complete
  */
 export function AuthRedirectHandler() {
-  const { ready, authenticated, user } = usePrivy()
+  const { ready, authenticated, user, getAccessToken } = usePrivy()
   const router = useRouter()
   const pathname = usePathname()
 
@@ -21,7 +21,9 @@ export function AuthRedirectHandler() {
     if (!ready || !authenticated || !user) return
 
     // Marketing routes that should redirect to app when authenticated
-    const marketingRoutes = ['/', '/pricing', '/platform', '/use-cases', '/resources']
+    // Authenticated users must be able to remain on pricing to deliberately
+    // start or change a subscription. Other marketing pages still redirect.
+    const marketingRoutes = ['/', '/platform', '/use-cases', '/resources']
     const isMarketingPage = marketingRoutes.some(route =>
       pathname === route || pathname.startsWith(route + '/')
     )
@@ -33,28 +35,13 @@ export function AuthRedirectHandler() {
 
     // Only redirect from marketing pages
     if (isMarketingPage) {
-      // Check both cookie and attempt to verify with server
-      const onboardingComplete = document.cookie.includes('onboarding-complete=true')
-
-      if (onboardingComplete) {
-        router.push('/app')
-      } else {
-        // Check with server to be sure
-        checkOnboardingStatus().then(isComplete => {
-          if (isComplete) {
-            // Set cookie if server says complete but cookie missing
-            document.cookie = 'onboarding-complete=true; path=/; max-age=31536000; SameSite=Lax'
-            router.push('/app')
-          } else {
-            router.push('/onboarding')
-          }
-        }).catch(() => {
-          // On error, fall back to cookie check
-          router.push(onboardingComplete ? '/app' : '/onboarding')
-        })
-      }
+      checkOnboardingStatus(getAccessToken).then(isComplete => {
+        router.push(isComplete ? '/app' : '/onboarding')
+      }).catch(() => {
+        router.push('/onboarding')
+      })
     }
-  }, [ready, authenticated, user, pathname, router])
+  }, [ready, authenticated, user, pathname, router, getAccessToken])
 
   return null
 }
@@ -62,10 +49,14 @@ export function AuthRedirectHandler() {
 /**
  * Check onboarding status from server
  */
-async function checkOnboardingStatus(): Promise<boolean> {
+async function checkOnboardingStatus(
+  getAccessToken: () => Promise<string | null>
+): Promise<boolean> {
   try {
+    const token = await getAccessToken()
+    if (!token) return false
     const response = await fetch('/api/user/session', {
-      credentials: 'include'
+      headers: { 'Authorization': `Bearer ${token}` },
     })
     if (response.ok) {
       const data = await response.json()

@@ -9,7 +9,7 @@
 
 ## Current stack
 
-- Next.js 13 App Router, React 18, TypeScript strict mode, Tailwind CSS, Radix UI, and Framer Motion.
+- Next.js 15 App Router, React 19, TypeScript strict mode, Tailwind CSS, Radix UI, and Framer Motion.
 - Privy for authentication; Stripe for subscriptions and billing.
 - Neo4j for users, organizations, relationships, subscriptions, and onboarding-job state.
 - SocialAPI for X/Twitter data and xAI/Grok through the AI SDK for classification and analysis.
@@ -35,7 +35,7 @@
 - Type-check: `pnpm type-check`
 - Build: `pnpm build`
 - Start production build: `pnpm start`
-- Tests: no test command exists yet. Follow `docs/TESTING.md` when establishing the test stack; never claim tests passed until a real command runs.
+- Tests: `pnpm test`, `pnpm test:coverage`, and `pnpm test:e2e`. Never claim a layer passed until its real command runs.
 - The existing `db:migrate` script is stale and must not be used until an ADR defines the migration strategy.
 
 ## Environment and secrets
@@ -73,7 +73,7 @@
 - Work from an issue or written task with acceptance criteria.
 - Use a focused branch (`codex/`, `fix/`, `feat/`, or `docs/`) and keep unrelated changes out.
 - For auth, billing, data-model, background-job, dependency, or cross-cutting work: inspect first and present a plan before editing.
-- Add or update tests for changed behavior once the test harness exists. Until then, document exact manual verification.
+- Add or update tests for changed behavior. Document exact manual verification for provider-backed journeys that the current harness cannot execute.
 - Run the relevant lint, type-check, tests, and build checks before requesting review.
 - Review the diff for secrets, PII logging, authorization regressions, and accidental product-copy changes.
 - Use a Vercel preview for browser QA. Production deployment requires explicit authorization.
@@ -90,9 +90,8 @@
 ## Current release blockers
 
 - Historical secrets require verified rotation and coordinated history cleanup.
-- Several cost-bearing or mutating APIs lack server authentication, entitlement checks, and rate limits.
-- The pinned Next.js version and transitive dependencies have significant advisories.
-- Automated tests and CI are absent.
-- Signup/onboarding integration contains broken or non-authoritative transitions.
+- New Neo4j uniqueness constraints require a verified rollout before rate limits and webhook idempotency are concurrency-safe in production.
+- Durable onboarding jobs and provider-backed API/browser tests are absent.
+- Large feature routes and the AppUser/Person/Organization identity model still require bounded refactors and an ADR.
 
 Do not quietly work around these blockers. Surface them when they affect a task.

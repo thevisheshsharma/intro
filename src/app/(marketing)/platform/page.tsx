@@ -30,9 +30,9 @@ const workflowSteps: WorkflowStep[] = [
         icon: Building2,
         accent: 'coral',
         stats: [
-            { value: '50K+', label: 'Companies Tracked' },
-            { value: '200+', label: 'Data Points' },
-            { value: '98%', label: 'Accuracy' },
+            { value: 'Live', label: 'Company Context' },
+            { value: 'AI', label: 'Structured Research' },
+            { value: 'X', label: 'Social Signals' },
         ],
         features: [
             { icon: DollarSign, title: 'Funding Intelligence', description: 'Complete funding history from Pre-Seed to Series C+. See investors, valuations, and round details.' },
@@ -50,9 +50,9 @@ const workflowSteps: WorkflowStep[] = [
         icon: Users,
         accent: 'amber',
         stats: [
-            { value: '1.4M+', label: 'Profiles' },
-            { value: '85%', label: 'Email Coverage' },
-            { value: '50+', label: 'Filters' },
+            { value: 'People', label: 'Profile Intelligence' },
+            { value: 'Roles', label: 'Relevant Context' },
+            { value: 'Signals', label: 'Relationship Data' },
         ],
         features: [
             { icon: Filter, title: 'Advanced Filtering', description: 'Combine 20+ filter types with AND/OR logic for precise targeting by role, event, or investment activity.' },
@@ -70,9 +70,9 @@ const workflowSteps: WorkflowStep[] = [
         icon: Route,
         accent: 'raspberry',
         stats: [
-            { value: '12M+', label: 'Connections Mapped' },
-            { value: '3x', label: 'Response Rate' },
-            { value: '94%', label: 'Path Accuracy' },
+            { value: 'Warm', label: 'Connection Paths' },
+            { value: 'Multi-hop', label: 'Network Search' },
+            { value: 'Context', label: 'Path Explanations' },
         ],
         features: [
             { icon: Route, title: 'Multi-Hop Path Discovery', description: 'Automatically map 2nd and 3rd degree connections. Find the warmest path to any decision maker.' },
@@ -90,9 +90,9 @@ const workflowSteps: WorkflowStep[] = [
         icon: Send,
         accent: 'gold',
         stats: [
-            { value: '5x', label: 'Faster Outreach' },
-            { value: '92%', label: 'Personalization' },
-            { value: '1-Click', label: 'Send via X' },
+            { value: 'AI', label: 'Draft Assistance' },
+            { value: 'Context', label: 'Personalization' },
+            { value: 'Review', label: 'Human Approval' },
         ],
         features: [
             { icon: Sparkles, title: 'AI-Powered Drafts', description: 'Our AI creates personalized messages using context from Company Intel, People Intel, and your warm path.' },
@@ -218,7 +218,7 @@ function WorkflowStepSection({ step, isEven }: { step: WorkflowStep; isEven: boo
                         {/* CTA Buttons */}
                         <div className="flex flex-wrap gap-4">
                             <Button variant="brandAction" size="lg" className="rounded-full" asChild>
-                                <Link href="/app/sign-up">
+                                <Link href="/sign-up">
                                     Get Started <ArrowUpRight className="w-4 h-4 ml-2" />
                                 </Link>
                             </Button>
@@ -340,8 +340,8 @@ export default function PlatformPage() {
                             className="flex flex-wrap justify-center gap-4"
                         >
                             <Button variant="brandAction" size="lg" className="rounded-full" asChild>
-                                <Link href="/app/sign-up">
-                                    Start Free Trial <ArrowUpRight className="w-4 h-4 ml-2" />
+                                <Link href="/sign-up">
+                                    See your network <ArrowUpRight className="w-4 h-4 ml-2" />
                                 </Link>
                             </Button>
                             <Button variant="brandOutline" size="lg" className="rounded-full" asChild>
@@ -422,7 +422,7 @@ export default function PlatformPage() {
                             <h3 className="text-xl font-heading font-bold mb-6 text-gray-500">Cold Outreach</h3>
                             <ul className="space-y-4">
                                 {[
-                                    '2-5% response rate',
+                                    'Unpredictable response',
                                     'Generic messaging',
                                     'No context or credibility',
                                     'Hours of manual research',
@@ -445,7 +445,7 @@ export default function PlatformPage() {
                             <h3 className="text-xl font-heading font-bold mb-6 text-berri-raspberry">With Berri</h3>
                             <ul className="space-y-4">
                                 {[
-                                    '40%+ response rate',
+                                    'Relationship-led outreach',
                                     'Personalized intros',
                                     'Built-in trust & context',
                                     'Instant path discovery',

@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logExternalServiceError, logParsingError } from '@/lib/error-utils'
+import { COST_BEARING_RATE_LIMITS, requireUserAccess } from '@/lib/security/api-access'
 
 export async function GET(request: NextRequest) {
+  const access = await requireUserAccess(request, {
+    feature: 'pathfinder',
+    rateLimit: COST_BEARING_RATE_LIMITS.socialProxy,
+  })
+  if (!access.ok) return access.response
+
   const { searchParams } = new URL(request.url)
   const username = searchParams.get('username')?.replace('@', '')
   const user_id = searchParams.get('user_id')
@@ -62,6 +69,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ users: allFollowers })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Failed to fetch Twitter data', details: error.toString() }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to fetch Twitter data' }, { status: 500 })
   }
 }

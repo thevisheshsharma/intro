@@ -87,7 +87,7 @@ export function invalidateUserCache(username: string): void {
   }
 
   if (count > 0) {
-    console.log(`🗑️ Cache invalidated ${count} entries for user ${username}`)
+    console.log(`Cache invalidated ${count} mutual-connection entries`)
   }
 }
 

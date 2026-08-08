@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { backfillScreenNameLower, deduplicateUsers, mergePrivyUsers } from '@/lib/neo4j'
+import { requireAdminAccess } from '@/lib/security/api-access'
 
 // POST /api/admin/cleanup-duplicates
 // This endpoint cleans up duplicate users in the Neo4j database
 export async function POST(request: NextRequest) {
     try {
-        // Check for admin authorization (simple secret check)
-        const authHeader = request.headers.get('x-admin-secret')
-        const adminSecret = process.env.ADMIN_SECRET
-
-        if (!adminSecret || authHeader !== adminSecret) {
-            console.log('❌ Unauthorized cleanup-duplicates request')
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        }
+        const unauthorized = requireAdminAccess(request)
+        if (unauthorized) return unauthorized
 
         console.log('🔧 Starting database cleanup...')
 
@@ -43,9 +38,9 @@ export async function POST(request: NextRequest) {
         })
 
     } catch (error: any) {
-        console.error('❌ Cleanup error:', error)
+        console.error('Database cleanup failed')
         return NextResponse.json(
-            { error: error.message || 'Internal server error' },
+            { error: 'Internal server error' },
             { status: 500 }
         )
     }

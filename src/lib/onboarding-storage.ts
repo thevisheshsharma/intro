@@ -2,6 +2,7 @@
 // Using a module-level Map that persists across imports
 
 export interface OnboardingJob {
+    ownerPrivyDid: string
     status: 'pending' | 'processing' | 'complete' | 'error'
     step: string
     progress: number
@@ -38,6 +39,9 @@ export interface OrgInfo {
 }
 
 import { runQuery } from './neo4j'
+import { createSafeRouteLogger } from './safe-logger'
+
+const logger = createSafeRouteLogger('onboarding-storage')
 
 // Global job storage - persists in Neo4j for serverless environments
 export const analysisJobs = {
@@ -55,11 +59,12 @@ export const analysisJobs = {
             const props = node?.properties || node
 
             if (!props || !props.status) {
-                console.warn(`[OnboardingStorage] Invalid job data for ${jobId}:`, props)
+                logger.warn(`[OnboardingStorage] Invalid job data for ${jobId}:`, props)
                 return undefined
             }
 
             return {
+                ownerPrivyDid: props.ownerPrivyDid,
                 status: props.status,
                 step: props.step,
                 progress: typeof props.progress === 'object' ? props.progress.low : props.progress,
@@ -68,7 +73,7 @@ export const analysisJobs = {
                 startedAt: new Date(props.startedAt)
             }
         } catch (error: any) {
-            console.error(`[OnboardingStorage] Error getting job ${jobId}:`, error.message)
+            logger.error(`[OnboardingStorage] Error getting job ${jobId}:`, error.message)
             return undefined
         }
     },
@@ -77,7 +82,8 @@ export const analysisJobs = {
         try {
             const query = `
                 MERGE (j:OnboardingJob {jobId: $jobId})
-                SET j.status = $status,
+                SET j.ownerPrivyDid = $ownerPrivyDid,
+                    j.status = $status,
                     j.step = $step,
                     j.progress = toInteger($progress),
                     j.error = $error,
@@ -87,6 +93,7 @@ export const analysisJobs = {
             `
             await runQuery(query, {
                 jobId,
+                ownerPrivyDid: job.ownerPrivyDid,
                 status: job.status,
                 step: job.step,
                 progress: job.progress,
@@ -94,9 +101,9 @@ export const analysisJobs = {
                 startedAt: job.startedAt.toISOString(),
                 result: job.result ? JSON.stringify(job.result) : null
             })
-            console.log(`[OnboardingStorage] Job ${jobId} updated: ${job.status} - ${job.step}`)
+            logger.log(`[OnboardingStorage] Job ${jobId} updated: ${job.status} - ${job.step}`)
         } catch (error: any) {
-            console.error(`[OnboardingStorage] Error setting job ${jobId}:`, error.message)
+            logger.error(`[OnboardingStorage] Error setting job ${jobId}:`, error.message)
             throw error // Re-throw to propagate to caller
         }
     },

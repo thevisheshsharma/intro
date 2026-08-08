@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { triggerManualSync } from '@/jobs/llama-sync'
+import { requireCronAccess } from '@/lib/security/api-access'
 
 /**
  * Cron job endpoint for automated protocol sync
@@ -8,16 +9,8 @@ import { triggerManualSync } from '@/jobs/llama-sync'
  */
 export async function GET(request: NextRequest) {
   try {
-    // Verify the request is authorized (optional - add auth token check)
-    const authToken = request.headers.get('authorization')
-    const expectedToken = process.env.CRON_SECRET || 'llama-sync-token'
-    
-    if (authToken !== `Bearer ${expectedToken}`) {
-      return NextResponse.json(
-        { error: 'Unauthorized' }, 
-        { status: 401 }
-      )
-    }
+    const unauthorized = requireCronAccess(request)
+    if (unauthorized) return unauthorized
     
     console.log('Automated Llama protocol sync triggered')
     
@@ -43,7 +36,7 @@ export async function GET(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('Error in automated protocol sync:', error)
+    console.error('Automated protocol sync failed')
     
     return NextResponse.json({
       success: false,

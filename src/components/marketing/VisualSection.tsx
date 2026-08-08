@@ -205,8 +205,8 @@ export default function VisualSection() {
                             {/* Live Stats */}
                             <div className="grid grid-cols-3 gap-4 mb-8">
                                 {[
-                                    { value: '1.4M+', label: 'People & Orgs' },
-                                    { value: '12M+', label: 'Connections' },
+                                    { value: 'People', label: 'Profile Context' },
+                                    { value: 'Paths', label: 'Connections' },
                                     { value: '<100ms', label: 'Path Time' },
                                 ].map((stat, i) => (
                                     <div key={i} className="glass-strong rounded-xl p-4 depth-sm hover-glow-amber">

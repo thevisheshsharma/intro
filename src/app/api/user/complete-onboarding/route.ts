@@ -26,11 +26,10 @@ export async function POST(request: NextRequest) {
       message: 'Onboarding marked as complete'
     })
   } catch (error: any) {
-    console.error('[Onboarding Complete] Error:', error)
+    console.error('[Onboarding Complete] Update failed')
     return NextResponse.json(
       {
-        error: 'Failed to complete onboarding',
-        details: error.message
+        error: 'Failed to complete onboarding'
       },
       { status: 500 }
     )

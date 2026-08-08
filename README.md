@@ -2,7 +2,7 @@
 
 Berri is a Next.js application for Web3 relationship intelligence. It combines X/Twitter network data, graph analysis, and AI-assisted classification to help users research people and organizations and find potential warm introduction paths.
 
-The repository is currently a **pre-production beta**. A live deployment exists, but security hardening, automated tests, CI, and several product-flow repairs are required before it should be considered production-ready.
+The repository is currently a **pre-production beta**. A live deployment exists, but credential rotation, durable jobs, provider-backed tests, and operational rollout work are still required before it should be considered production-ready.
 
 ## Current capabilities
 
@@ -21,7 +21,7 @@ The latest clean-checkout verification is recorded in [`docs/BASELINE.md`](docs/
 
 ## Stack
 
-- Next.js 13 App Router, React 18, and strict TypeScript
+- Next.js 15 App Router, React 19, and strict TypeScript
 - Tailwind CSS, Radix UI, Framer Motion, and Lucide
 - Privy authentication
 - Neo4j
@@ -77,10 +77,13 @@ Open `http://localhost:3000`.
 ```bash
 pnpm lint
 pnpm type-check
+pnpm test
+pnpm test:coverage
+pnpm test:e2e
 pnpm build
 ```
 
-There is currently no automated test command. The planned harness and required coverage are documented in [`docs/TESTING.md`](docs/TESTING.md). Do not treat lint and type-check as substitutes for tests.
+Vitest covers security primitives and the API authorization matrix. Playwright is configured, but authenticated provider-backed journeys still require preview credentials and fixtures. See [`docs/TESTING.md`](docs/TESTING.md).
 
 The existing `db:migrate` script is stale and references a missing PostgreSQL migrations directory even though the current application uses Neo4j. Do not run it until a migration ADR replaces it.
 
@@ -114,10 +117,10 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the review checklist and [`docs/DEP
 ## Immediate roadmap
 
 1. Rotate historically exposed credentials and coordinate history cleanup.
-2. Upgrade vulnerable framework/dependency versions.
-3. Centralize API authentication, entitlement, quota, and rate limiting.
-4. Repair signup and server-authoritative onboarding.
-5. Add automated tests and CI.
+2. Roll out and verify the Neo4j rate-limit and Stripe webhook constraints.
+3. Move onboarding work to a durable job platform.
+4. Add provider-backed API integration and authenticated browser tests.
+5. Split the large intelligence routes and define the graph identity invariant in an ADR.
 6. Refactor large feature routes/services one tested vertical slice at a time.
 
 New product features should wait until the security and reproducibility baseline is established.

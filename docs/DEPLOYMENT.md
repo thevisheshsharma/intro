@@ -4,7 +4,7 @@
 
 The application is deployed through Vercel. `vercel.json` currently schedules only `/api/cron/expire-trials` at midnight daily.
 
-The repository does not yet define CI, an environment contract, preview smoke tests, monitoring, a promotion policy, or a rollback runbook. This document describes the required operating model, not the current maturity.
+The repository now defines CI for frozen install, lint, type-check, unit/security coverage, production build, dependency audit, and secret scanning. Preview smoke tests, monitoring, a promotion policy, and a rollback runbook remain incomplete. This document describes the required operating model and calls out remaining gaps.
 
 ## Intended environments
 

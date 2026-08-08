@@ -329,7 +329,7 @@ export default function CTA() {
                                     viewport={{ once: true }}
                                     transition={{ duration: 0.4, delay: 0.1, ease: [0.25, 0.1, 0.25, 1] }}
                                 >
-                                    Join teams who close deals faster through warm, trusted introductions.
+                                    Connect X, see a personalized network preview, and start a paid trial only when you are ready.
                                 </motion.p>
 
                                 {/* Benefits */}
@@ -340,7 +340,7 @@ export default function CTA() {
                                     viewport={{ once: true }}
                                     transition={{ duration: 0.4, delay: 0.15, ease: [0.25, 0.1, 0.25, 1] }}
                                 >
-                                    {['Free 14-day trial', 'No credit card required', 'Cancel anytime'].map((benefit) => (
+                                    {['Free personalized preview', 'No card to explore', 'Trial starts when you choose'].map((benefit) => (
                                         <div key={benefit} className="flex items-center gap-2 text-gray-300 text-sm">
                                             <div className="w-4 h-4 rounded-full bg-berri-green/20 flex items-center justify-center">
                                                 <Check className="w-2.5 h-2.5 text-berri-green" />
@@ -364,7 +364,7 @@ export default function CTA() {
                                         asChild
                                     >
                                         <Link href="/sign-up" className="flex items-center gap-2">
-                                            Get Started
+                                            See your network
                                             <ArrowUpRight className="w-4 h-4" />
                                         </Link>
                                     </Button>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { triggerManualSync, type SyncStats } from '@/jobs/llama-sync'
+import { requireAdminAccess } from '@/lib/security/api-access'
 
 interface SyncProtocolsResponse {
   success: boolean
@@ -9,6 +10,9 @@ interface SyncProtocolsResponse {
 }
 
 export async function POST(request: NextRequest) {
+  const unauthorized = requireAdminAccess(request)
+  if (unauthorized) return unauthorized
+
   try {
     console.log('Manual Llama protocol sync triggered via API')
     
@@ -34,7 +38,7 @@ export async function POST(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('Error in manual protocol sync:', error)
+    console.error('Manual protocol sync failed')
     
     const response: SyncProtocolsResponse = {
       success: false,
@@ -47,6 +51,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const unauthorized = requireAdminAccess(request)
+  if (unauthorized) return unauthorized
+
   return NextResponse.json({
     endpoint: 'Llama Protocol Sync',
     description: 'Manually trigger the Llama protocol sync job',

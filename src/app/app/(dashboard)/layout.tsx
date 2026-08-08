@@ -16,11 +16,13 @@ export default function DashboardLayout({
   const { user, ready, authenticated } = usePrivy()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
-  // Auto-sync followers on login (non-blocking background task)
-  useAutoSyncFollowers()
-
   // Get subscription data from cached session (shared with TrialBanner)
   const { subscription } = useUserSession()
+
+  // Explorer remains read-only after its preview; only paid or Stripe-trialing
+  // accounts run the cost-bearing follower refresh.
+  const hasPaidAccess = subscription?.status === 'active' || subscription?.status === 'trialing'
+  useAutoSyncFollowers(hasPaidAccess)
 
   // Get display name from Privy user
   const getDisplayName = useCallback(() => {

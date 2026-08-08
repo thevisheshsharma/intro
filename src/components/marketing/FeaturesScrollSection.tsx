@@ -483,7 +483,7 @@ function StickyImage({ activeIndex }: { activeIndex: number }) {
                                         <span className="text-xs font-semibold text-gray-700">Strong Path</span>
                                     </div>
                                     <div className="w-px h-4 bg-gray-200" />
-                                    <span className="text-xs text-green-600 font-bold">92% intro rate</span>
+                                    <span className="text-xs text-green-600 font-bold">Warm connection</span>
                                 </div>
                             </motion.div>
                         </div>

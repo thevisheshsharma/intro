@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyPrivyToken } from '@/lib/privy'
 import {
   getSubscription,
-  createUserWithTrial,
+  ensureUserAccount,
   isSubscriptionActive,
   getTrialDaysLeft,
 } from '@/lib/subscription'
@@ -20,9 +20,10 @@ export async function GET(request: NextRequest) {
   try {
     let subscription = await getSubscription(userId)
 
-    // If no subscription exists, create one with trial
+    // Ensure the account exists without starting a trial. Stripe Checkout is
+    // the only place that creates a paid-plan trial.
     if (!subscription) {
-      subscription = await createUserWithTrial(userId)
+      subscription = await ensureUserAccount(userId)
     }
 
     return NextResponse.json({
@@ -37,9 +38,9 @@ export async function GET(request: NextRequest) {
       trialDaysLeft: getTrialDaysLeft(subscription),
     })
   } catch (error: any) {
-    console.error('Error fetching subscription:', error)
+    console.error('Subscription lookup failed')
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch subscription' },
+      { error: 'Failed to fetch subscription' },
       { status: 500 }
     )
   }

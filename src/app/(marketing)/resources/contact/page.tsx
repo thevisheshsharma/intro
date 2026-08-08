@@ -9,22 +9,22 @@ import Link from 'next/link'
 const contactFaqs = [
     {
         question: 'How quickly can I get started?',
-        answer: 'You can sign up and start using Berri in under 5 minutes. Connect your socials, and we\'ll build your relationship graph automatically.',
+        answer: 'Create an account, connect X, and Berri will build a personalized network preview before you choose a paid trial.',
         icon: Zap
     },
     {
         question: 'Do you offer a free trial?',
-        answer: 'Yes! All paid plans include a 10-day free trial. No credit card required to start.',
+        answer: 'Yes. After your free preview, you can deliberately start a 14-day paid-plan trial. Stripe collects a payment method and shows the exact renewal date before you confirm.',
         icon: Clock
     },
     {
         question: 'What integrations do you support?',
-        answer: 'We integrate with Twitter, LinkedIn, Telegram, and major CRMs including Salesforce, HubSpot, and Attio.',
+        answer: 'X is the verified connection used by the current onboarding flow. CRM Sync and broader integrations are planned, but are not part of self-serve checkout today.',
         icon: MessageSquare
     },
     {
         question: 'Is my data secure?',
-        answer: 'Absolutely. We\'re SOC 2 compliant and never share your network data with other users. Your connections stay private.',
+        answer: 'Berri uses Privy for authentication and Stripe for payment collection. The product is a pre-production beta and is not currently represented as SOC 2 certified.',
         icon: Shield
     }
 ]

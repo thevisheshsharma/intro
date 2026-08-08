@@ -98,7 +98,7 @@
 
 /* Font Classes */
 .font-heading {
-  font-family: var(--font-jakarta), sans-serif;
+  font-family: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Body text with better contrast */

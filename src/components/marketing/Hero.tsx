@@ -183,7 +183,7 @@ export default function Hero() {
                                 asChild
                             >
                                 <Link href="/sign-up" className="flex items-center">
-                                    <span>Start Free Trial</span>
+                                    <span>See your network</span>
                                     <ArrowUpRight className="w-5 h-5" />
                                 </Link>
                             </Button>
@@ -229,7 +229,7 @@ export default function Hero() {
                                 ))}
                             </div>
                             <div className="text-sm text-gray-700">
-                                <span className="font-semibold text-gray-900">1,200+</span> people connected this month
+                                Map the relationships already inside your network
                             </div>
                         </motion.div>
                     </div>

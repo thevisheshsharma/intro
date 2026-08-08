@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { triggerManualSync, type SyncStats } from '@/jobs/llama-sync'
+import { requireAdminAccess } from '@/lib/security/api-access'
 
 interface SyncProtocolsResponse {
     success: boolean
@@ -13,14 +14,8 @@ interface SyncProtocolsResponse {
 // Admin endpoint to trigger DefiLlama protocol sync with authorization
 export async function POST(request: NextRequest) {
     try {
-        // Check for admin authorization (simple secret check)
-        const authHeader = request.headers.get('x-admin-secret')
-        const adminSecret = process.env.ADMIN_SECRET
-
-        if (!adminSecret || authHeader !== adminSecret) {
-            console.log('❌ Unauthorized llama-sync admin request')
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        }
+        const unauthorized = requireAdminAccess(request)
+        if (unauthorized) return unauthorized
 
         console.log('🦙 Manual Llama protocol sync triggered via admin API')
 
@@ -47,7 +42,7 @@ export async function POST(request: NextRequest) {
         })
 
     } catch (error) {
-        console.error('❌ Error in admin protocol sync:', error)
+        console.error('Admin protocol sync failed')
 
         const response: SyncProtocolsResponse = {
             success: false,
@@ -63,13 +58,8 @@ export async function POST(request: NextRequest) {
 // GET /api/admin/llama-sync
 // Returns info about the endpoint
 export async function GET(request: NextRequest) {
-    // Check for admin authorization
-    const authHeader = request.headers.get('x-admin-secret')
-    const adminSecret = process.env.ADMIN_SECRET
-
-    if (!adminSecret || authHeader !== adminSecret) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const unauthorized = requireAdminAccess(request)
+    if (unauthorized) return unauthorized
 
     return NextResponse.json({
         endpoint: 'Admin - Llama Protocol Sync',

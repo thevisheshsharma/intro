@@ -8,14 +8,14 @@ Status values:
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Marketing site | Implemented | Polished pages exist; primary signup links and some claims need correction. |
-| Privy authentication | Partial | Provider integration exists; redirect and server-authoritative routing need repair. |
-| Onboarding | Partial | Analysis and status UI exist; persistence, job durability, and authoritative completion are incomplete. |
-| Trial subscriptions | Partial | Ten-day Founder-plan trial is implemented in server code; marketing also claims fourteen days. |
-| Pathfinder | Partial | Relationship discovery is substantial; core API security, quotas, and tests are missing. |
-| People Intelligence | Partial | Organization-affiliate pipeline exists; route security and maintainability are blockers. |
-| Company Intelligence | Partial | ICP read/write and analysis exist; access policy and authentication are inconsistent. |
-| Stripe Checkout and portal | Partial | Core integration exists; webhook idempotency and end-to-end tests are missing. |
+| Marketing site | Implemented | Primary CTAs now open the Privy signup flow and unverified headline metrics were removed; broader marketed-only capability copy still needs product review. |
+| Privy authentication | Partial | Bearer-token API authorization and server-authoritative redirects are implemented; page middleware cookies remain a navigation hint rather than an authorization boundary. |
+| Onboarding | Partial | Job ownership and profile/completion persistence are server-authoritative; the 60-second `waitUntil` worker is not yet a durable queue. |
+| Trial subscriptions | Partial | An explicit card-required fourteen-day Stripe trial follows the free preview; automatic conversion, portal cancellation, and webhook persistence are implemented, while provider-backed journey tests and reminder delivery remain. |
+| Pathfinder | Partial | API authentication, entitlement, actor identity, durable quotas, and guard tests are implemented; provider integration and browser coverage remain. |
+| People Intelligence | Partial | API authentication, entitlement, durable quotas, request caps, and redacted route logging are implemented; the large route still needs modular extraction. |
+| Company Intelligence | Partial | Read/write/analyze APIs now enforce entitlement and bounded inputs; domain and provider boundaries remain coupled. |
+| Stripe Checkout and portal | Partial | Core integration and a durable webhook event ledger exist; preview replay/concurrency testing and schema rollout remain. |
 | Ping / message outreach | Marketed only | No verified message drafting, sending, or response-tracking workflow. |
 | Team collaboration | Marketed only | Pricing/marketing references teams without a verified workspace or membership model. |
 | SSO and audit logs | Marketed only | Listed in pricing; no verified implementation. |
@@ -27,3 +27,11 @@ Status values:
 The first releasable wedge should be signup, resumable onboarding, Pathfinder, and billing. People and Company Intelligence can follow after the same authorization, entitlement, quota, test, and observability standards are applied.
 
 Do not add numerical customer, network-size, conversion, or success-rate claims without a named source and an update process.
+
+## Remaining stabilization work
+
+- Rotate every historically exposed credential and coordinate the git-history rewrite.
+- Apply the new Neo4j rate-limit and Stripe-event uniqueness constraints in a non-production environment, verify them, then schedule the approved production change.
+- Select and implement a durable onboarding job platform through an ADR.
+- Add mocked provider/API integration tests and authenticated Playwright journeys.
+- Extract Pathfinder, People Intelligence, Company Intelligence, onboarding, and billing modules before attempting the AppUser/Person/Organization graph-model change.

@@ -4,6 +4,7 @@ import { usePrivy } from '@privy-io/react-auth'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import Link from 'next/link'
 
 export default function OnboardingLayout({
     children,
@@ -41,9 +42,9 @@ export default function OnboardingLayout({
 
             {/* Logo */}
             <div className="absolute top-8 left-8">
-                <a href="/" className="flex items-center gap-2">
+                <Link href="/" className="flex items-center gap-2">
                     <img src="/berri-logo.svg" alt="Berri" className="h-8 w-auto" />
-                </a>
+                </Link>
             </div>
 
             {/* Main content */}

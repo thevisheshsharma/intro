@@ -942,7 +942,7 @@ export default function NetworkAnimation() {
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
                         </span>
                         <span>Strong Path</span>
-                        <span className="font-extrabold">92%</span>
+                        <span className="font-extrabold">Warm</span>
                     </motion.div>
                 </motion.div>
             </motion.div>

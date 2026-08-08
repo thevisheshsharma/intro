@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { initializeSchema } from '@/services'
+import { requireAdminAccess } from '@/lib/security/api-access'
 
 export async function POST(request: NextRequest) {
+  const unauthorized = requireAdminAccess(request)
+  if (unauthorized) return unauthorized
+
   try {
     await initializeSchema()
     
@@ -10,9 +14,9 @@ export async function POST(request: NextRequest) {
       message: 'Neo4j schema initialized successfully'
     })
   } catch (error: any) {
-    console.error('Error initializing Neo4j schema:', error)
+    console.error('Neo4j schema initialization failed')
     return NextResponse.json(
-      { error: error.message || 'Failed to initialize schema' },
+      { error: 'Failed to initialize schema' },
       { status: 500 }
     )
   }

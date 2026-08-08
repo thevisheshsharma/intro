@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyPrivyToken } from '@/lib/privy'
+import { COST_BEARING_RATE_LIMITS, requireUserAccess } from '@/lib/security/api-access'
 import { logAPIError } from '@/lib/error-utils'
 import { getOrganizationProperties, getOrganizationForUI, updateOrganizationProperties, getUserByScreenName, createOrganizationUser } from '@/services'
+import { createSafeRouteLogger } from '@/lib/safe-logger'
+import { z } from 'zod'
+import { parseJsonBody, RequestValidationError } from '@/lib/security/request'
+
+const logger = createSafeRouteLogger('organization-icp')
+const organizationMutationSchema = z.object({
+  twitter_username: z.string().trim().min(1).max(50),
+  name: z.string().trim().max(200).optional(),
+  basic_identification: z.object({
+    project_name: z.string().trim().max(200).optional(),
+  }).passthrough().optional(),
+  icp_synthesis: z.unknown().optional(),
+  icp: z.record(z.string(), z.unknown()).optional(),
+  customNotes: z.string().trim().max(5_000).optional(),
+}).passthrough()
 
 export const dynamic = 'force-dynamic'
 
@@ -16,34 +31,36 @@ interface Organization {
 
 // GET: Retrieve organization and ICP (global, not user-specific)
 export async function GET(request: NextRequest) {
-  const { userId } = await verifyPrivyToken(request)
+  const access = await requireUserAccess(request, { feature: 'companyIntel' })
+  if (!access.ok) return access.response
+  const userId = access.actor.userId
 
   try {
     const { searchParams } = new URL(request.url)
     let twitter_username = searchParams.get('twitter_username')
 
-    console.log('🔍 GET request - twitter_username:', twitter_username, 'userId:', userId)
+    logger.log('🔍 GET request - twitter_username:', twitter_username, 'userId:', userId)
 
     if (!twitter_username) {
-      console.log('❌ No twitter_username provided')
+      logger.log('❌ No twitter_username provided')
       return NextResponse.json({
         error: 'Twitter username is required'
       }, { status: 400 })
     }
 
     twitter_username = twitter_username.replace(/^@/, '').toLowerCase()
-    console.log('🔍 Normalized twitter_username:', twitter_username)
+    logger.log('🔍 Normalized twitter_username:', twitter_username)
 
     // Check Neo4j for existing user with this screenName
-    console.log('🔍 Checking Neo4j for user with screenName:', twitter_username)
+    logger.log('🔍 Checking Neo4j for user with screenName:', twitter_username)
     const existingNeo4jUser = await getUserByScreenName(twitter_username)
 
     if (existingNeo4jUser) {
-      console.log('✅ Found existing user in Neo4j:', existingNeo4jUser.userId)
+      logger.log('✅ Found existing user in Neo4j:', existingNeo4jUser.userId)
 
       // Get ICP data from Neo4j
       const icp = await getOrganizationForUI(twitter_username)
-      console.log('📊 ICP found in Neo4j:', icp ? 'YES' : 'NO')
+      logger.log('📊 ICP found in Neo4j:', icp ? 'YES' : 'NO')
 
       return NextResponse.json({
         organization: {
@@ -55,59 +72,57 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    console.log('ℹ️ No organization found in Neo4j, returning null')
+    logger.log('ℹ️ No organization found in Neo4j, returning null')
     return NextResponse.json({ organization: null, icp: null })
 
   } catch (error: any) {
-    console.error('❌ GET error:', error)
+    logger.error('❌ GET error:', error)
     logAPIError(error, 'fetching organization', '/api/organization-icp-analysis/save', userId || undefined)
     return NextResponse.json({
-      error: error.message || 'Failed to fetch organization'
+      error: 'Failed to fetch organization'
     }, { status: 500 })
   }
 }
 
 // POST: Save organization (check if exists globally first)
 export async function POST(request: NextRequest) {
-  const { userId, error: authError } = await verifyPrivyToken(request)
+  const access = await requireUserAccess(request, {
+    feature: 'companyIntel',
+    rateLimit: COST_BEARING_RATE_LIMITS.companyIntel,
+  })
+  if (!access.ok) return access.response
+  const userId = access.actor.userId
 
   try {
-    if (authError || !userId) {
-      console.log('❌ Unauthorized POST request')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const body = await request.json()
+    const body = await parseJsonBody(request, organizationMutationSchema, 256 * 1024)
     let { twitter_username } = body
 
-    console.log('📝 POST request - body:', body, 'userId:', userId)
-
     if (!twitter_username) {
-      console.log('❌ No twitter_username in POST body')
+      logger.log('❌ No twitter_username in POST body')
       return NextResponse.json({
         error: 'Twitter username is required'
       }, { status: 400 })
     }
 
     twitter_username = twitter_username.replace(/^@/, '').toLowerCase()
-    console.log('📝 Normalized twitter_username for POST:', twitter_username)
+    logger.log('📝 Normalized twitter_username for POST:', twitter_username)
 
     // Check if user exists in Neo4j with this screenName
-    console.log('🔍 Checking Neo4j for existing user with screenName:', twitter_username)
+    logger.log('🔍 Checking Neo4j for existing user with screenName:', twitter_username)
     let existingNeo4jUser = await getUserByScreenName(twitter_username)
 
     if (existingNeo4jUser) {
-      console.log('✅ Found existing user in Neo4j:', existingNeo4jUser.userId)
+      logger.log('✅ Found existing user in Neo4j:', existingNeo4jUser.userId)
 
       // Update the existing Neo4j user with ICP data
       if (body.basic_identification && body.icp_synthesis) {
-        console.log('📊 Updating existing Neo4j user with Grok response')
+        logger.log('📊 Updating existing Neo4j user with Grok response')
         await updateOrganizationProperties(existingNeo4jUser.userId, body)
       }
 
       // Get the updated ICP data
       const icp = await getOrganizationForUI(twitter_username)
-      console.log('📊 Updated ICP data retrieved:', icp ? 'YES' : 'NO')
+      logger.log('📊 Updated ICP data retrieved:', icp ? 'YES' : 'NO')
 
       return NextResponse.json({
         organization: {
@@ -120,10 +135,10 @@ export async function POST(request: NextRequest) {
     }
 
     // User doesn't exist, create it
-    console.log('🆕 Creating new organization user...')
+    logger.log('🆕 Creating new organization user...')
 
     if (body.basic_identification && body.icp_synthesis) {
-      console.log('📊 Creating from detailed Grok response')
+      logger.log('📊 Creating from detailed Grok response')
       // Create organization user and update with comprehensive data
       existingNeo4jUser = await createOrganizationUser(
         twitter_username,
@@ -131,7 +146,7 @@ export async function POST(request: NextRequest) {
       )
       await updateOrganizationProperties(existingNeo4jUser.userId, body)
     } else {
-      console.log('📝 Creating from basic fields')
+      logger.log('📝 Creating from basic fields')
       // Create basic organization user
       existingNeo4jUser = await createOrganizationUser(
         twitter_username,
@@ -140,18 +155,18 @@ export async function POST(request: NextRequest) {
     }
 
     if (!existingNeo4jUser) {
-      console.log('❌ Failed to create organization user')
+      logger.log('❌ Failed to create organization user')
       return NextResponse.json({
         error: 'Failed to create organization'
       }, { status: 500 })
     }
 
-    console.log('✅ Organization user created:', existingNeo4jUser.userId)
+    logger.log('✅ Organization user created:', existingNeo4jUser.userId)
 
     // Get ICP data from Neo4j
     const icp = await getOrganizationForUI(twitter_username)
 
-    console.log('✅ Final response - org created, icp:', icp ? 'YES' : 'NO')
+    logger.log('✅ Final response - org created, icp:', icp ? 'YES' : 'NO')
     return NextResponse.json({
       organization: {
         id: existingNeo4jUser.userId,
@@ -161,24 +176,25 @@ export async function POST(request: NextRequest) {
       icp
     })
   } catch (error: any) {
-    console.error('❌ POST error:', error)
+    if (error instanceof RequestValidationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
+    logger.error('❌ POST error:', error)
     logAPIError(error, 'saving organization', '/api/organization-icp-analysis/save', userId || undefined)
     return NextResponse.json({
-      error: error.message || 'Failed to save organization'
+      error: 'Failed to save organization'
     }, { status: 500 })
   }
 }
 
 // PUT: Update ICP (custom edits)
 export async function PUT(request: NextRequest) {
-  const { userId, error: authError } = await verifyPrivyToken(request)
-
-  if (authError || !userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requireUserAccess(request, { feature: 'companyIntel' })
+  if (!access.ok) return access.response
+  const userId = access.actor.userId
 
   try {
-    const body = await request.json()
+    const body = await parseJsonBody(request, organizationMutationSchema, 256 * 1024)
     const { icp, customNotes } = body
     let { twitter_username } = body
 
@@ -200,7 +216,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Update ICP data in Neo4j
-    const updatedData = { ...icp, custom_notes: customNotes }
+    const updatedData = { ...(icp || {}), custom_notes: customNotes }
     await updateOrganizationProperties(existingUser.userId, updatedData)
 
     // Get updated data from Neo4j
@@ -214,9 +230,12 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ icp: savedICP })
   } catch (error: any) {
+    if (error instanceof RequestValidationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     logAPIError(error, 'updating ICP', '/api/organization-icp-analysis/save', userId || undefined)
     return NextResponse.json({
-      error: error.message || 'Failed to update ICP'
+      error: 'Failed to update ICP'
     }, { status: 500 })
   }
 }

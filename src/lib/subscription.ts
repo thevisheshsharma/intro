@@ -17,10 +17,6 @@ export interface Subscription {
   cancelAtPeriodEnd: boolean
 }
 
-// Trial configuration
-export const TRIAL_DAYS = 10
-export const TRIAL_PLAN: PlanType = 'founder' // Trial users get Founder plan features
-
 // Get subscription for a user by Privy DID
 export async function getSubscription(privyDid: string): Promise<Subscription | null> {
   const driver = await getDriver()
@@ -35,9 +31,9 @@ export async function getSubscription(privyDid: string): Promise<Subscription | 
              u.stripeSubscriptionId as stripeSubscriptionId,
              u.plan as plan,
              u.subscriptionStatus as status,
-             u.trialStartedAt as trialStartedAt,
-             u.trialEndsAt as trialEndsAt,
-             u.currentPeriodEnd as currentPeriodEnd,
+             toString(u.trialStartedAt) as trialStartedAt,
+             toString(u.trialEndsAt) as trialEndsAt,
+             toString(u.currentPeriodEnd) as currentPeriodEnd,
              u.cancelAtPeriodEnd as cancelAtPeriodEnd
       `,
       { privyDid }
@@ -48,7 +44,7 @@ export async function getSubscription(privyDid: string): Promise<Subscription | 
     }
 
     const record = result.records[0]
-    return {
+    return normalizeStoredSubscription({
       privyDid: record.get('privyDid'),
       stripeCustomerId: record.get('stripeCustomerId'),
       stripeSubscriptionId: record.get('stripeSubscriptionId'),
@@ -58,7 +54,7 @@ export async function getSubscription(privyDid: string): Promise<Subscription | 
       trialEndsAt: record.get('trialEndsAt'),
       currentPeriodEnd: record.get('currentPeriodEnd'),
       cancelAtPeriodEnd: record.get('cancelAtPeriodEnd') || false,
-    }
+    })
   } finally {
     await session.close()
   }
@@ -78,9 +74,9 @@ export async function getSubscriptionByCustomerId(stripeCustomerId: string): Pro
              u.stripeSubscriptionId as stripeSubscriptionId,
              u.plan as plan,
              u.subscriptionStatus as status,
-             u.trialStartedAt as trialStartedAt,
-             u.trialEndsAt as trialEndsAt,
-             u.currentPeriodEnd as currentPeriodEnd,
+             toString(u.trialStartedAt) as trialStartedAt,
+             toString(u.trialEndsAt) as trialEndsAt,
+             toString(u.currentPeriodEnd) as currentPeriodEnd,
              u.cancelAtPeriodEnd as cancelAtPeriodEnd
       `,
       { stripeCustomerId }
@@ -91,7 +87,7 @@ export async function getSubscriptionByCustomerId(stripeCustomerId: string): Pro
     }
 
     const record = result.records[0]
-    return {
+    return normalizeStoredSubscription({
       privyDid: record.get('privyDid'),
       stripeCustomerId: record.get('stripeCustomerId'),
       stripeSubscriptionId: record.get('stripeSubscriptionId'),
@@ -101,32 +97,27 @@ export async function getSubscriptionByCustomerId(stripeCustomerId: string): Pro
       trialEndsAt: record.get('trialEndsAt'),
       currentPeriodEnd: record.get('currentPeriodEnd'),
       cancelAtPeriodEnd: record.get('cancelAtPeriodEnd') || false,
-    }
+    })
   } finally {
     await session.close()
   }
 }
 
-// Create or update user with trial
-export async function createUserWithTrial(privyDid: string, email?: string): Promise<Subscription> {
+// Ensure the application user exists without starting a paid-plan trial.
+// Stripe Checkout is the only authority allowed to create a trial.
+export async function ensureUserAccount(privyDid: string, email?: string): Promise<Subscription> {
   const driver = await getDriver()
   const session = driver.session()
-
-  const now = new Date()
-  const trialEndsAt = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000)
 
   try {
     const result = await session.run(
       `
       MERGE (u:User {privyDid: $privyDid})
       ON CREATE SET
-        u.plan = $plan,
-        u.subscriptionStatus = 'trialing',
-        u.trialStartedAt = datetime($trialStartedAt),
-        u.trialEndsAt = datetime($trialEndsAt),
         u.email = $email,
         u.createdAt = datetime()
       ON MATCH SET
+        u.email = COALESCE(u.email, $email),
         u.updatedAt = datetime()
       RETURN u.privyDid as privyDid,
              u.stripeCustomerId as stripeCustomerId,
@@ -135,20 +126,17 @@ export async function createUserWithTrial(privyDid: string, email?: string): Pro
              u.subscriptionStatus as status,
              toString(u.trialStartedAt) as trialStartedAt,
              toString(u.trialEndsAt) as trialEndsAt,
-             u.currentPeriodEnd as currentPeriodEnd,
+             toString(u.currentPeriodEnd) as currentPeriodEnd,
              u.cancelAtPeriodEnd as cancelAtPeriodEnd
       `,
       {
         privyDid,
-        plan: TRIAL_PLAN,
-        trialStartedAt: now.toISOString(),
-        trialEndsAt: trialEndsAt.toISOString(),
         email: email || null,
       }
     )
 
     const record = result.records[0]
-    return {
+    return normalizeStoredSubscription({
       privyDid: record.get('privyDid'),
       stripeCustomerId: record.get('stripeCustomerId'),
       stripeSubscriptionId: record.get('stripeSubscriptionId'),
@@ -158,7 +146,7 @@ export async function createUserWithTrial(privyDid: string, email?: string): Pro
       trialEndsAt: record.get('trialEndsAt'),
       currentPeriodEnd: record.get('currentPeriodEnd'),
       cancelAtPeriodEnd: record.get('cancelAtPeriodEnd') || false,
-    }
+    })
   } finally {
     await session.close()
   }
@@ -171,6 +159,8 @@ export async function updateSubscriptionFromStripe(
     stripeSubscriptionId?: string
     plan?: PlanType
     status?: SubscriptionStatus
+    trialStartedAt?: string | null
+    trialEndsAt?: string | null
     currentPeriodEnd?: string
     cancelAtPeriodEnd?: boolean
   }
@@ -185,6 +175,8 @@ export async function updateSubscriptionFromStripe(
       SET u.stripeSubscriptionId = COALESCE($stripeSubscriptionId, u.stripeSubscriptionId),
           u.plan = COALESCE($plan, u.plan),
           u.subscriptionStatus = COALESCE($status, u.subscriptionStatus),
+          u.trialStartedAt = CASE WHEN $trialStartedAt IS NOT NULL THEN datetime($trialStartedAt) ELSE u.trialStartedAt END,
+          u.trialEndsAt = CASE WHEN $trialEndsAt IS NOT NULL THEN datetime($trialEndsAt) ELSE u.trialEndsAt END,
           u.currentPeriodEnd = CASE WHEN $currentPeriodEnd IS NOT NULL THEN datetime($currentPeriodEnd) ELSE u.currentPeriodEnd END,
           u.cancelAtPeriodEnd = COALESCE($cancelAtPeriodEnd, u.cancelAtPeriodEnd),
           u.updatedAt = datetime()
@@ -194,6 +186,8 @@ export async function updateSubscriptionFromStripe(
         stripeSubscriptionId: data.stripeSubscriptionId || null,
         plan: data.plan || null,
         status: data.status || null,
+        trialStartedAt: data.trialStartedAt || null,
+        trialEndsAt: data.trialEndsAt || null,
         currentPeriodEnd: data.currentPeriodEnd || null,
         cancelAtPeriodEnd: data.cancelAtPeriodEnd ?? null,
       }
@@ -201,6 +195,24 @@ export async function updateSubscriptionFromStripe(
   } finally {
     await session.close()
   }
+}
+
+function normalizeStoredSubscription(subscription: Subscription): Subscription {
+  // Trials created by the legacy onboarding flow had no Stripe subscription.
+  // Treat them as Explorer access without mutating production data implicitly.
+  if (subscription.status === 'trialing' && !subscription.stripeSubscriptionId) {
+    return {
+      ...subscription,
+      plan: null,
+      status: null,
+      trialStartedAt: null,
+      trialEndsAt: null,
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+    }
+  }
+
+  return subscription
 }
 
 // Link Stripe customer to user

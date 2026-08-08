@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Berri Commercial Flow and Pricing Brief — August 2026</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18181b;
+      --muted: #62636a;
+      --line: #e7e7e9;
+      --panel: #f7f7f8;
+      --accent: #9f2945;
+      --accent-soft: #fbecef;
+      --green: #17623b;
+      --green-soft: #eaf7ef;
+      --amber: #805500;
+      --amber-soft: #fff5dc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #fff;
+      color: var(--ink);
+      font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 56px 0 80px; }
+    h1, h2, h3 { line-height: 1.15; letter-spacing: -0.025em; }
+    h1 { max-width: 780px; margin: 10px 0 16px; font-size: clamp(38px, 6vw, 68px); }
+    h2 { margin: 58px 0 18px; font-size: 30px; }
+    h3 { margin: 0 0 8px; font-size: 19px; }
+    p { margin: 0 0 14px; }
+    a { color: var(--accent); text-underline-offset: 3px; }
+    .eyebrow { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .lede { max-width: 820px; color: var(--muted); font-size: 20px; }
+    .meta { margin-top: 20px; color: var(--muted); font-size: 13px; }
+    .verdict {
+      margin-top: 34px;
+      padding: 26px;
+      border: 1px solid #edcbd3;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #fff, var(--accent-soft));
+    }
+    .verdict strong { color: var(--accent); }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .card { padding: 20px; border: 1px solid var(--line); border-radius: 15px; background: #fff; }
+    .card p, .card li { color: var(--muted); }
+    .card ul { margin: 10px 0 0; padding-left: 20px; }
+    .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; align-items: stretch; }
+    .flow div { min-height: 105px; padding: 16px; border-radius: 13px; background: var(--panel); }
+    .flow b { display: block; margin-bottom: 6px; color: var(--accent); }
+    .note { padding: 16px 18px; border-left: 4px solid var(--accent); background: var(--accent-soft); }
+    .good { border-left-color: var(--green); background: var(--green-soft); }
+    .warn { border-left-color: var(--amber); background: var(--amber-soft); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+    table { width: 100%; border-collapse: collapse; min-width: 850px; }
+    th, td { padding: 14px 15px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { background: var(--panel); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    .tag { display: inline-block; padding: 3px 8px; border-radius: 999px; background: var(--panel); font-size: 12px; font-weight: 700; }
+    .pricing { grid-template-columns: repeat(3, 1fr); }
+    .price { margin: 8px 0 12px; font-size: 30px; font-weight: 800; }
+    .muted { color: var(--muted); }
+    .sources li { margin-bottom: 10px; }
+    .footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    @media (max-width: 850px) {
+      .grid, .pricing { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; }
+      .flow div { min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Competitive commercial brief · 8 August 2026</div>
+    <h1>Berri should sell access monthly and meter expensive outcomes quietly.</h1>
+    <p class="lede">The launch model is a simple recurring subscription, preceded by a personalized preview and followed by a card-required trial. Explorer is limited; paid plans deliberately show no credits or usage meter. Metering belongs later where usage truly varies: bulk enrichment, CRM automation, and APIs.</p>
+    <p class="meta">Scope: Berri versus Clay, Apollo, LinkedIn Sales Navigator, Affinity, and Common Room. Public competitor claims are verified from official sources; Berri recommendations are strategic inferences and launch hypotheses.</p>
+  </header>
+
+  <section class="verdict">
+    <h3>Decision</h3>
+    <p><strong>Final launch decision:</strong> keep the recurring platform fee, but do not launch with credits or a paid-plan usage meter. Let people connect X and see a small personalized preview without starting a trial. Then ask for a card only when they click <em>Start my 14-day trial</em>. Keep rate limits and provider-cost controls internal.</p>
+  </section>
+
+  <h2>Overview</h2>
+  <div class="flow" aria-label="Recommended commercial flow">
+    <div><b>1 · Connect X</b>No subscription and no trial clock. Explain read-only access.</div>
+    <div><b>2 · Preview value</b>Show a personal network preview or one bounded Pathfinder result.</div>
+    <div><b>3 · Start trial</b>Choose Founder, see exact future charge, and enter a card in Stripe Checkout.</div>
+    <div><b>4 · Full access</b>Fourteen-day trial with a visible end date, no usage meter, and a cancellation link.</div>
+    <div><b>5 · Convert cleanly</b>Charge on the disclosed date or move to read-only if canceled or payment fails.</div>
+  </div>
+
+  <div class="grid" style="margin-top:14px">
+    <article class="card">
+      <h3>Why preview first</h3>
+      <p>X access is already a trust decision. Asking for payment before demonstrating a warm path compounds friction.</p>
+    </article>
+    <article class="card">
+      <h3>Why require a card later</h3>
+      <p>Berri has real SocialAPI and AI costs. A contextual card gate filters abuse after the user understands the value.</p>
+    </article>
+    <article class="card">
+      <h3>Why fourteen days</h3>
+      <p>It gives a B2B buyer two working weeks. Activation still needs to happen in the first session and first week.</p>
+    </article>
+  </div>
+
+  <h2>Competitors</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Company</th><th>Entry motion</th><th>Pricing meter</th><th>CRM/API posture</th><th>Implication for Berri</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Clay</strong><br><span class="tag">Workflow platform</span></td>
+          <td>Free plan and a 14-day no-card trial.</td>
+          <td>Launch starts at $185/mo ($167 effective annual); Growth at $495/mo ($446 annual). Separates platform Actions from purchased Data Credits.</td>
+          <td>CRM sync, HTTP APIs, and webhooks appear in Growth; full API and governance move to Enterprise.</td>
+          <td>Do not copy Clay's complexity before Berri has workflow breadth. Copy the separation of platform value from variable data cost.</td>
+        </tr>
+        <tr>
+          <td><strong>Apollo</strong><br><span class="tag">Database + engagement</span></td>
+          <td>Free plan and capped paid-plan trials; users can downgrade to free afterward.</td>
+          <td>$49/$79/$119 per seat per month on annual billing, with credits attached to each seat.</td>
+          <td>CRM/workflows are bundled by tier; external product/data resale requires a separate agreement.</td>
+          <td>Credits are understandable when tied to verified emails and phone numbers. Berri's warm-path outcome is less naturally credit-shaped.</td>
+        </tr>
+        <tr>
+          <td><strong>LinkedIn Sales Navigator</strong><br><span class="tag">Relationship prospecting</span></td>
+          <td>Card-required free trial with a seven-day reminder and automatic paid continuation unless canceled.</td>
+          <td>Core starts at $119.99/user/mo; Advanced at $159.99/user/mo. Primarily seat subscription, not an open credit wallet.</td>
+          <td>Advanced Plus is custom-priced for CRM integration and onboarding.</td>
+          <td>This is Berri's cleanest commercial analogue: charge recurring access to relationship intelligence and move CRM upmarket.</td>
+        </tr>
+        <tr>
+          <td><strong>Affinity</strong><br><span class="tag">Relationship intelligence CRM</span></td>
+          <td>Sales-led purchase rather than self-serve trial.</td>
+          <td>$2,000–$2,700 per user/year, with core relationship intelligence bundled.</td>
+          <td>Packaged integrations enter Advanced; unlimited API access is Enterprise.</td>
+          <td>Relationship intelligence can sustain seat pricing when it becomes a system of record. Berri is not there yet.</td>
+        </tr>
+        <tr>
+          <td><strong>Common Room</strong><br><span class="tag">Enterprise signal intelligence</span></td>
+          <td>Demo-led.</td>
+          <td>Essential is $2,500/mo billed annually, combining seats, contact limits, AI research credits, and prospector credits.</td>
+          <td>CRM/SEP/Slack integrations are included; advanced signals and exports expand by tier or add-on.</td>
+          <td>A future ceiling for Berri's workspace/CRM product, not an appropriate launch package.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Credits versus monthly pricing</h2>
+  <div class="grid">
+    <article class="card">
+      <h3>Pure subscription</h3>
+      <p><strong>Good for:</strong> product access, saved graph, monitoring, collaboration, and predictable use.</p>
+      <p><strong>Risk:</strong> an “unlimited” promise can destroy margins on expensive provider calls.</p>
+    </article>
+    <article class="card">
+      <h3>Pure credits</h3>
+      <p><strong>Good for:</strong> one-off enrichment, exports, API responses, and other visibly transactional work.</p>
+      <p><strong>Risk:</strong> users hesitate before clicking, struggle to predict cost, and compare credits instead of outcomes.</p>
+    </article>
+    <article class="card">
+      <h3>Recommended launch</h3>
+      <p><strong>Customer sees:</strong> a monthly plan with no credits or usage meter.</p>
+      <p><strong>Berri tracks:</strong> internal cost units for SocialAPI, AI, sync, and graph expansion.</p>
+    </article>
+  </div>
+
+  <div class="note good" style="margin-top:16px">
+    <strong>Launch rule:</strong> maximize healthy paid usage while enforcing server-side rate, concurrency, and abuse controls. If usage pricing is introduced later, charge only for recognizable successful outcomes—not cached results, provider failures, duplicates, unchanged refreshes, or empty results.
+  </div>
+
+  <h2>Guidance</h2>
+  <div class="grid pricing">
+    <article class="card">
+      <div class="eyebrow">Launch now</div>
+      <h3>Founder</h3>
+      <div class="price">$99<span class="muted" style="font-size:15px"> / month</span></div>
+      <ul>
+        <li>1 seat</li>
+        <li>Pathfinder and currently reliable intelligence features</li>
+        <li>No customer-facing usage meter</li>
+        <li>$79/month effective on annual billing ($948/year)</li>
+      </ul>
+    </article>
+    <article class="card">
+      <div class="eyebrow">Launch selectively</div>
+      <h3>Design Partner</h3>
+      <div class="price">$6k–$12k<span class="muted" style="font-size:15px"> / year</span></div>
+      <ul>
+        <li>Founder-led onboarding and support</li>
+        <li>Contracted scope and feedback access</li>
+        <li>Only contracted capabilities</li>
+        <li>Useful for agencies, funds, and ecosystems</li>
+      </ul>
+    </article>
+    <article class="card">
+      <div class="eyebrow">After collaboration exists</div>
+      <h3>Growth</h3>
+      <div class="price">$299<span class="muted" style="font-size:15px"> / month</span></div>
+      <ul>
+        <li>3 seats and a shared workspace</li>
+        <li>Shared lists and network visibility controls</li>
+        <li>No customer-facing usage meter</li>
+        <li>$249/month effective on annual billing ($2,988/year)</li>
+      </ul>
+    </article>
+  </div>
+
+  <div class="note warn" style="margin-top:16px">
+    <strong>Do not publicly sell Growth yet:</strong> team collaboration remains marketed rather than verified. Likewise, remove “unlimited searches,” verified exports, SSO, and API claims until each capability has an enforceable product and support contract.
+  </div>
+
+  <h3 style="margin-top:28px">Trial checkout</h3>
+  <ul>
+    <li>CTA: <strong>Start my 14-day trial</strong>.</li>
+    <li>Default to monthly; make annual an explicit choice.</li>
+    <li>Show “$0 today, then $99 on [date] unless canceled.”</li>
+    <li>Use Stripe Checkout, subscription trial dates, and webhooks as the billing source of truth.</li>
+    <li>Expose “Manage trial” beside the countdown and in Settings → Billing.</li>
+    <li>Cancel at trial end, preserve access until then, and confirm “You will not be charged.”</li>
+  </ul>
+
+  <h3 style="margin-top:28px">CRM and API later</h3>
+  <p>Keep this off the launch pricing page. When the capability is real, sell it as a higher-tier workspace or add-on with a minimum platform commitment plus usage per successful outcome:</p>
+  <ul>
+    <li>CRM sync and relationship write-back: workspace add-on or Growth/Scale entitlement.</li>
+    <li>Bulk enrichment: price per successful, changed record.</li>
+    <li>API: monthly minimum plus metered successful results, with spend caps.</li>
+    <li>Implementation, mappings, and governance: one-time services fee.</li>
+  </ul>
+  <p>This is consistent with Clay, LinkedIn, Affinity, and Common Room moving CRM/API depth into higher packages rather than letting it define entry-level pricing.</p>
+
+  <h3 style="margin-top:28px">What to measure before changing prices</h3>
+  <p>Use visitor-to-retained-paid conversion as the north-star metric. Also track preview activation, trial checkout completion, first Pathfinder success, cost per activated account, cancellation before charge, first-payment success, refunds, and day-30/day-60 retention. Do not optimize trial-to-paid conversion alone.</p>
+
+  <h2>What not to overclaim</h2>
+  <ul>
+    <li>Competitor pricing does not prove Berri customers will accept a particular price.</li>
+    <li>Public prices may exclude taxes, regional differences, promotions, and negotiated contracts.</li>
+    <li>Future usage policies cannot be designed responsibly until Berri records provider cost and successful-outcome frequency using non-PII telemetry.</li>
+    <li>CRM, team collaboration, public API, SSO, and several exports are not yet release-ready Berri capabilities.</li>
+  </ul>
+
+  <h2>Sources</h2>
+  <ul class="sources">
+    <li><a href="https://www.clay.com/pricing">Clay pricing</a> — current plans, Actions, Data Credits, rollover, top-ups, and CRM/API tiering.</li>
+    <li><a href="https://www.clay.com/blog/clay-pricing-memo-internal">Clay pricing memo</a> — why Clay separated platform work from data and changed variable AI pricing.</li>
+    <li><a href="https://www.clay.com/faq/next-steps">Clay trial FAQ</a> — 14-day trial without a credit card.</li>
+    <li><a href="https://www.apollo.io/pricing">Apollo pricing</a> — seat prices, credits, trial behavior, cancellation, and external-use restrictions.</li>
+    <li><a href="https://business.linkedin.com/sell/sales-navigator/compare-plans?lang=en">LinkedIn Sales Navigator pricing</a> — seat pricing, card-required trial, reminder, and CRM tiering.</li>
+    <li><a href="https://www.affinity.co/product/affinity-pricing">Affinity pricing</a> — annual relationship-intelligence seat pricing and integration/API packaging.</li>
+    <li><a href="https://www.commonroom.io/pricing/">Common Room pricing</a> — enterprise platform, seat/contact, AI credit, and integration packaging.</li>
+    <li><a href="https://docs.stripe.com/billing/subscriptions/trials">Stripe subscription trials</a> — trial creation, end-of-trial charging, reminders, and compliance requirements.</li>
+  </ul>
+
+  <footer class="footer">
+    Evidence posture: official public competitor and Stripe sources plus the repository's current product-status boundary. No CRM, internal customer interviews, win/loss data, or Berri unit-economics dataset was available; pricing amounts are therefore launch hypotheses to validate with paid behavior.
+  </footer>
+</main>
+</body>
+</html>

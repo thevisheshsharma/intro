@@ -25,10 +25,10 @@ export const PLAN_FEATURES = {
     peopleIntel: true,
     csvExports: true,
     advancedFilters: true,
-    teamTools: true,
+    teamTools: false,
     apiAccess: false,
     sso: false,
-    seats: 5,
+    seats: 3,
   },
   enterprise: {
     pathfinder: true,
@@ -117,13 +117,13 @@ export function getPlanFeatures(plan: PlanType): (typeof PLAN_FEATURES)[keyof ty
 // Plan display names
 export const PLAN_NAMES: Record<string, string> = {
   founder: 'Founder',
-  standard: 'Standard',
+  standard: 'Growth',
   enterprise: 'Enterprise',
 }
 
 // Plan descriptions
 export const PLAN_DESCRIPTIONS: Record<string, string> = {
   founder: 'Perfect for solo founders and small teams getting started',
-  standard: 'For growing teams that need advanced collaboration',
+  standard: 'For small GTM teams in the private workspace rollout',
   enterprise: 'Custom solutions for large organizations',
 }

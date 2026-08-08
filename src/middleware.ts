@@ -14,7 +14,7 @@ const publicRoutes = [
   "/privacy",
   "/terms",
   "/contact",
-  "/api/neo4j/init-schema",
+  "/sign-up",
   "/api/subscription/webhook",
 ];
 

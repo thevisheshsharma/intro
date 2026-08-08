@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { expireTrials, getExpiringTrials } from '@/lib/subscription'
+import { requireCronAccess } from '@/lib/security/api-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,25 +15,8 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(request: NextRequest) {
   try {
-    // Verify the request is from Vercel Cron
-    const authHeader = request.headers.get('authorization')
-    const cronSecret = process.env.CRON_SECRET
-
-    if (!cronSecret) {
-      console.error('[Cron] CRON_SECRET not configured')
-      return NextResponse.json(
-        { error: 'Cron not configured' },
-        { status: 500 }
-      )
-    }
-
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      console.warn('[Cron] Unauthorized cron request')
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
+    const unauthorized = requireCronAccess(request)
+    if (unauthorized) return unauthorized
 
     console.log('[Cron] Starting trial expiration check...')
 
@@ -59,11 +43,10 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString()
     })
   } catch (error: any) {
-    console.error('[Cron] Error in trial expiration:', error)
+    console.error('[Cron] Trial expiration failed')
     return NextResponse.json(
       {
-        error: 'Failed to process trial expiration',
-        details: error.message
+        error: 'Failed to process trial expiration'
       },
       { status: 500 }
     )

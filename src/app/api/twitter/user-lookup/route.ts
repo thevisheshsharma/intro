@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
+import { COST_BEARING_RATE_LIMITS, requireUserAccess } from '@/lib/security/api-access'
 
 export async function GET(request: Request) {
+  const access = await requireUserAccess(request, {
+    feature: 'pathfinder',
+    rateLimit: COST_BEARING_RATE_LIMITS.socialProxy,
+  })
+  if (!access.ok) return access.response
+
   const { searchParams } = new URL(request.url)
   const screen_name = searchParams.get('screen_name')?.replace('@', '')
 
@@ -25,6 +32,6 @@ export async function GET(request: Request) {
     const data = await response.json()
     return NextResponse.json(data, { status: response.status })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to fetch Twitter user' }, { status: 500 })
   }
 }

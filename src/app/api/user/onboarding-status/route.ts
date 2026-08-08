@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
             userId
         })
     } catch (error: any) {
-        console.error('[Onboarding Status] Error:', error)
+        console.error('[Onboarding Status] Lookup failed')
         return NextResponse.json(
             { error: 'Failed to check onboarding status', completed: false },
             { status: 500 }

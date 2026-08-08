@@ -10,10 +10,17 @@ import {
   type TwitterApiUser
 } from '@/services'
 import { fetchFollowersFromSocialAPI } from '@/lib/socialapi-pagination'
+import { z } from 'zod'
+import { getPrivyUser, extractTwitterFromPrivyUser } from '@/lib/privy'
+import { COST_BEARING_RATE_LIMITS, requireUserAccess } from '@/lib/security/api-access'
+import { parseJsonBody, RequestValidationError } from '@/lib/security/request'
+import { createSafeRouteLogger } from '@/lib/safe-logger'
 
-interface SyncFollowersRequest {
-  username: string
-}
+const logger = createSafeRouteLogger('sync-followers')
+
+const syncFollowersSchema = z.object({
+  username: z.string().trim().min(1).max(50),
+}).strict()
 
 // Fetch user data from SocialAPI
 async function fetchUserFromSocialAPI(username: string): Promise<TwitterApiUser> {
@@ -45,7 +52,7 @@ async function fetchUserFromSocialAPI(username: string): Promise<TwitterApiUser>
 
 // Background sync followers for a user
 async function syncUserFollowers(username: string): Promise<{ synced: boolean, reason: string, followerCount: number }> {
-  console.log(`=== SYNCING FOLLOWERS FOR ${username} ===`)
+  logger.log(`=== SYNCING FOLLOWERS FOR ${username} ===`)
   
   // Step 1: Get or fetch user data from both SocialAPI and Neo4j
   let user = await getUserByScreenName(username)
@@ -63,14 +70,14 @@ async function syncUserFollowers(username: string): Promise<{ synced: boolean, r
   const cachedFollowerCount = await getUserFollowerCount(userId)
   const apiFollowerCount = userData.followers_count || 0
   
-  console.log(`${username}: Cached followers: ${cachedFollowerCount}, API followers: ${apiFollowerCount}`)
+  logger.log(`${username}: Cached followers: ${cachedFollowerCount}, API followers: ${apiFollowerCount}`)
   
   const shouldFetch = hasSignificantCountDifference(cachedFollowerCount, apiFollowerCount) || 
                       !user || 
                       isUserDataStale(user, 1080) // 45 days = 1080 hours
 
   if (!shouldFetch) {
-    console.log(`Using cached followers for ${username} (difference within threshold and data fresh)`)
+    logger.log(`Using cached followers for ${username} (difference within threshold and data fresh)`)
     return { 
       synced: false, 
       reason: 'Data is fresh and within threshold', 
@@ -78,7 +85,7 @@ async function syncUserFollowers(username: string): Promise<{ synced: boolean, r
     }
   }
 
-  console.log(`Fetching fresh followers for ${username} (significant difference or stale data)`)
+  logger.log(`Fetching fresh followers for ${username} (significant difference or stale data)`)
   
   // Step 3: Fetch and store followers using optimized parallel pagination
   const followers = await fetchFollowersFromSocialAPI(username)
@@ -86,7 +93,7 @@ async function syncUserFollowers(username: string): Promise<{ synced: boolean, r
   // Use incremental update instead of clearing all relationships
   const updateResult = await incrementalUpdateFollowers(userId, followers)
   
-  console.log(`Successfully synced followers for ${username}: +${updateResult.added}, -${updateResult.removed}`)
+  logger.log(`Successfully synced followers for ${username}: +${updateResult.added}, -${updateResult.removed}`)
   return { 
     synced: true, 
     reason: `Incremental update: +${updateResult.added}, -${updateResult.removed}`, 
@@ -96,17 +103,22 @@ async function syncUserFollowers(username: string): Promise<{ synced: boolean, r
 
 export async function POST(request: NextRequest) {
   try {
-    const body: SyncFollowersRequest = await request.json()
+    const access = await requireUserAccess(request, {
+      feature: 'pathfinder',
+      rateLimit: COST_BEARING_RATE_LIMITS.followerSync,
+    })
+    if (!access.ok) return access.response
+
+    const body = await parseJsonBody(request, syncFollowersSchema)
     const { username } = body
 
-    if (!username) {
-      return NextResponse.json(
-        { error: 'Username is required' },
-        { status: 400 }
-      )
+    const privyUser = await getPrivyUser(access.actor.userId)
+    const actorUsername = extractTwitterFromPrivyUser(privyUser)?.replace(/^@/, '').toLowerCase()
+    if (!actorUsername || actorUsername !== username.replace(/^@/, '').toLowerCase()) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    console.log(`Background sync request for user: ${username}`)
+    logger.log(`Background sync request for user: ${username}`)
     
     // Perform the sync
     const result = await syncUserFollowers(username)
@@ -119,9 +131,12 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error: any) {
-    console.error('Error in sync-followers API:', error)
+    if (error instanceof RequestValidationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
+    logger.error('Error in sync-followers API:', error)
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }
