@@ -153,6 +153,7 @@ export async function upsertStripeSubscriptionProjection(
         stripeSubscriptionId: $stripeSubscriptionId
       })
       ON CREATE SET subscription.createdAt = datetime()
+      WITH account, subscription
       OPTIONAL MATCH (current:StripeSubscription {
         stripeSubscriptionId: account.currentStripeSubscriptionId
       })

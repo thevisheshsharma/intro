@@ -97,4 +97,18 @@ describe('Stripe checkout route', () => {
     expect(response.status).toBe(409)
     expect(checkoutCreate).not.toHaveBeenCalled()
   })
+
+  it('uses distinct idempotency keys when the checkout return path changes', async () => {
+    await POST(request as never)
+    parseJsonBody.mockResolvedValue({
+      plan: 'founder',
+      interval: 'monthly',
+      source: 'onboarding',
+    })
+    await POST(request as never)
+
+    const firstKey = checkoutCreate.mock.calls[0][1].idempotencyKey
+    const secondKey = checkoutCreate.mock.calls[1][1].idempotencyKey
+    expect(firstKey).not.toBe(secondKey)
+  })
 })

@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
       {
         idempotencyKey: stripeIdempotencyKey(
           'checkout',
-          `${userId}:${plan}:${interval}:${subscription.stripeSubscriptionId ?? 'none'}:${subscription.status ?? 'none'}`
+          `${userId}:${plan}:${interval}:${source}:${subscription.stripeSubscriptionId ?? 'none'}:${subscription.status ?? 'none'}`
         ),
       }
     )
