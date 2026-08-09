@@ -2,6 +2,7 @@
 export * from './user'
 export * from './protocol'
 export * from './neo4j-analysis-mapper'
+export * from './organization-research-context'
 export * from './protocol-category-mapper'
 export * from './llama-sync-analytics'
 

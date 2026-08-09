@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { z } from 'zod'
 import { COST_BEARING_RATE_LIMITS, requireUserAccess } from '@/lib/security/api-access'
 import { parseJsonBody, RequestValidationError } from '@/lib/security/request'
@@ -6,6 +7,8 @@ import { createSafeRouteLogger } from '@/lib/safe-logger'
 import { mapWithConcurrency } from '@/lib/async-map'
 
 const logger = createSafeRouteLogger('find-from-org')
+const userStorageLogger = createSafeRouteLogger('find-from-org-user-storage')
+const relationshipPersistenceLogger = createSafeRouteLogger('find-from-org-relationships')
 
 const findFromOrgSchema = z.object({
   orgUsername: z.string().trim().min(1).max(50),
@@ -213,8 +216,8 @@ export async function POST(request: NextRequest) {
         results.grokUsers = grokResult.value
         logger.log(`   → ✅ Grok: Found ${results.grokUsers.length} usernames`)
       } else {
-        logger.error(`   → ❌ Grok error: ${grokResult.reason?.message}`)
-        results.errors.push(`Grok analysis error: ${grokResult.reason?.message}`)
+        logger.warn('   → Supplementary X account discovery unavailable; continuing with core sources')
+        results.errors.push('Supplementary X account discovery was unavailable; SocialAPI discovery and profile classification still completed.')
         results.grokUsers = []
       }
 
@@ -1364,8 +1367,9 @@ export async function POST(request: NextRequest) {
       logger.log(`   → Only ${usersNeedingGrokAnalysis.length} users need Grok analysis (saved ${usersWithExistingRelationships.length + usersIdentifiedAsOrganizations.length} expensive AI calls)`)
       
       try {
-        // Smaller structured-output batches are more reliable; all profiles are still processed.
-        const batchSize = 5
+        // Handle-keyed validation plus recursive split-on-malformed-output keeps
+        // larger batches safe while reducing provider round trips.
+        const batchSize = 10
         
         // Create all batches first
         const batches: Array<{
@@ -1386,7 +1390,7 @@ export async function POST(request: NextRequest) {
         const totalBatches = batches.length
         logger.log(`   → Processing ${totalBatches} batches in parallel (${usersNeedingGrokAnalysis.length} total profiles)`)
         
-        const batchResults = await mapWithConcurrency(batches, 2, async (batchInfo) => {
+        const batchResults = await mapWithConcurrency(batches, 4, async (batchInfo) => {
           try {
             logger.log(`   → Starting batch ${batchInfo.batchNumber}/${totalBatches} (${batchInfo.size} profiles)`)
             
@@ -1737,6 +1741,7 @@ export async function POST(request: NextRequest) {
     // Declare variables outside try block for accessibility in employment processing
     let allUsersToStore: any[] = []
     let finalIndividualsToStore: any[] = []
+    let userStoragePromise: Promise<void> = Promise.resolve()
     
     try {
       // ===== PREPARE ALL DATA FOR BATCH STORAGE =====
@@ -1881,8 +1886,13 @@ export async function POST(request: NextRequest) {
       // Store all users in single batch operation
       if (allUsersToStore.length > 0) {
         logger.log(`   → Executing batch storage for ${allUsersToStore.length} users...`)
-        const userStorageResult = await createOrUpdateUsersOptimized(allUsersToStore, 1080)
-        logger.log(`   → Batch user storage: ${userStorageResult.created} created, ${userStorageResult.updated} updated, ${userStorageResult.skipped} skipped`)
+        userStoragePromise = createOrUpdateUsersOptimized(allUsersToStore, 1080)
+          .then(userStorageResult => {
+            logger.log(`   → Batch user storage: ${userStorageResult.created} created, ${userStorageResult.updated} updated, ${userStorageResult.skipped} skipped`)
+          })
+          .catch((batchStorageError: Error) => {
+            userStorageLogger.error('Deferred batch user storage failed', batchStorageError)
+          })
         
         // Log breakdown by type
         const vibeBreakdown = {
@@ -1897,7 +1907,7 @@ export async function POST(request: NextRequest) {
         logger.log(`   → No users to store in batch operation`)
       }
       
-      logger.log(`✅ Unified batch storage operation completed successfully`)
+      logger.log(`✅ Unified batch storage operation scheduled`)
       
     } catch (batchStorageError: any) {
       logger.error('❌ Unified batch storage failed:', batchStorageError.message)
@@ -1911,7 +1921,7 @@ export async function POST(request: NextRequest) {
     
     logger.log(`   → Processing employment data for ${finalIndividuals.length} individuals...`)
     
-    try {
+    const relationshipPersistencePromise = userStoragePromise.then(async () => {
       // Add small delay to prevent deadlocks after batch storage
       if (allUsersToStore.length > 0) {
         logger.log(`   → Adding brief delay to prevent transaction deadlocks...`)
@@ -1973,11 +1983,10 @@ export async function POST(request: NextRequest) {
       ])
 
       logger.log(`   → All relationships created successfully`)
-      
-    } catch (employmentError: any) {
-      logger.error('❌ Employment data processing failed:', employmentError.message)
-      results.errors.push(`Employment processing error: ${employmentError.message}`)
-    }
+    }).catch((employmentError: Error) => {
+      relationshipPersistenceLogger.error('Deferred relationship persistence failed', employmentError)
+    })
+    waitUntil(relationshipPersistencePromise)
 
     // Step 5.9: Filter individuals by organization affiliation
     logger.log('🔍 Step 5.9: Filtering individuals by organization affiliation...')

@@ -167,6 +167,42 @@ describe('Grok relationship classification', () => {
     expect(mocks.processEmploymentData).not.toHaveBeenCalled()
   })
 
+  it('invalidates a recent classification when the current X bio changed', async () => {
+    mocks.getUserByScreenName.mockResolvedValue({
+      userId: 'org-1',
+      screenName: 'alpha',
+      description: 'Old bio',
+      lastUpdated: new Date().toISOString(),
+      vibe: 'organization',
+      orgType: 'infrastructure',
+      orgSubtype: '["other"]',
+      web3Focus: 'web3_native',
+    })
+    mocks.generateClassification.mockResolvedValue({
+      results: [{
+        screen_name: 'alpha',
+        vibe: 'organization',
+        relationships: [],
+        orgType: 'infrastructure',
+        orgSubtype: ['layer_1'],
+        web3Focus: 'web3_native',
+      }],
+    })
+    mocks.transformToNeo4jUser.mockReturnValue({ userId: 'org-1', screenName: 'alpha' })
+    mocks.createOrUpdateUserWithScreenNameMerge.mockResolvedValue(undefined)
+    mocks.runQuery.mockResolvedValue([])
+
+    await classifyProfileComplete('alpha', {
+      id: '1',
+      id_str: '1',
+      screen_name: 'alpha',
+      name: 'Alpha',
+      description: 'New bio',
+    })
+
+    expect(mocks.generateClassification).toHaveBeenCalledTimes(1)
+  })
+
   it('extracts each valid X mention without duplicates', () => {
     expect(extractMentionHandles('At @Alpha, advising @beta and @ALPHA.')).toEqual(['alpha', 'beta'])
   })

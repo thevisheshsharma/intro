@@ -50,12 +50,13 @@ describe('xAI integration resilience', () => {
     expect(mocks.generateText).toHaveBeenCalledTimes(2)
     expect(mocks.responses).toHaveBeenCalledWith('grok-4.5')
     expect(mocks.generateText.mock.calls[1][0].system).toContain('previous response')
+    expect(mocks.generateText.mock.calls.every(
+      ([request]) => request.providerOptions.xai.reasoningEffort === 'low'
+    )).toBe(true)
   })
 
-  it('separates live research from schema conversion', async () => {
-    mocks.generateText
-      .mockResolvedValueOnce({ text: 'Grounded facts from X and the web.' })
-      .mockResolvedValueOnce({ output: { name: 'Alpha' } })
+  it('researches and returns structured output in one request', async () => {
+    mocks.generateText.mockResolvedValueOnce({ output: { name: 'Alpha' } })
 
     const result = await generateResearchedObject({
       task: 'icpResearch',
@@ -64,16 +65,46 @@ describe('xAI integration resilience', () => {
       prompt: 'Research Alpha.',
       xSearchFromDate: '2026-01-01',
       xSearchToDate: '2026-08-10',
+      xSearchAllowedHandles: ['alpha'],
     })
 
     expect(result).toEqual({ name: 'Alpha' })
-    expect(mocks.generateText).toHaveBeenCalledTimes(2)
+    expect(mocks.generateText).toHaveBeenCalledTimes(1)
     expect(mocks.generateText.mock.calls[0][0].tools).toEqual(expect.objectContaining({
       web_search: expect.anything(),
       x_search: expect.anything(),
     }))
-    expect(mocks.generateText.mock.calls[1][0].tools).toBeUndefined()
-    expect(mocks.generateText.mock.calls[1][0].prompt).toContain('<untrusted_research>')
+    expect(mocks.generateText.mock.calls[0][0].output).toBeDefined()
+    expect(mocks.xSearch).toHaveBeenCalledWith({
+      allowedXHandles: ['alpha'],
+      fromDate: '2026-01-01',
+      toDate: '2026-08-10',
+    })
+    expect(mocks.generateText.mock.calls[0][0].providerOptions.xai.reasoningEffort).toBe('low')
+  })
+
+  it('falls back to separate research and conversion for malformed structured output', async () => {
+    mocks.generateText
+      .mockRejectedValueOnce(new NoOutputGeneratedError())
+      .mockResolvedValueOnce({ text: 'Grounded facts from X and the web.' })
+      .mockResolvedValueOnce({ output: { name: 'Alpha' } })
+
+    const result = await generateResearchedObject({
+      task: 'icpResearch',
+      schema: z.object({ name: z.string() }),
+      system: 'Research current information.',
+      prompt: 'Research Alpha.',
+    })
+
+    expect(result).toEqual({ name: 'Alpha' })
+    expect(mocks.generateText).toHaveBeenCalledTimes(3)
+    expect(mocks.generateText.mock.calls[1][0].tools).toBeDefined()
+    expect(mocks.generateText.mock.calls[1][0].output).toBeUndefined()
+    expect(mocks.generateText.mock.calls[2][0].tools).toBeUndefined()
+    expect(mocks.generateText.mock.calls[2][0].prompt).toContain('<untrusted_research>')
+    expect(mocks.generateText.mock.calls.every(
+      ([request]) => request.providerOptions.xai.reasoningEffort === 'low'
+    )).toBe(true)
   })
 
   it('reports timeout failures distinctly', async () => {

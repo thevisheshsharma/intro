@@ -425,7 +425,10 @@ export async function saveClassificationToNeo4j(
 /**
  * Get cached classification from Neo4j
  */
-export async function getCachedClassification(twitterUsername: string): Promise<ClassificationResult | null> {
+export async function getCachedClassification(
+  twitterUsername: string,
+  currentDescription?: string | null
+): Promise<ClassificationResult | null> {
   try {
     const user = await getUserByScreenName(twitterUsername)
 
@@ -435,6 +438,10 @@ export async function getCachedClassification(twitterUsername: string): Promise<
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
 
     if (lastUpdated < thirtyDaysAgo) return null
+    if (currentDescription !== undefined) {
+      const cachedDescription = typeof user.description === 'string' ? user.description.trim() : ''
+      if (cachedDescription !== (currentDescription ?? '').trim()) return null
+    }
 
     const userVibe = user.vibe || 'organization'
 
@@ -528,7 +535,7 @@ export async function classifyProfileComplete(
   const normalizedUsername = twitterUsername.replace('@', '').toLowerCase()
 
   // Check cache first
-  const cached = await getCachedClassification(normalizedUsername)
+  const cached = await getCachedClassification(normalizedUsername, profileData.description)
   if (cached) {
     const isIncompleteOrganization = (
       cached.vibe === 'organization' &&

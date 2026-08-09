@@ -56,12 +56,12 @@ Expected:
 
 1. An entitled user enters an organization handle.
 2. The server discovers and classifies relevant people with bounded work.
-3. Results distinguish cached data, new provider data, confidence, and failures.
+3. Validated results return before Neo4j batch persistence and relationship materialization finish under `waitUntil`.
 
 Known gaps:
 
-- The route is unauthenticated and combines most of the feature in one large handler.
-- External calls and graph writes are not governed by per-user usage limits.
+- The route still combines most of the feature in one large handler.
+- Deferred persistence has serverless ownership through `waitUntil` but no durable retry worker.
 
 ## Company Intelligence
 
@@ -70,11 +70,13 @@ Expected:
 1. An entitled user selects an organization.
 2. Existing company intelligence is read under an explicit access policy.
 3. Authorized analysis uses current Web/X research and replaces the canonical flat ICP snapshot with a timestamp.
+4. The canonical ICP is saved before the response; supplementary relationship expansion continues under `waitUntil`.
 
 Known gaps:
 
 - Some reads ignore failed authentication and return globally stored organization information.
 - Ownership and sharing policy for organization analyses is not documented.
+- Deferred relationship expansion has no durable retry worker.
 
 ## Billing
 

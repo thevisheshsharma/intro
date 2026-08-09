@@ -142,3 +142,46 @@ export type ICPAnalysis = z.infer<typeof ICPAnalysisSchema>
 
 export const ICP_ANALYSIS_FIELDS = Object.keys(ICPAnalysisSchema.shape) as Array<keyof ICPAnalysis>
 export const ICP_CACHE_DAYS = 60
+
+const CORE_RESEARCH_FIELDS = [
+  'name', 'website', 'industry', 'key_features', 'audience', 'geography', 'status',
+  'discord', 'farcaster', 'telegram', 'governance_forum', 'linkedin', 'youtube',
+  'blog', 'github', 'whitepaper', 'docs', 'explorer', 'api_docs',
+  'chains', 'tech_stack', 'dev_tools', 'auditor', 'audit_date', 'audit_links',
+  'tge', 'token', 'utilities', 'tokenomics_model', 'governance', 'funding_stage',
+  'funding_amount', 'investors', 'market_presence', 'competitors',
+  'monetization_stage', 'maturity', 'product_stage',
+  'narratives', 'partners', 'recent_updates', 'engagement_patterns', 'user_journey',
+  'retention_factors', 'engagement_depth', 'experience', 'roles',
+  'motivations', 'decision_factors', 'activity_patterns',
+  'conversion_factors', 'loyalty_indicators', 'user_archetypes', 'messaging_strategy',
+] as const satisfies readonly (keyof ICPAnalysis)[]
+
+const TYPE_RESEARCH_FIELDS = {
+  defi: ['category', 'tvl', 'yield', 'liquidity_incentives', 'fee_model'],
+  gaming: ['platforms', 'nft_model', 'gameplay', 'game_token', 'nft_assets', 'p2e_model'],
+  social: ['trading', 'monthly_users', 'creators', 'monetization', 'rewards'],
+  infrastructure: ['tx_per_day', 'projects', 'market_share', 'throughput', 'cost_per_tx', 'validator_economics', 'staking'],
+  exchange: ['trading_pairs', 'assets', 'volume_24h', 'rank', 'liquidity', 'fiat', 'maker_fee', 'taker_fee', 'withdrawal_fee'],
+  investment: ['stage', 'sectors', 'portfolio', 'fund_size', 'portfolio_size', 'investments'],
+  service: ['reputation', 'symbol', 'model', 'case_studies', 'testimonials', 'clients', 'team_size'],
+  community: ['mission', 'membership', 'members', 'reach', 'initiatives', 'benefits', 'treasury'],
+  nft: ['collection_size', 'floor_price', 'total_volume', 'unique_holders', 'utility_features', 'marketplace_integrations', 'asset_types', 'creator_royalties', 'launch_mechanism', 'community_features'],
+} as const satisfies Record<string, readonly (keyof ICPAnalysis)[]>
+
+/**
+ * Grok only generates the common ICP fields plus fields relevant to the
+ * classified organization type. The persisted object is expanded back to the
+ * complete canonical schema with nulls after generation.
+ */
+export function createICPResearchSchema(orgType?: string): z.ZodType<Partial<ICPAnalysis>> {
+  const typeFields = orgType && orgType in TYPE_RESEARCH_FIELDS
+    ? TYPE_RESEARCH_FIELDS[orgType as keyof typeof TYPE_RESEARCH_FIELDS]
+    : []
+  const selectedFields = new Set<keyof ICPAnalysis>([...CORE_RESEARCH_FIELDS, ...typeFields])
+  const shape = Object.fromEntries(
+    Array.from(selectedFields, field => [field, ICPAnalysisSchema.shape[field]])
+  ) as Partial<typeof ICPAnalysisSchema.shape>
+
+  return z.object(shape) as z.ZodType<Partial<ICPAnalysis>>
+}
