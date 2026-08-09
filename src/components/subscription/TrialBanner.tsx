@@ -57,7 +57,11 @@ export function TrialBanner() {
                 <span className="font-bold">{trialDaysLeft} days</span> left in your free trial.
               </>
             )}
-            {trialEndLabel ? ` Your plan renews on ${trialEndLabel} unless canceled.` : ''}
+            {trialEndLabel
+              ? subscription?.cancelAtPeriodEnd
+                ? ` Renew it before ${trialEndLabel} to continue access.`
+                : ` Your plan renews on ${trialEndLabel} unless canceled.`
+              : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
