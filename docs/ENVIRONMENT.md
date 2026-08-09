@@ -27,12 +27,16 @@
 
 ## Stripe trial configuration
 
+- Stripe is the only supported billing provider. Do not add unused payment-provider keys to application environments.
 - Founder monthly and annual Price IDs must belong to the same Stripe mode as `STRIPE_SECRET_KEY`.
+- `STRIPE_BILLING_PORTAL_CONFIGURATION_ID` must identify the test/live portal configuration for the same Stripe account and mode.
 - Checkout creates the fourteen-day trial in code and always collects a payment method.
+- `NEXT_PUBLIC_APP_URL` is required for billing routes and must be HTTPS outside local development.
 - Configure the Stripe customer portal to allow subscription cancellation and payment-method updates.
 - Configure trial-ending and failed-payment notifications in Stripe before launch.
-- Register the webhook endpoint for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`.
-- Test cancellation during trial, automatic conversion, failed first payment, duplicate webhook delivery, and portal return URLs in Stripe test mode.
+- Register the webhook endpoint for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.paused`, `customer.subscription.resumed`, `customer.subscription.trial_will_end`, `invoice.paid`, and `invoice.payment_failed`.
+- Test cancellation during trial, automatic conversion, failed first payment and recovery, duplicate/out-of-order webhook delivery, reconciliation, and portal return URLs in Stripe test mode.
+- Use `pnpm stripe:setup:test` and `pnpm stripe:verify` for safe test-mode resource setup and validation. See `docs/STRIPE_TESTING.md` for the complete local and preview workflow.
 
 ## Variable cleanup backlog
 

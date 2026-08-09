@@ -13,6 +13,8 @@
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "stripe:setup:test": "node scripts/stripe-test.mjs setup",
+    "stripe:verify": "node scripts/stripe-test.mjs verify",
     "clean": "rm -rf .next node_modules/.cache",
     "db:migrate": "cd migrations && for file in *.sql; do echo \"Running $file...\"; psql $DATABASE_URL -f \"$file\"; done"
   },

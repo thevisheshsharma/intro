@@ -13,7 +13,7 @@ export interface UserSession {
     trialEndsAt: string | null
     currentPeriodEnd: string | null
     cancelAtPeriodEnd: boolean
-    stripeCustomerId: string | null
+    canManageBilling: boolean
   }
   isActive: boolean
   trialDaysLeft: number | null

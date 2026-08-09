@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePrivy } from '@privy-io/react-auth'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -11,8 +11,21 @@ import { extractTwitterUsername } from '@/lib/twitter-helpers'
 import type { OnboardingResult } from '@/lib/onboarding-storage'
 import { Button } from '@/components/ui/button'
 import { AlertCircle, RefreshCcw } from 'lucide-react'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import {
+    fetchOnboardingCompletion,
+    startOnboardingAnalysis,
+    TwitterLinkRequiredError,
+} from '@/lib/onboarding-client'
 
-type OnboardingStep = 'connect-twitter' | 'processing' | 'completion-error'
+type OnboardingStep =
+    | 'connect-twitter'
+    | 'starting-analysis'
+    | 'processing'
+    | 'analysis-error'
+    | 'completion-error'
+
+type CompletionCheck = 'checking' | 'ready' | 'error'
 
 export default function OnboardingPage() {
     const { user, ready, authenticated, getAccessToken } = usePrivy()
@@ -22,7 +35,9 @@ export default function OnboardingPage() {
     const [jobId, setJobId] = useState<string | null>(null)
     const [pendingResult, setPendingResult] = useState<OnboardingResult | null>(null)
     const [error, setError] = useState<string | null>(null)
-    const [checkedCompletion, setCheckedCompletion] = useState(false)
+    const [completionCheck, setCompletionCheck] = useState<CompletionCheck>('checking')
+    const [completionCheckAttempt, setCompletionCheckAttempt] = useState(0)
+    const analysisStartedRef = useRef(false)
 
     // Check if user has Twitter linked
     const hasTwitter = user?.linkedAccounts?.some(
@@ -32,76 +47,73 @@ export default function OnboardingPage() {
 
     // Check if onboarding is already complete - redirect to dashboard
     useEffect(() => {
+        if (!ready || !authenticated) return
+
+        let active = true
+
         const checkCompletion = async () => {
-            // The server is authoritative; cookies are only a navigation hint.
-            if (ready && authenticated) {
-                try {
-                    const token = await getAccessToken()
-                    const res = await fetch('/api/user/onboarding-status', {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    })
-                    if (res.ok) {
-                        const data = await res.json()
-                        if (data.completed) {
-                            router.replace('/app')
-                            return
-                        }
-                    }
-                } catch (err) {
-                    console.error('Failed to check onboarding status:', err)
+            setCompletionCheck('checking')
+            setError(null)
+
+            try {
+                const completed = await fetchOnboardingCompletion({ getAccessToken })
+
+                if (!active) return
+
+                if (completed) {
+                    router.replace('/app')
+                    return
                 }
+
+                setCompletionCheck('ready')
+            } catch (err) {
+                if (!active) return
+                console.error('Failed to check onboarding status:', err)
+                setError(err instanceof Error ? err.message : 'We could not check your onboarding status.')
+                setCompletionCheck('error')
+            }
+        }
+
+        checkCompletion()
+
+        return () => {
+            active = false
+        }
+    }, [router, ready, authenticated, getAccessToken, completionCheckAttempt])
+
+    const startAnalysis = useCallback(async () => {
+        if (!twitterUsername || analysisStartedRef.current) return
+
+        analysisStartedRef.current = true
+        setCurrentStep('starting-analysis')
+        setJobId(null)
+        setError(null)
+
+        try {
+            const nextJobId = await startOnboardingAnalysis({ getAccessToken })
+            setJobId(nextJobId)
+            setCurrentStep('processing')
+        } catch (err) {
+            analysisStartedRef.current = false
+
+            if (err instanceof TwitterLinkRequiredError) {
+                setCurrentStep('connect-twitter')
+                return
             }
 
-            setCheckedCompletion(true)
+            console.error('Failed to start analysis:', err)
+            setError(err instanceof Error ? err.message : 'Failed to start analysis')
+            setCurrentStep('analysis-error')
         }
-
-        if (ready) {
-            checkCompletion()
-        }
-    }, [router, ready, authenticated, getAccessToken])
+    }, [twitterUsername, getAccessToken])
 
     // Auto-proceed to processing if Twitter is already linked
     // Only after we've confirmed onboarding isn't already complete
     useEffect(() => {
-        if (checkedCompletion && ready && authenticated && hasTwitter && currentStep === 'connect-twitter') {
+        if (completionCheck === 'ready' && ready && authenticated && hasTwitter && currentStep === 'connect-twitter') {
             startAnalysis()
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [checkedCompletion, ready, authenticated, hasTwitter, currentStep])
-
-    const startAnalysis = useCallback(async () => {
-        if (!twitterUsername) return
-
-        setCurrentStep('processing')
-        setError(null)
-
-        try {
-            const token = await getAccessToken()
-            const response = await fetch('/api/onboarding/analyze', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            })
-
-            const data = await response.json()
-
-            if (!response.ok) {
-                if (data.requiresTwitter) {
-                    setCurrentStep('connect-twitter')
-                    return
-                }
-                throw new Error(data.error || 'Analysis failed')
-            }
-
-            setJobId(data.jobId)
-        } catch (err: any) {
-            console.error('Failed to start analysis:', err)
-            setError(err.message)
-            setCurrentStep('connect-twitter')
-        }
-    }, [twitterUsername, getAccessToken])
+    }, [completionCheck, ready, authenticated, hasTwitter, currentStep, startAnalysis])
 
     const handleTwitterConnected = useCallback(() => {
         // Twitter was just linked, start analysis
@@ -136,8 +148,25 @@ export default function OnboardingPage() {
         router.push('/onboarding/complete')
     }, [getAccessToken, router])
 
-    // Show nothing while checking auth and completion status
-    if (!ready || !checkedCompletion) return null
+    if (!ready || completionCheck === 'checking') {
+        return (
+            <OnboardingScreen>
+                <PendingCard message="Checking your account…" />
+            </OnboardingScreen>
+        )
+    }
+
+    if (completionCheck === 'error') {
+        return (
+            <OnboardingScreen>
+                <StatusCard
+                    title="We couldn't load your onboarding status"
+                    message={error || 'Please check your connection and try again.'}
+                    onRetry={() => setCompletionCheckAttempt((attempt) => attempt + 1)}
+                />
+            </OnboardingScreen>
+        )
+    }
 
     return (
         <div className="min-h-screen flex items-center justify-center px-4 py-12">
@@ -157,6 +186,18 @@ export default function OnboardingPage() {
                     </motion.div>
                 )}
 
+                {currentStep === 'starting-analysis' && (
+                    <motion.div
+                        key="starting-analysis"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        className="w-full max-w-md"
+                    >
+                        <PendingCard message="Starting your network analysis…" />
+                    </motion.div>
+                )}
+
                 {currentStep === 'processing' && jobId && (
                     <motion.div
                         key="processing"
@@ -169,9 +210,26 @@ export default function OnboardingPage() {
                             jobId={jobId}
                             onComplete={completeOnboarding}
                             onError={(err) => {
+                                analysisStartedRef.current = false
                                 setError(err)
-                                setCurrentStep('connect-twitter')
+                                setCurrentStep('analysis-error')
                             }}
+                        />
+                    </motion.div>
+                )}
+
+                {currentStep === 'analysis-error' && (
+                    <motion.div
+                        key="analysis-error"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        className="w-full max-w-md"
+                    >
+                        <StatusCard
+                            title="We couldn't start your analysis"
+                            message={error || 'Please try again.'}
+                            onRetry={startAnalysis}
                         />
                     </motion.div>
                 )}
@@ -204,6 +262,45 @@ export default function OnboardingPage() {
                     </motion.div>
                 )}
             </AnimatePresence>
+        </div>
+    )
+}
+
+function OnboardingScreen({ children }: { children: React.ReactNode }) {
+    return (
+        <div className="flex min-h-screen items-center justify-center px-4 py-12">
+            {children}
+        </div>
+    )
+}
+
+function PendingCard({ message }: { message: string }) {
+    return (
+        <div className="glass-strong w-full max-w-md rounded-3xl p-8 text-center" role="status">
+            <LoadingSpinner className="mx-auto" size="lg" />
+            <p className="mt-5 text-sm font-medium text-gray-600">{message}</p>
+        </div>
+    )
+}
+
+function StatusCard({
+    title,
+    message,
+    onRetry,
+}: {
+    title: string
+    message: string
+    onRetry: () => void
+}) {
+    return (
+        <div className="w-full max-w-md rounded-3xl border border-red-100 bg-white p-8 text-center shadow-sm">
+            <AlertCircle className="mx-auto h-10 w-10 text-red-500" />
+            <h1 className="mt-5 font-heading text-2xl font-bold text-gray-900">{title}</h1>
+            <p className="mt-3 text-sm text-gray-600">{message}</p>
+            <Button onClick={onRetry} variant="brand" size="lg" className="mt-7 rounded-full">
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                Try again
+            </Button>
         </div>
     )
 }

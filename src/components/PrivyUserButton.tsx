@@ -5,6 +5,7 @@ import { usePrivy } from '@privy-io/react-auth'
 import { LogOut, User, Settings, ChevronDown } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface PrivyUserButtonProps {
   showName?: boolean
@@ -13,6 +14,7 @@ interface PrivyUserButtonProps {
 
 export function PrivyUserButton({ showName = false, size = 'md' }: PrivyUserButtonProps) {
   const { user, logout } = usePrivy()
+  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -56,6 +58,7 @@ export function PrivyUserButton({ showName = false, size = 'md' }: PrivyUserButt
   const handleLogout = async () => {
     setIsOpen(false)
     await logout()
+    router.replace('/')
   }
 
   return (

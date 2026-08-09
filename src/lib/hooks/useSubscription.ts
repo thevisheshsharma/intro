@@ -9,7 +9,7 @@ interface SubscriptionData {
   trialEndsAt: string | null
   currentPeriodEnd: string | null
   cancelAtPeriodEnd: boolean
-  stripeCustomerId?: string | null
+  canManageBilling: boolean
 }
 
 interface UseSubscriptionReturn {

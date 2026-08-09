@@ -81,15 +81,15 @@ Known gaps:
 Expected:
 
 1. An authenticated user selects a plan and billing interval.
-2. Stripe Checkout creates or updates the subscription.
-3. Signed, replay-safe webhooks update server subscription state.
+2. Stripe Checkout creates the subscription for the billing account owned by the verified Privy DID.
+3. Signed, replay-safe webhooks retrieve current Stripe state and update the dedicated Neo4j entitlement projection.
 4. APIs enforce the current server-side entitlement.
 5. The billing portal lets the customer manage the subscription.
 
 Known gaps:
 
-- Webhook event idempotency is not recorded.
-- Client feature gates are not matched by consistent server enforcement.
+- Provider-backed checkout, portal, replay/concurrency, and reconciliation journeys still need preview verification.
+- The legacy `User` billing-property read fallback remains until a reviewed migration verifies the dedicated billing projection.
 
 ## Marketed but not complete
 

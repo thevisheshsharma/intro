@@ -398,12 +398,7 @@ async function updateOnboardingStatus(
         AND twitterUser.privyDid IS NULL
         OPTIONAL MATCH (privyUser:User {privyDid: $privyDid})
         RETURN twitterUser.userId as twitterUserId, 
-               privyUser.privyDid as existingPrivyDid,
-               privyUser.plan as privyPlan,
-               privyUser.subscriptionStatus as privyStatus,
-               privyUser.trialStartedAt as trialStartedAt,
-               privyUser.trialEndsAt as trialEndsAt,
-               privyUser.stripeCustomerId as stripeCustomerId
+               privyUser.privyDid as existingPrivyDid
     `
 
     const records = await runQuery(checkQuery, { screenNameLower, privyDid })
@@ -421,11 +416,6 @@ async function updateOnboardingStatus(
                 twitterUser.onboardingCompletedAt = datetime(),
                 twitterUser.vibe = CASE WHEN $vibe IS NOT NULL THEN $vibe ELSE twitterUser.vibe END,
                 twitterUser.department = CASE WHEN $department IS NOT NULL THEN $department ELSE twitterUser.department END,
-                twitterUser.plan = COALESCE($privyPlan, twitterUser.plan),
-                twitterUser.subscriptionStatus = COALESCE($privyStatus, twitterUser.subscriptionStatus),
-                twitterUser.trialStartedAt = CASE WHEN $trialStartedAt IS NOT NULL THEN datetime($trialStartedAt) ELSE twitterUser.trialStartedAt END,
-                twitterUser.trialEndsAt = CASE WHEN $trialEndsAt IS NOT NULL THEN datetime($trialEndsAt) ELSE twitterUser.trialEndsAt END,
-                twitterUser.stripeCustomerId = COALESCE($stripeCustomerId, twitterUser.stripeCustomerId),
                 twitterUser.screenNameLower = $screenNameLower
             
             // Delete the separate Privy-only user if it exists
@@ -441,12 +431,7 @@ async function updateOnboardingStatus(
             screenNameLower,
             privyDid,
             vibe: classification.vibe || 'individual',
-            department: classification.department || null,
-            privyPlan: records[0].privyPlan,
-            privyStatus: records[0].privyStatus,
-            trialStartedAt: records[0].trialStartedAt?.toString() || null,
-            trialEndsAt: records[0].trialEndsAt?.toString() || null,
-            stripeCustomerId: records[0].stripeCustomerId
+            department: classification.department || null
         })
 
         logger.log(`[Onboarding] Successfully merged Privy user into Twitter user for @${twitterUsername}`)

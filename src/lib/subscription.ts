@@ -1,4 +1,12 @@
 import { getDriver } from './neo4j'
+import {
+  ensureBillingAccount,
+  getBillingProjectionByCustomerId,
+  getBillingProjectionByPrivyDid,
+  getExpiringStripeTrials,
+  getLegacyBillingProjection,
+  setStripeCustomerId,
+} from './billing-repository'
 
 // Subscription types
 export type PlanType = 'founder' | 'standard' | 'enterprise' | null
@@ -19,88 +27,32 @@ export interface Subscription {
 
 // Get subscription for a user by Privy DID
 export async function getSubscription(privyDid: string): Promise<Subscription | null> {
-  const driver = await getDriver()
-  const session = driver.session()
-
-  try {
-    const result = await session.run(
-      `
-      MATCH (u:User {privyDid: $privyDid})
-      RETURN u.privyDid as privyDid,
-             u.stripeCustomerId as stripeCustomerId,
-             u.stripeSubscriptionId as stripeSubscriptionId,
-             u.plan as plan,
-             u.subscriptionStatus as status,
-             toString(u.trialStartedAt) as trialStartedAt,
-             toString(u.trialEndsAt) as trialEndsAt,
-             toString(u.currentPeriodEnd) as currentPeriodEnd,
-             u.cancelAtPeriodEnd as cancelAtPeriodEnd
-      `,
-      { privyDid }
-    )
-
-    if (result.records.length === 0) {
-      return null
-    }
-
-    const record = result.records[0]
-    return normalizeStoredSubscription({
-      privyDid: record.get('privyDid'),
-      stripeCustomerId: record.get('stripeCustomerId'),
-      stripeSubscriptionId: record.get('stripeSubscriptionId'),
-      plan: record.get('plan'),
-      status: record.get('status'),
-      trialStartedAt: record.get('trialStartedAt'),
-      trialEndsAt: record.get('trialEndsAt'),
-      currentPeriodEnd: record.get('currentPeriodEnd'),
-      cancelAtPeriodEnd: record.get('cancelAtPeriodEnd') || false,
-    })
-  } finally {
-    await session.close()
+  const projection = await getBillingProjectionByPrivyDid(privyDid)
+  if (projection?.stripeSubscriptionId) {
+    return projection
   }
+
+  const legacy = await getLegacyBillingProjection({ privyDid })
+  if (legacy?.stripeSubscriptionId) {
+    return normalizeStoredSubscription(legacy)
+  }
+
+  return projection ?? (legacy ? normalizeStoredSubscription(legacy) : null)
 }
 
 // Get subscription by Stripe customer ID
 export async function getSubscriptionByCustomerId(stripeCustomerId: string): Promise<Subscription | null> {
-  const driver = await getDriver()
-  const session = driver.session()
-
-  try {
-    const result = await session.run(
-      `
-      MATCH (u:User {stripeCustomerId: $stripeCustomerId})
-      RETURN u.privyDid as privyDid,
-             u.stripeCustomerId as stripeCustomerId,
-             u.stripeSubscriptionId as stripeSubscriptionId,
-             u.plan as plan,
-             u.subscriptionStatus as status,
-             toString(u.trialStartedAt) as trialStartedAt,
-             toString(u.trialEndsAt) as trialEndsAt,
-             toString(u.currentPeriodEnd) as currentPeriodEnd,
-             u.cancelAtPeriodEnd as cancelAtPeriodEnd
-      `,
-      { stripeCustomerId }
-    )
-
-    if (result.records.length === 0) {
-      return null
-    }
-
-    const record = result.records[0]
-    return normalizeStoredSubscription({
-      privyDid: record.get('privyDid'),
-      stripeCustomerId: record.get('stripeCustomerId'),
-      stripeSubscriptionId: record.get('stripeSubscriptionId'),
-      plan: record.get('plan'),
-      status: record.get('status'),
-      trialStartedAt: record.get('trialStartedAt'),
-      trialEndsAt: record.get('trialEndsAt'),
-      currentPeriodEnd: record.get('currentPeriodEnd'),
-      cancelAtPeriodEnd: record.get('cancelAtPeriodEnd') || false,
-    })
-  } finally {
-    await session.close()
+  const projection = await getBillingProjectionByCustomerId(stripeCustomerId)
+  if (projection?.stripeSubscriptionId) {
+    return projection
   }
+
+  const legacy = await getLegacyBillingProjection({ stripeCustomerId })
+  if (legacy?.stripeSubscriptionId) {
+    return normalizeStoredSubscription(legacy)
+  }
+
+  return projection ?? (legacy ? normalizeStoredSubscription(legacy) : null)
 }
 
 // Ensure the application user exists without starting a paid-plan trial.
@@ -110,7 +62,7 @@ export async function ensureUserAccount(privyDid: string, email?: string): Promi
   const session = driver.session()
 
   try {
-    const result = await session.run(
+    await session.run(
       `
       MERGE (u:User {privyDid: $privyDid})
       ON CREATE SET
@@ -119,82 +71,20 @@ export async function ensureUserAccount(privyDid: string, email?: string): Promi
       ON MATCH SET
         u.email = COALESCE(u.email, $email),
         u.updatedAt = datetime()
-      RETURN u.privyDid as privyDid,
-             u.stripeCustomerId as stripeCustomerId,
-             u.stripeSubscriptionId as stripeSubscriptionId,
-             u.plan as plan,
-             u.subscriptionStatus as status,
-             toString(u.trialStartedAt) as trialStartedAt,
-             toString(u.trialEndsAt) as trialEndsAt,
-             toString(u.currentPeriodEnd) as currentPeriodEnd,
-             u.cancelAtPeriodEnd as cancelAtPeriodEnd
+      RETURN u.privyDid AS privyDid
       `,
       {
         privyDid,
         email: email || null,
       }
     )
-
-    const record = result.records[0]
-    return normalizeStoredSubscription({
-      privyDid: record.get('privyDid'),
-      stripeCustomerId: record.get('stripeCustomerId'),
-      stripeSubscriptionId: record.get('stripeSubscriptionId'),
-      plan: record.get('plan'),
-      status: record.get('status'),
-      trialStartedAt: record.get('trialStartedAt'),
-      trialEndsAt: record.get('trialEndsAt'),
-      currentPeriodEnd: record.get('currentPeriodEnd'),
-      cancelAtPeriodEnd: record.get('cancelAtPeriodEnd') || false,
-    })
   } finally {
     await session.close()
   }
-}
 
-// Update subscription from Stripe webhook
-export async function updateSubscriptionFromStripe(
-  stripeCustomerId: string,
-  data: {
-    stripeSubscriptionId?: string
-    plan?: PlanType
-    status?: SubscriptionStatus
-    trialStartedAt?: string | null
-    trialEndsAt?: string | null
-    currentPeriodEnd?: string
-    cancelAtPeriodEnd?: boolean
-  }
-): Promise<void> {
-  const driver = await getDriver()
-  const session = driver.session()
-
-  try {
-    await session.run(
-      `
-      MATCH (u:User {stripeCustomerId: $stripeCustomerId})
-      SET u.stripeSubscriptionId = COALESCE($stripeSubscriptionId, u.stripeSubscriptionId),
-          u.plan = COALESCE($plan, u.plan),
-          u.subscriptionStatus = COALESCE($status, u.subscriptionStatus),
-          u.trialStartedAt = CASE WHEN $trialStartedAt IS NOT NULL THEN datetime($trialStartedAt) ELSE u.trialStartedAt END,
-          u.trialEndsAt = CASE WHEN $trialEndsAt IS NOT NULL THEN datetime($trialEndsAt) ELSE u.trialEndsAt END,
-          u.currentPeriodEnd = CASE WHEN $currentPeriodEnd IS NOT NULL THEN datetime($currentPeriodEnd) ELSE u.currentPeriodEnd END,
-          u.cancelAtPeriodEnd = COALESCE($cancelAtPeriodEnd, u.cancelAtPeriodEnd),
-          u.updatedAt = datetime()
-      `,
-      {
-        stripeCustomerId,
-        stripeSubscriptionId: data.stripeSubscriptionId || null,
-        plan: data.plan || null,
-        status: data.status || null,
-        trialStartedAt: data.trialStartedAt || null,
-        trialEndsAt: data.trialEndsAt || null,
-        currentPeriodEnd: data.currentPeriodEnd || null,
-        cancelAtPeriodEnd: data.cancelAtPeriodEnd ?? null,
-      }
-    )
-  } finally {
-    await session.close()
-  }
+  await ensureBillingAccount(privyDid)
+  const subscription = await getSubscription(privyDid)
+  return subscription ?? emptySubscription(privyDid)
 }
 
 function normalizeStoredSubscription(subscription: Subscription): Subscription {
@@ -217,72 +107,27 @@ function normalizeStoredSubscription(subscription: Subscription): Subscription {
 
 // Link Stripe customer to user
 export async function linkStripeCustomer(privyDid: string, stripeCustomerId: string): Promise<void> {
-  const driver = await getDriver()
-  const session = driver.session()
-
-  try {
-    await session.run(
-      `
-      MATCH (u:User {privyDid: $privyDid})
-      SET u.stripeCustomerId = $stripeCustomerId,
-          u.updatedAt = datetime()
-      `,
-      { privyDid, stripeCustomerId }
-    )
-  } finally {
-    await session.close()
-  }
-}
-
-// Expire trials that have ended
-export async function expireTrials(): Promise<number> {
-  const driver = await getDriver()
-  const session = driver.session()
-
-  try {
-    const result = await session.run(
-      `
-      MATCH (u:User)
-      WHERE u.subscriptionStatus = 'trialing'
-        AND u.trialEndsAt < datetime()
-      SET u.subscriptionStatus = 'expired',
-          u.updatedAt = datetime()
-      RETURN count(u) as expired
-      `
-    )
-
-    return result.records[0]?.get('expired')?.toNumber() || 0
-  } finally {
-    await session.close()
-  }
+  await setStripeCustomerId(privyDid, stripeCustomerId)
 }
 
 // Get users with expiring trials (for reminder emails)
-export async function getExpiringTrials(daysLeft: number = 3): Promise<{ privyDid: string; email: string | null; trialEndsAt: string }[]> {
-  const driver = await getDriver()
-  const session = driver.session()
+export async function getExpiringTrials(
+  daysLeft: number = 3
+): Promise<Array<{ privyDid: string; trialEndsAt: string }>> {
+  return getExpiringStripeTrials(daysLeft)
+}
 
-  try {
-    const result = await session.run(
-      `
-      MATCH (u:User)
-      WHERE u.subscriptionStatus = 'trialing'
-        AND u.trialEndsAt < datetime() + duration({days: $daysLeft})
-        AND u.trialEndsAt > datetime()
-      RETURN u.privyDid as privyDid,
-             u.email as email,
-             toString(u.trialEndsAt) as trialEndsAt
-      `,
-      { daysLeft }
-    )
-
-    return result.records.map(record => ({
-      privyDid: record.get('privyDid'),
-      email: record.get('email'),
-      trialEndsAt: record.get('trialEndsAt'),
-    }))
-  } finally {
-    await session.close()
+function emptySubscription(privyDid: string): Subscription {
+  return {
+    privyDid,
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
+    plan: null,
+    status: null,
+    trialStartedAt: null,
+    trialEndsAt: null,
+    currentPeriodEnd: null,
+    cancelAtPeriodEnd: false,
   }
 }
 
