@@ -37,7 +37,9 @@ Use Playwright for:
 7. Portal cancellation preserves access to trial end, displays the no-charge state, and then returns to Explorer.
 8. Pathfinder success, no-path, provider-failure, and rate-limit states.
 
-Until the mocked provider journey exists, manually verify steps 2–7 in an isolated preview environment using a development Privy app, Stripe test mode, a disposable Neo4j database, and a test X account. Confirm the Stripe subscription—not account creation or onboarding—owns `trial_start` and `trial_end`. Replay each webhook once to verify idempotency. Never run this journey against production without explicit authorization.
+Until the mocked provider journey exists, manually verify steps 2–7 in an isolated preview environment using a development Privy app, Stripe test mode, a disposable Neo4j database, and a test X account. Confirm the Stripe subscription—not account creation, onboarding, or cron time—owns `trial_start`, `trial_end`, and lifecycle status. Replay each webhook, deliver an older event after a newer event, and invoke reconciliation to verify idempotency and ordering. Confirm billing remains attached to the Privy DID if the X identity is merged. Never run this journey against production without explicit authorization.
+
+Follow `docs/STRIPE_TESTING.md` to create test-mode Founder prices, configure signed local or preview webhooks, validate the portal configuration, and execute the manual customer journey without exposing credentials.
 
 ### Security and dependency checks
 

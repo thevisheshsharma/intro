@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyPrivyToken } from '@/lib/privy'
-import { stripe } from '@/lib/stripe'
+import { getAppUrl, stripe } from '@/lib/stripe'
 import { getSubscription } from '@/lib/subscription'
 
 // POST: Create Stripe customer portal session
@@ -21,9 +21,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const portalConfigurationId = process.env.STRIPE_BILLING_PORTAL_CONFIGURATION_ID
+    if (!portalConfigurationId) {
+      return NextResponse.json(
+        { error: 'Billing portal is not configured.' },
+        { status: 503 }
+      )
+    }
+
     const session = await stripe.billingPortal.sessions.create({
       customer: subscription.stripeCustomerId,
-      return_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/app/settings/billing`,
+      configuration: portalConfigurationId,
+      return_url: `${getAppUrl()}/app/settings/billing`,
     })
 
     return NextResponse.json({ url: session.url })

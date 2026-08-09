@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/cron/expire-trials",
+      "path": "/api/cron/reconcile-subscriptions",
       "schedule": "0 0 * * *"
     }
   ]

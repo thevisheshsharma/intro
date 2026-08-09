@@ -2,7 +2,7 @@
 
 ## Current platform
 
-The application is deployed through Vercel. `vercel.json` currently schedules only `/api/cron/expire-trials` at midnight daily.
+The application is deployed through Vercel. `vercel.json` currently schedules only `/api/cron/reconcile-subscriptions` at midnight daily. This route refreshes a bounded set of local entitlement projections from Stripe; it does not independently expire trials.
 
 The repository now defines CI for frozen install, lint, type-check, unit/security coverage, production build, dependency audit, and secret scanning. Preview smoke tests, monitoring, a promotion policy, and a rollback runbook remain incomplete. This document describes the required operating model and calls out remaining gaps.
 
@@ -29,6 +29,7 @@ Before production promotion:
 
 - Cron routes must fail closed when `CRON_SECRET` is missing.
 - Every scheduled route must be declared in deployment configuration or explicitly documented as externally scheduled.
+- `/api/cron/reconcile-subscriptions` must use Stripe test mode and an isolated Neo4j database in previews. Production execution requires the approved live configuration and schema rollout.
 - `/api/cron/llama-sync` is currently not scheduled in `vercel.json`.
 - Long-running onboarding or synchronization should move to a durable job system with ownership, retries, idempotency, and observability.
 

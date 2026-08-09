@@ -23,5 +23,5 @@ Create `NNNN-short-title.md` with:
 3. Durable onboarding and synchronization job system.
 4. Neo4j schema migration and rollback strategy.
 5. xAI and SocialAPI adapter, budget, retry, and caching policy.
-6. Stripe webhook event ledger and idempotency policy.
+6. Stripe webhook event ledger and idempotency policy. See `0002-stripe-billing-projection.md`.
 7. Logging, telemetry, PII classification, and retention.

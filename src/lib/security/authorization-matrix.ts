@@ -11,7 +11,7 @@ export type ApiAccessClass =
 export const API_AUTHORIZATION_MATRIX = {
   'src/app/api/admin/cleanup-duplicates/route.ts': 'admin',
   'src/app/api/admin/llama-sync/route.ts': 'admin',
-  'src/app/api/cron/expire-trials/route.ts': 'cron',
+  'src/app/api/cron/reconcile-subscriptions/route.ts': 'cron',
   'src/app/api/cron/llama-sync/route.ts': 'cron',
   'src/app/api/find-from-org/route.ts': 'people-intel',
   'src/app/api/find-mutuals/route.ts': 'pathfinder',

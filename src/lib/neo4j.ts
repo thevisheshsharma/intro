@@ -164,6 +164,21 @@ export async function initializeSchema(): Promise<void> {
     `)
 
     await session.run(`
+      CREATE CONSTRAINT billing_account_privy_did_unique IF NOT EXISTS
+      FOR (account:BillingAccount) REQUIRE account.privyDid IS UNIQUE
+    `)
+
+    await session.run(`
+      CREATE CONSTRAINT billing_account_stripe_customer_id_unique IF NOT EXISTS
+      FOR (account:BillingAccount) REQUIRE account.stripeCustomerId IS UNIQUE
+    `)
+
+    await session.run(`
+      CREATE CONSTRAINT stripe_subscription_id_unique IF NOT EXISTS
+      FOR (subscription:StripeSubscription) REQUIRE subscription.stripeSubscriptionId IS UNIQUE
+    `)
+
+    await session.run(`
       CREATE CONSTRAINT api_rate_limit_key_unique IF NOT EXISTS
       FOR (rateLimit:ApiRateLimit) REQUIRE rateLimit.key IS UNIQUE
     `)
@@ -331,11 +346,6 @@ export async function mergePrivyUsers(): Promise<{ merged: number; deleted: numb
     RETURN 
       privyUser.privyDid as privyDid,
       privyUser.screenName as screenName,
-      privyUser.plan as plan,
-      privyUser.subscriptionStatus as subscriptionStatus,
-      privyUser.trialStartedAt as trialStartedAt,
-      privyUser.trialEndsAt as trialEndsAt,
-      privyUser.stripeCustomerId as stripeCustomerId,
       privyUser.onboardingCompletedAt as onboardingCompletedAt,
       twitterUser.userId as twitterUserId
   `
@@ -343,11 +353,6 @@ export async function mergePrivyUsers(): Promise<{ merged: number; deleted: numb
   const matches = await runQuery<{
     privyDid: string
     screenName: string
-    plan: string | null
-    subscriptionStatus: string | null
-    trialStartedAt: any
-    trialEndsAt: any
-    stripeCustomerId: string | null
     onboardingCompletedAt: any
     twitterUserId: string
   }>(findQuery, {})
@@ -373,11 +378,6 @@ export async function mergePrivyUsers(): Promise<{ merged: number; deleted: numb
       
       // Transfer Privy properties to Twitter user
       SET twitterUser.privyDid = $privyDid,
-          twitterUser.plan = COALESCE($plan, twitterUser.plan),
-          twitterUser.subscriptionStatus = COALESCE($subscriptionStatus, twitterUser.subscriptionStatus),
-          twitterUser.trialStartedAt = CASE WHEN $trialStartedAt IS NOT NULL THEN $trialStartedAt ELSE twitterUser.trialStartedAt END,
-          twitterUser.trialEndsAt = CASE WHEN $trialEndsAt IS NOT NULL THEN $trialEndsAt ELSE twitterUser.trialEndsAt END,
-          twitterUser.stripeCustomerId = COALESCE($stripeCustomerId, twitterUser.stripeCustomerId),
           twitterUser.onboardingCompletedAt = COALESCE($onboardingCompletedAt, twitterUser.onboardingCompletedAt),
           twitterUser.onboardingCompleted = true
       
@@ -394,11 +394,6 @@ export async function mergePrivyUsers(): Promise<{ merged: number; deleted: numb
       await runQuery(mergeQuery, {
         twitterUserId: match.twitterUserId,
         privyDid: match.privyDid,
-        plan: match.plan,
-        subscriptionStatus: match.subscriptionStatus,
-        trialStartedAt: match.trialStartedAt,
-        trialEndsAt: match.trialEndsAt,
-        stripeCustomerId: match.stripeCustomerId,
         onboardingCompletedAt: match.onboardingCompletedAt
       })
       merged++

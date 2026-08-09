@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
         trialEndsAt: subscription.trialEndsAt,
         currentPeriodEnd: subscription.currentPeriodEnd,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-        stripeCustomerId: subscription.stripeCustomerId,
+        canManageBilling: Boolean(subscription.stripeCustomerId),
       },
       isActive: isSubscriptionActive(subscription),
       trialDaysLeft: getTrialDaysLeft(subscription),

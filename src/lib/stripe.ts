@@ -21,6 +21,22 @@ export const stripe = new Proxy({} as Stripe, {
   },
 })
 
+export function getAppUrl(): string {
+  const configuredUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (!configuredUrl) {
+    throw new Error('NEXT_PUBLIC_APP_URL is not set')
+  }
+
+  const url = new URL(configuredUrl)
+  const isLocalHttp = url.protocol === 'http:' &&
+    (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+  if (url.protocol !== 'https:' && !isLocalHttp) {
+    throw new Error('NEXT_PUBLIC_APP_URL must use HTTPS outside local development')
+  }
+
+  return url.origin
+}
+
 // Price IDs for subscription plans
 export const PRICE_IDS = {
   founder: {
@@ -54,13 +70,13 @@ export function mapStripeStatus(
     case 'active':
       return 'active'
     case 'past_due':
+    case 'unpaid':
+    case 'paused':
       return 'past_due'
     case 'canceled':
-    case 'unpaid':
       return 'canceled'
     case 'incomplete':
     case 'incomplete_expired':
-    case 'paused':
     default:
       return 'expired'
   }

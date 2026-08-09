@@ -9,6 +9,7 @@ export interface StripeEventClaim {
 export async function claimStripeEvent(
   eventId: string,
   eventType: string,
+  stripeEventCreated: number,
   now: Date = new Date()
 ): Promise<StripeEventClaim> {
   const claimToken = randomUUID()
@@ -22,6 +23,7 @@ export async function claimStripeEvent(
          OR (event.status = 'processing' AND event.claimedAt < datetime($staleBefore))
       SET event.status = 'processing',
           event.eventType = $eventType,
+          event.stripeEventCreated = $stripeEventCreated,
           event.claimToken = $claimToken,
           event.claimedAt = datetime($now),
           event.attempts = coalesce(event.attempts, 0) + 1
@@ -30,6 +32,7 @@ export async function claimStripeEvent(
     {
       eventId,
       eventType,
+      stripeEventCreated,
       claimToken,
       now: now.toISOString(),
       staleBefore: staleBefore.toISOString(),

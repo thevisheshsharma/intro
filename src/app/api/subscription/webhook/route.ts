@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe, getPlanFromPriceId, mapStripeStatus } from '@/lib/stripe'
-import {
-  getSubscriptionByCustomerId,
-  updateSubscriptionFromStripe,
-  linkStripeCustomer,
-} from '@/lib/subscription'
+import { stripe } from '@/lib/stripe'
+import { linkStripeCustomer } from '@/lib/subscription'
 import Stripe from 'stripe'
 import {
   claimStripeEvent,
@@ -12,6 +8,10 @@ import {
   failStripeEvent,
 } from '@/lib/stripe-webhook-ledger'
 import { createSafeRouteLogger } from '@/lib/safe-logger'
+import {
+  getInvoiceSubscriptionId,
+  syncStripeSubscription,
+} from '@/lib/stripe-subscription-sync'
 
 const logger = createSafeRouteLogger('stripe-webhook')
 
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
-  const claim = await claimStripeEvent(event.id, event.type)
+  const claim = await claimStripeEvent(event.id, event.type, event.created)
   if (!claim.claimed || !claim.claimToken) {
     return NextResponse.json({ received: true, duplicate: true })
   }
@@ -56,26 +56,42 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
-        await handleCheckoutCompleted(session)
+        if (session.mode !== 'subscription') break
+
+        const subscriptionId = getObjectId(session.subscription)
+        const customerId = getObjectId(session.customer)
+        const privyDid = session.metadata?.privyDid
+        if (!subscriptionId || !customerId || !privyDid) {
+          throw new Error('Stripe checkout is missing billing ownership metadata')
+        }
+
+        await linkStripeCustomer(privyDid, customerId)
+        await syncStripeSubscription(subscriptionId, event.created, privyDid)
         break
       }
 
       case 'customer.subscription.created':
-      case 'customer.subscription.updated': {
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted':
+      case 'customer.subscription.paused':
+      case 'customer.subscription.resumed':
+      case 'customer.subscription.trial_will_end': {
         const subscription = event.data.object as Stripe.Subscription
-        await handleSubscriptionUpdated(subscription)
+        await syncStripeSubscription(
+          subscription.id,
+          event.created,
+          subscription.metadata?.privyDid
+        )
         break
       }
 
-      case 'customer.subscription.deleted': {
-        const subscription = event.data.object as Stripe.Subscription
-        await handleSubscriptionDeleted(subscription)
-        break
-      }
-
+      case 'invoice.paid':
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice
-        await handlePaymentFailed(invoice)
+        const subscriptionId = getInvoiceSubscriptionId(invoice)
+        if (subscriptionId) {
+          await syncStripeSubscription(subscriptionId, event.created)
+        }
         break
       }
 
@@ -95,115 +111,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-  logger.log('Processing checkout.session.completed:', session.id)
-
-  if (session.mode !== 'subscription') {
-    logger.log('Not a subscription checkout, skipping')
-    return
-  }
-
-  const customerId = session.customer as string
-  const subscriptionId = session.subscription as string
-
-  if (!customerId || !subscriptionId) {
-    logger.error('Missing customer or subscription ID')
-    return
-  }
-
-  // Get the subscription details
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId) as Stripe.Subscription
-  const firstItem = subscription.items.data[0]
-  const priceId = firstItem?.price.id
-  const plan = getPlanFromPriceId(priceId)
-  if (!plan) {
-    throw new Error('Stripe subscription uses an unknown price')
-  }
-
-  // Link Privy user to Stripe customer if metadata exists
-  const privyDid = session.metadata?.privyDid || subscription.metadata?.privyDid
-  if (privyDid) {
-    await linkStripeCustomer(privyDid, customerId)
-  }
-
-  // Get current period end from the first subscription item (Stripe v20+)
-  const currentPeriodEnd = firstItem?.current_period_end
-    ? new Date(firstItem.current_period_end * 1000).toISOString()
-    : undefined
-
-  // Update subscription in Neo4j
-  await updateSubscriptionFromStripe(customerId, {
-    stripeSubscriptionId: subscriptionId,
-    plan,
-    status: mapStripeStatus(subscription.status),
-    trialStartedAt: toIsoDate(subscription.trial_start),
-    trialEndsAt: toIsoDate(subscription.trial_end),
-    currentPeriodEnd,
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
-  })
-
-  logger.log(`Subscription activated for customer ${customerId}`)
-}
-
-async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  logger.log('Processing subscription update:', subscription.id)
-
-  const customerId = subscription.customer as string
-  const firstItem = subscription.items.data[0]
-  const priceId = firstItem?.price.id
-  const plan = getPlanFromPriceId(priceId)
-  if (!plan) {
-    throw new Error('Stripe subscription uses an unknown price')
-  }
-
-  // Get current period end from the first subscription item (Stripe v20+)
-  const currentPeriodEnd = firstItem?.current_period_end
-    ? new Date(firstItem.current_period_end * 1000).toISOString()
-    : undefined
-
-  await updateSubscriptionFromStripe(customerId, {
-    stripeSubscriptionId: subscription.id,
-    plan,
-    status: mapStripeStatus(subscription.status),
-    trialStartedAt: toIsoDate(subscription.trial_start),
-    trialEndsAt: toIsoDate(subscription.trial_end),
-    currentPeriodEnd,
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
-  })
-
-  logger.log(`Subscription updated for customer ${customerId}`)
-}
-
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  logger.log('Processing subscription deletion:', subscription.id)
-
-  const customerId = subscription.customer as string
-
-  await updateSubscriptionFromStripe(customerId, {
-    status: 'canceled',
-    cancelAtPeriodEnd: false,
-  })
-
-  logger.log(`Subscription canceled for customer ${customerId}`)
-}
-
-async function handlePaymentFailed(invoice: Stripe.Invoice) {
-  logger.log('Processing payment failure:', invoice.id)
-
-  const customerId = invoice.customer as string
-
-  if (!customerId) {
-    logger.error('No customer ID in invoice')
-    return
-  }
-
-  await updateSubscriptionFromStripe(customerId, {
-    status: 'past_due',
-  })
-
-  logger.log(`Payment failed for customer ${customerId}`)
-}
-
-function toIsoDate(timestamp: number | null): string | null {
-  return timestamp ? new Date(timestamp * 1000).toISOString() : null
+function getObjectId(value: string | { id: string } | null): string | null {
+  if (!value) return null
+  return typeof value === 'string' ? value : value.id
 }

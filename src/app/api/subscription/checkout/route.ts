@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createHash } from 'node:crypto'
 import { verifyPrivyToken } from '@/lib/privy'
-import { stripe, PRICE_IDS } from '@/lib/stripe'
+import { getAppUrl, stripe, PRICE_IDS } from '@/lib/stripe'
 import { ensureUserAccount, linkStripeCustomer } from '@/lib/subscription'
 import { STRIPE_TRIAL_DAYS } from '@/lib/commercial'
 import { z } from 'zod'
@@ -41,10 +42,14 @@ export async function POST(request: NextRequest) {
     const subscription = await ensureUserAccount(userId)
     if (
       subscription.stripeSubscriptionId &&
-      (subscription.status === 'active' || subscription.status === 'trialing')
+      (
+        subscription.status === 'active' ||
+        subscription.status === 'trialing' ||
+        subscription.status === 'past_due'
+      )
     ) {
       return NextResponse.json(
-        { error: 'You already have an active subscription. Manage it from Billing.' },
+        { error: 'You already have a subscription. Manage it from Billing.' },
         { status: 409 }
       )
     }
@@ -53,16 +58,19 @@ export async function POST(request: NextRequest) {
 
     // Create or get Stripe customer
     if (!customerId) {
-      const customer = await stripe.customers.create({
-        metadata: {
-          privyDid: userId,
+      const customer = await stripe.customers.create(
+        {
+          metadata: {
+            privyDid: userId,
+          },
         },
-      })
+        { idempotencyKey: stripeIdempotencyKey('customer', userId) }
+      )
       customerId = customer.id
       await linkStripeCustomer(userId, customerId)
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const appUrl = getAppUrl()
     const cancelPath = source === 'onboarding'
       ? '/onboarding/complete?checkout=canceled'
       : source === 'billing'
@@ -71,38 +79,46 @@ export async function POST(request: NextRequest) {
 
     // Create a card-required trial. Stripe owns the trial dates and converts
     // the subscription automatically at the end unless the user cancels.
-    const session = await stripe.checkout.sessions.create({
-      customer: customerId,
-      mode: 'subscription',
-      payment_method_types: ['card'],
-      payment_method_collection: 'always',
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      success_url: `${appUrl}/app/settings/billing?checkout=trial-started`,
-      cancel_url: `${appUrl}${cancelPath}`,
-      metadata: {
-        privyDid: userId,
-        plan,
-        source,
-      },
-      subscription_data: {
-        trial_period_days: STRIPE_TRIAL_DAYS,
-        trial_settings: {
-          end_behavior: {
-            missing_payment_method: 'cancel',
+    const session = await stripe.checkout.sessions.create(
+      {
+        customer: customerId,
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        payment_method_collection: 'always',
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
           },
-        },
+        ],
+        success_url: `${appUrl}/app/settings/billing?checkout=trial-started`,
+        cancel_url: `${appUrl}${cancelPath}`,
         metadata: {
           privyDid: userId,
           plan,
+          source,
         },
+        subscription_data: {
+          trial_period_days: STRIPE_TRIAL_DAYS,
+          trial_settings: {
+            end_behavior: {
+              missing_payment_method: 'cancel',
+            },
+          },
+          metadata: {
+            privyDid: userId,
+            plan,
+          },
+        },
+        allow_promotion_codes: true,
       },
-      allow_promotion_codes: true,
-    })
+      {
+        idempotencyKey: stripeIdempotencyKey(
+          'checkout',
+          `${userId}:${plan}:${interval}:${subscription.stripeSubscriptionId ?? 'none'}:${subscription.status ?? 'none'}`
+        ),
+      }
+    )
 
     return NextResponse.json({ url: session.url })
   } catch (error: any) {
@@ -115,4 +131,9 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+function stripeIdempotencyKey(scope: string, value: string): string {
+  const digest = createHash('sha256').update(value).digest('hex')
+  return `berri-${scope}-${digest}`
 }

@@ -13,7 +13,7 @@ This document describes the current system and the intended boundaries for stabi
 3. Next.js route handlers call domain services.
 4. SocialAPI supplies X/Twitter profiles, followers, and following lists.
 5. xAI/Grok classifies profiles and synthesizes organization/ICP information.
-6. Neo4j stores identities, organizations, relationships, subscriptions, and onboarding-job state.
+6. Neo4j stores identities, organizations, relationships, onboarding-job state, and a Stripe-derived entitlement projection on dedicated billing nodes.
 7. Stripe manages checkout, subscriptions, the customer portal, and webhook events.
 8. Vercel hosts the application and invokes configured cron routes.
 
@@ -63,6 +63,8 @@ This is a migration direction, not permission for a broad rewrite. Extract one t
 ## Data-model concerns
 
 Current Neo4j code uses `User` for multiple concepts. Before significant graph changes, define whether the durable model uses separate labels such as `AppUser`, `Person`, and `Organization`, how social handles are normalized, and which identifier owns subscriptions and onboarding state.
+
+Billing is isolated from that unresolved identity model: `BillingAccount` is keyed by verified Privy DID, owns the Stripe customer ID, and points to the current `StripeSubscription` entitlement projection. Social identity merges must never transfer billing properties.
 
 Any migration must be backward-compatible, observable, and reversible. Record the decision in an ADR before implementation.
 

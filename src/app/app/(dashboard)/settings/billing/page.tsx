@@ -163,7 +163,7 @@ export default function BillingPage() {
                 {isActive && !isTrialing ? 'Change Plan' : 'View Plans'}
               </Button>
             </Link>
-            {subscription?.stripeCustomerId && subscription.plan && (
+            {subscription?.canManageBilling && subscription.plan && (
               <Button
                 variant="outline"
                 className="rounded-full"
@@ -188,7 +188,7 @@ export default function BillingPage() {
         </div>
 
         {/* Billing Details */}
-        {subscription?.stripeCustomerId && subscription?.currentPeriodEnd && (
+        {subscription?.canManageBilling && subscription?.currentPeriodEnd && (
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Billing Details</h2>
             <div className="space-y-4">
