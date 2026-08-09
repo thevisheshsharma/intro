@@ -7,10 +7,11 @@ import { runQuery } from '@/services'
 import { analysisJobs, type OnboardingResult, type OrgInfo } from '@/lib/onboarding-storage'
 import { COST_BEARING_RATE_LIMITS, requireUserAccess } from '@/lib/security/api-access'
 import { createSafeRouteLogger } from '@/lib/safe-logger'
+import { ICP_CACHE_DAYS } from '@/lib/icp-schema'
 
 const logger = createSafeRouteLogger('onboarding-analysis')
 
-export const maxDuration = 60 // Allow up to 60 seconds for analysis
+export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
     try {
@@ -184,14 +185,11 @@ async function runAnalysis(
         await updateJob(jobId, 'processing', 'checking_relationships', 70)
         const { invested_in, partners_with, missingIcp } = await fetchIcpRelationships(Array.from(allOrgScreenNames))
 
-        // Step 6: Queue ICP analysis for missing orgs (background, non-blocking)
+        // Step 6: Run ICP work inside the request's waitUntil-owned promise.
         const orgsNeedingIcp = missingIcp
         if (orgsNeedingIcp.length > 0) {
             logger.log(`[Onboarding] Queuing ICP analysis for ${orgsNeedingIcp.length} orgs`)
-            // Fire and forget - don't block onboarding
-            queueIcpAnalysis(orgsNeedingIcp, privyDid).catch(err => {
-                logger.error('[Onboarding] Background ICP analysis error:', err)
-            })
+            await queueIcpAnalysis(orgsNeedingIcp)
         }
 
         // Step 7: Update Neo4j with onboarding status
@@ -271,7 +269,6 @@ async function fetchIcpRelationships(
 
     if (orgScreenNames.length === 0) return result
 
-    const ICP_STALE_DAYS = 90
 
     try {
         // Query Neo4j for ICP data from the orgs, including last updated timestamp
@@ -316,9 +313,9 @@ async function fetchIcpRelationships(
             result.invested_in = mapOrgs(record.allInvestedOrgs || [])
             result.partners_with = mapOrgs(record.allPartnerOrgs || [])
 
-            // Check which orgs need ICP analysis (missing or stale > 90 days)
+            // Check which orgs need ICP analysis (missing or stale after the canonical cache window)
             const now = new Date()
-            const staleThreshold = new Date(now.getTime() - ICP_STALE_DAYS * 24 * 60 * 60 * 1000)
+            const staleThreshold = new Date(now.getTime() - ICP_CACHE_DAYS * 24 * 60 * 60 * 1000)
 
             const orgStatuses = record.orgStatuses || []
             result.missingIcp = orgStatuses
@@ -330,7 +327,7 @@ async function fetchIcpRelationships(
                     if (!updatedAt) return true // No timestamp, consider stale
 
                     const updateDate = new Date(updatedAt)
-                    return updateDate < staleThreshold // Stale if older than 90 days
+                    return updateDate < staleThreshold
                 })
                 .map((status: any) => status.orgName)
 
@@ -349,18 +346,15 @@ async function fetchIcpRelationships(
     return result
 }
 
-async function queueIcpAnalysis(orgScreenNames: string[], requesterPrivyDid: string) {
+async function queueIcpAnalysis(orgScreenNames: string[]) {
     const analyzeOrg = async (screenName: string) => {
         try {
             logger.log(`[Onboarding] Starting background ICP analysis for @${screenName}`)
 
-            const { createStructuredICPAnalysis, ICPAnalysisConfig } = await import('@/lib/grok')
+            const { createStructuredICPAnalysis } = await import('@/lib/grok')
             const { processICPRelationships } = await import('@/services')
 
-            const icpAnalysis = await createStructuredICPAnalysis(
-                screenName,
-                ICPAnalysisConfig.FULL
-            )
+            const icpAnalysis = await createStructuredICPAnalysis(screenName)
 
             if (icpAnalysis) {
                 await processICPRelationships(screenName, {

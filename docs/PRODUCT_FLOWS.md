@@ -69,7 +69,7 @@ Expected:
 
 1. An entitled user selects an organization.
 2. Existing company intelligence is read under an explicit access policy.
-3. Authorized analysis updates ICP data with provenance and timestamps.
+3. Authorized analysis uses current Web/X research and replaces the canonical flat ICP snapshot with a timestamp.
 
 Known gaps:
 

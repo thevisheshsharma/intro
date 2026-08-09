@@ -1679,7 +1679,13 @@ export const EnhancedICPDisplay = React.memo(({ icp, onEdit, editable = false }:
         <DetailedSection title="NFT & Digital Assets" icon={ImageIcon} iconColor="text-purple-400">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             {comprehensiveData.category && (
-              <InfoCard label="Category" value={comprehensiveData.category} highlight={true} />
+              <InfoCard
+                label="Category"
+                value={Array.isArray(comprehensiveData.category)
+                  ? comprehensiveData.category.join(', ')
+                  : comprehensiveData.category}
+                highlight={true}
+              />
             )}
             {comprehensiveData.collection_size && (
               <MetricCard label="Collection Size" value={comprehensiveData.collection_size} suffix=" NFTs" icon={Hash} color="text-purple-400" />

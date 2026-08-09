@@ -1,6 +1,7 @@
 import { runQuery, runBatchQuery, runQueryWithoutRetry } from '@/lib/neo4j'
 import { validateVibe, logValidationError } from '@/lib/validation'
 import { fetchUserFromSocialAPI } from '@/lib/socialapi-pagination'
+import { mapWithConcurrency } from '@/lib/async-map'
 
 // Optimal batch sizes for different operations (performance optimized)
 const OPTIMAL_BATCH_SIZES = {
@@ -33,7 +34,7 @@ export interface Neo4jUser {
   profileBannerUrl?: string    // profile_banner_url - Banner image URL
   verificationType?: string    // verification_info.type - Business/Personal
   verificationReason?: string  // verification_info.reason - Verification reason
-  vibe?: string               // Primary entity classification: 'individual', 'organization', 'spam'
+  vibe?: string               // Primary entity classification: individual, organization, spam, or unknown
   department?: string         // current department/role from flattened employment data
   // Organization classification fields (can be null for individuals/spam accounts)
   orgType?: string            // Organization type: protocol, infrastructure, exchange, investment, service, community, nft
@@ -2603,7 +2604,6 @@ export async function addFollowsRelationships(relationships: Array<{ followerUse
 
   // Process batches in parallel groups
   let successCount = 0
-
   for (let i = 0; i < uniqueRelationships.length; i += batchSize * parallelBatches) {
     const batchPromises: Promise<number>[] = []
 
@@ -2831,7 +2831,7 @@ export function transformToNeo4jOrganization(apiUser: TwitterApiUser): Neo4jUser
 }
 
 // Create multiple WORKS_AT relationships in batch with parallel processing
-export async function addWorksAtRelationships(relationships: Array<{ userScreenName: string, orgScreenName: string }>): Promise<void> {
+export async function addWorksAtRelationships(relationships: Array<{ userScreenName: string, orgScreenName: string, source?: string, observedAt?: string, status?: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   // Deduplicate relationships based on screenNames
@@ -2843,9 +2843,6 @@ export async function addWorksAtRelationships(relationships: Array<{ userScreenN
 
   const batchSize = OPTIMAL_BATCH_SIZES.RELATIONSHIP_BATCH
   const parallelBatches = OPTIMAL_BATCH_SIZES.PARALLEL_BATCHES
-  const totalBatches = Math.ceil(uniqueRelationships.length / batchSize)
-
-  console.log(`📝 Adding ${uniqueRelationships.length} WORKS_AT relationships in ${totalBatches} batches (${parallelBatches} parallel)...`)
 
   const query = `
     UNWIND $relationships AS rel
@@ -2853,39 +2850,33 @@ export async function addWorksAtRelationships(relationships: Array<{ userScreenN
     WHERE toLower(u.screenName) = toLower(rel.userScreenName)
     MATCH (o:User)
     WHERE toLower(o.screenName) = toLower(rel.orgScreenName)
-    MERGE (u)-[:WORKS_AT]->(o)
+    MERGE (u)-[r:WORKS_AT]->(o)
+    ON CREATE SET r.source = coalesce(rel.source, 'x_bio'),
+                  r.observedAt = coalesce(rel.observedAt, toString(datetime())),
+                  r.status = coalesce(rel.status, 'inferred')
+    ON MATCH SET r.source = CASE WHEN r.status = 'user_confirmed' THEN r.source ELSE coalesce(rel.source, r.source, 'x_bio') END,
+                 r.observedAt = CASE WHEN r.status = 'user_confirmed' THEN r.observedAt ELSE coalesce(rel.observedAt, r.observedAt, toString(datetime())) END,
+                 r.status = CASE WHEN r.status = 'user_confirmed' THEN r.status ELSE coalesce(rel.status, r.status, 'inferred') END
     RETURN u.screenName as userScreenName, o.screenName as orgScreenName
   `
 
-  let successCount = 0
-
   for (let i = 0; i < uniqueRelationships.length; i += batchSize * parallelBatches) {
-    const batchPromises: Promise<number>[] = []
+    const batchPromises: Promise<unknown>[] = []
 
     for (let j = 0; j < parallelBatches && (i + j * batchSize) < uniqueRelationships.length; j++) {
       const startIdx = i + j * batchSize
       const endIdx = Math.min(startIdx + batchSize, uniqueRelationships.length)
       const batch = uniqueRelationships.slice(startIdx, endIdx)
 
-      batchPromises.push(
-        runQuery(query, { relationships: batch })
-          .then((results) => results.length)
-          .catch((error: any) => {
-            console.error(`❌ WORKS_AT batch failed:`, error.message)
-            return 0
-          })
-      )
+      batchPromises.push(runQuery(query, { relationships: batch }))
     }
 
-    const results = await Promise.all(batchPromises)
-    successCount += results.reduce((sum, count) => sum + count, 0)
+    await Promise.all(batchPromises)
   }
-
-  console.log(`✅ Added ${successCount} WORKS_AT relationships`)
 }
 
 // Create multiple WORKED_AT relationships in batch with parallel processing
-export async function addWorkedAtRelationships(relationships: Array<{ userScreenName: string, orgScreenName: string }>): Promise<void> {
+export async function addWorkedAtRelationships(relationships: Array<{ userScreenName: string, orgScreenName: string, source?: string, observedAt?: string, status?: string }>): Promise<void> {
   if (relationships.length === 0) return
 
   // Deduplicate relationships based on screenNames
@@ -2897,9 +2888,6 @@ export async function addWorkedAtRelationships(relationships: Array<{ userScreen
 
   const batchSize = OPTIMAL_BATCH_SIZES.RELATIONSHIP_BATCH
   const parallelBatches = OPTIMAL_BATCH_SIZES.PARALLEL_BATCHES
-  const totalBatches = Math.ceil(uniqueRelationships.length / batchSize)
-
-  console.log(`📝 Adding ${uniqueRelationships.length} WORKED_AT relationships in ${totalBatches} batches (${parallelBatches} parallel)...`)
 
   const query = `
     UNWIND $relationships AS rel
@@ -2907,53 +2895,56 @@ export async function addWorkedAtRelationships(relationships: Array<{ userScreen
     WHERE toLower(u.screenName) = toLower(rel.userScreenName)
     MATCH (o:User)
     WHERE toLower(o.screenName) = toLower(rel.orgScreenName)
-    MERGE (u)-[:WORKED_AT]->(o)
+    MERGE (u)-[r:WORKED_AT]->(o)
+    ON CREATE SET r.source = coalesce(rel.source, 'x_bio'),
+                  r.observedAt = coalesce(rel.observedAt, toString(datetime())),
+                  r.status = coalesce(rel.status, 'inferred')
+    ON MATCH SET r.source = CASE WHEN r.status = 'user_confirmed' THEN r.source ELSE coalesce(rel.source, r.source, 'x_bio') END,
+                 r.observedAt = CASE WHEN r.status = 'user_confirmed' THEN r.observedAt ELSE coalesce(rel.observedAt, r.observedAt, toString(datetime())) END,
+                 r.status = CASE WHEN r.status = 'user_confirmed' THEN r.status ELSE coalesce(rel.status, r.status, 'inferred') END
     RETURN u.screenName as userScreenName, o.screenName as orgScreenName
   `
 
-  let successCount = 0
-
   for (let i = 0; i < uniqueRelationships.length; i += batchSize * parallelBatches) {
-    const batchPromises: Promise<number>[] = []
+    const batchPromises: Promise<unknown>[] = []
 
     for (let j = 0; j < parallelBatches && (i + j * batchSize) < uniqueRelationships.length; j++) {
       const startIdx = i + j * batchSize
       const endIdx = Math.min(startIdx + batchSize, uniqueRelationships.length)
       const batch = uniqueRelationships.slice(startIdx, endIdx)
 
-      batchPromises.push(
-        runQuery(query, { relationships: batch })
-          .then((results) => results.length)
-          .catch((error: any) => {
-            console.error(`❌ WORKED_AT batch failed:`, error.message)
-            return 0
-          })
-      )
+      batchPromises.push(runQuery(query, { relationships: batch }))
     }
 
-    const results = await Promise.all(batchPromises)
-    successCount += results.reduce((sum, count) => sum + count, 0)
+    await Promise.all(batchPromises)
   }
-
-  console.log(`✅ Added ${successCount} WORKED_AT relationships`)
 }
 
 // Create multiple MEMBER_OF relationships in batch with parallel processing
-export async function addMemberOfRelationships(relationships: Array<{ userScreenName: string, orgScreenName: string }>): Promise<void> {
+export async function addMemberOfRelationships(relationships: Array<{
+  userScreenName: string
+  orgScreenName: string
+  kinds?: string[]
+  source?: string
+  observedAt?: string
+  status?: string
+}>): Promise<void> {
   if (relationships.length === 0) return
 
   // Deduplicate relationships based on screenNames
-  const uniqueRelationships = Array.from(
-    new Map(relationships.map(rel =>
-      [`${rel.userScreenName.toLowerCase()}|${rel.orgScreenName.toLowerCase()}`, rel]
-    )).values()
-  )
+  const uniqueRelationships = Array.from(relationships.reduce((merged, rel) => {
+    const key = `${rel.userScreenName.toLowerCase()}|${rel.orgScreenName.toLowerCase()}`
+    const existing = merged.get(key)
+    merged.set(key, {
+      ...existing,
+      ...rel,
+      kinds: Array.from(new Set([...(existing?.kinds || []), ...(rel.kinds?.length ? rel.kinds : ['unknown'])])),
+    })
+    return merged
+  }, new Map<string, typeof relationships[number]>()).values())
 
   const batchSize = OPTIMAL_BATCH_SIZES.RELATIONSHIP_BATCH
   const parallelBatches = OPTIMAL_BATCH_SIZES.PARALLEL_BATCHES
-  const totalBatches = Math.ceil(uniqueRelationships.length / batchSize)
-
-  console.log(`📝 Adding ${uniqueRelationships.length} MEMBER_OF relationships in ${totalBatches} batches (${parallelBatches} parallel)...`)
 
   const query = `
     UNWIND $relationships AS rel
@@ -2961,34 +2952,31 @@ export async function addMemberOfRelationships(relationships: Array<{ userScreen
     WHERE toLower(u.screenName) = toLower(rel.userScreenName)
     MATCH (o:User)
     WHERE toLower(o.screenName) = toLower(rel.orgScreenName)
-    MERGE (u)-[:MEMBER_OF]->(o)
+    MERGE (u)-[r:MEMBER_OF]->(o)
+    ON CREATE SET r.kinds = coalesce(rel.kinds, ['unknown']),
+                  r.source = coalesce(rel.source, 'x_bio'),
+                  r.observedAt = coalesce(rel.observedAt, toString(datetime())),
+                  r.status = coalesce(rel.status, 'inferred')
+    ON MATCH SET r.kinds = reduce(acc = coalesce(r.kinds, []), kind IN coalesce(rel.kinds, ['unknown']) |
+                         CASE WHEN kind IN acc THEN acc ELSE acc + kind END),
+                 r.source = CASE WHEN r.status = 'user_confirmed' THEN r.source ELSE coalesce(rel.source, r.source, 'x_bio') END,
+                 r.observedAt = CASE WHEN r.status = 'user_confirmed' THEN r.observedAt ELSE coalesce(rel.observedAt, r.observedAt, toString(datetime())) END,
+                 r.status = CASE WHEN r.status = 'user_confirmed' THEN r.status ELSE coalesce(rel.status, r.status, 'inferred') END
     RETURN u.screenName as userScreenName, o.screenName as orgScreenName
   `
 
-  let successCount = 0
-
   for (let i = 0; i < uniqueRelationships.length; i += batchSize * parallelBatches) {
-    const batchPromises: Promise<number>[] = []
+    const batchPromises: Promise<unknown>[] = []
 
     for (let j = 0; j < parallelBatches && i + j * batchSize < uniqueRelationships.length; j++) {
       const batchStart = i + j * batchSize
       const batch = uniqueRelationships.slice(batchStart, batchStart + batchSize)
 
-      batchPromises.push(
-        runQuery(query, { relationships: batch })
-          .then(results => results.length)
-          .catch(err => {
-            console.error(`Batch ${Math.floor(batchStart / batchSize) + 1} MEMBER_OF failed:`, err)
-            return 0
-          })
-      )
+      batchPromises.push(runQuery(query, { relationships: batch }))
     }
 
-    const results = await Promise.all(batchPromises)
-    successCount += results.reduce((sum, count) => sum + count, 0)
+    await Promise.all(batchPromises)
   }
-
-  console.log(`✅ Added ${successCount} MEMBER_OF relationships`)
 }
 
 // Create multiple AFFILIATED_WITH relationships in batch with parallel processing
@@ -3217,9 +3205,7 @@ export async function findMatchingUsername(searchUsername: string): Promise<stri
   const results = await runQuery(query, { searchTerm: normalized })
 
   if (results.length > 0 && results[0].score >= 50) {
-    const match = results[0].screenName
-    console.log(`  🔍 Fuzzy match: "${searchUsername}" → "${match}" (score: ${results[0].score})`)
-    return match
+    return results[0].screenName
   }
 
   return null
@@ -3247,8 +3233,6 @@ export async function processICPRelationships(
   matched: { competitors: number, investors: number, partners: number, auditors: number }
   skipped: { competitors: number, investors: number, partners: number, auditors: number }
 }> {
-  console.log(`\n🔗 Processing ICP relationships for @${orgScreenName}...`)
-
   const stats = {
     created: { competitors: 0, investors: 0, partners: 0, auditors: 0 },
     relationships: { competitors: 0, investors: 0, partners: 0, auditors: 0 },
@@ -3268,11 +3252,12 @@ export async function processICPRelationships(
       .filter(u => u.length > 0 && u !== orgScreenName.toLowerCase())
   }
 
-  // Helper to resolve username with fuzzy matching and SocialAPI validation
-  // Returns the resolved username, or null if user should be skipped (spam/not found)
+  type Category = 'competitors' | 'investors' | 'partners' | 'auditors'
+
+  // Resolve model-returned handles against existing data or SocialAPI before graph writes.
   const resolveUsername = async (
     username: string,
-    category: 'competitors' | 'investors' | 'partners' | 'auditors'
+    category: Category
   ): Promise<string | null> => {
     // First try fuzzy matching to find existing user in database
     const matchedUsername = await findMatchingUsername(username)
@@ -3287,107 +3272,55 @@ export async function processICPRelationships(
       const socialApiUser = await fetchUserFromSocialAPI(username)
 
       if (!socialApiUser) {
-        console.log(`  ⚠️ "${username}" not found on Twitter, skipping`)
         stats.skipped[category]++
         return null
       }
 
-      // Check if it's a spam account (low followers AND low following)
-      const followers = socialApiUser.followers_count || 0
-      const following = socialApiUser.friends_count || 0
-      if (followers < 10 && following < 10) {
-        console.log(`  🚫 "${username}" is spam (followers: ${followers}, following: ${following}), skipping`)
-        stats.skipped[category]++
-        return null
-      }
-
-      // Valid user - create node with real data from SocialAPI
       const realUsername = socialApiUser.screen_name?.toLowerCase() || username
       await createOrUpdateUserWithScreenNameMerge(transformToNeo4jUser(socialApiUser))
       stats.created[category]++
-      console.log(`  ✅ Created node for @${realUsername} (from SocialAPI)`)
       return realUsername
 
-    } catch (error: any) {
-      console.log(`  ⚠️ Failed to fetch "${username}" from SocialAPI: ${error.message}, skipping`)
+    } catch {
       stats.skipped[category]++
       return null
     }
   }
 
-  // Process competitors
-  const competitors = filterValidUsernames(icpData.competitors)
-  if (competitors.length > 0) {
-    console.log(`  → Processing ${competitors.length} competitors...`)
-    const resolvedCompetitors: string[] = []
-    for (const competitor of competitors) {
-      const resolved = await resolveUsername(competitor, 'competitors')
-      if (resolved) resolvedCompetitors.push(resolved)
-    }
-    if (resolvedCompetitors.length > 0) {
-      await addCompetitorRelationships(
-        resolvedCompetitors.map(c => ({ orgScreenName, competitorScreenName: c }))
-      )
-      stats.relationships.competitors = resolvedCompetitors.length
+  const candidates: Array<{ username: string, category: Category }> = [
+    ...filterValidUsernames(icpData.competitors).map(username => ({ username, category: 'competitors' as const })),
+    ...filterValidUsernames(icpData.investors).map(username => ({ username, category: 'investors' as const })),
+    ...filterValidUsernames(icpData.partners).map(username => ({ username, category: 'partners' as const })),
+    ...filterValidUsernames(icpData.auditor).map(username => ({ username, category: 'auditors' as const })),
+  ]
+
+  const resolvedByCategory: Record<Category, string[]> = {
+    competitors: [],
+    investors: [],
+    partners: [],
+    auditors: [],
+  }
+  const resolved = await mapWithConcurrency(candidates, 4, async candidate => ({
+    category: candidate.category,
+    username: await resolveUsername(candidate.username, candidate.category),
+  }))
+  for (const result of resolved) {
+    if (result.status === 'fulfilled' && result.value.username) {
+      resolvedByCategory[result.value.category].push(result.value.username)
     }
   }
 
-  // Process investors
-  const investors = filterValidUsernames(icpData.investors)
-  if (investors.length > 0) {
-    console.log(`  → Processing ${investors.length} investors...`)
-    const resolvedInvestors: string[] = []
-    for (const investor of investors) {
-      const resolved = await resolveUsername(investor, 'investors')
-      if (resolved) resolvedInvestors.push(resolved)
-    }
-    if (resolvedInvestors.length > 0) {
-      await addInvestorRelationships(
-        resolvedInvestors.map(i => ({ investorScreenName: i, orgScreenName }))
-      )
-      stats.relationships.investors = resolvedInvestors.length
-    }
-  }
+  await Promise.all([
+    addCompetitorRelationships(resolvedByCategory.competitors.map(competitorScreenName => ({ orgScreenName, competitorScreenName }))),
+    addInvestorRelationships(resolvedByCategory.investors.map(investorScreenName => ({ investorScreenName, orgScreenName }))),
+    addPartnerRelationships(resolvedByCategory.partners.map(partnerScreenName => ({ orgScreenName, partnerScreenName }))),
+    addAuditorRelationships(resolvedByCategory.auditors.map(auditorScreenName => ({ auditorScreenName, orgScreenName }))),
+  ])
 
-  // Process partners
-  const partners = filterValidUsernames(icpData.partners)
-  if (partners.length > 0) {
-    console.log(`  → Processing ${partners.length} partners...`)
-    const resolvedPartners: string[] = []
-    for (const partner of partners) {
-      const resolved = await resolveUsername(partner, 'partners')
-      if (resolved) resolvedPartners.push(resolved)
-    }
-    if (resolvedPartners.length > 0) {
-      await addPartnerRelationships(
-        resolvedPartners.map(p => ({ orgScreenName, partnerScreenName: p }))
-      )
-      stats.relationships.partners = resolvedPartners.length
-    }
-  }
-
-  // Process auditors
-  const auditors = filterValidUsernames(icpData.auditor)
-  if (auditors.length > 0) {
-    console.log(`  → Processing ${auditors.length} auditors...`)
-    const resolvedAuditors: string[] = []
-    for (const auditor of auditors) {
-      const resolved = await resolveUsername(auditor, 'auditors')
-      if (resolved) resolvedAuditors.push(resolved)
-    }
-    if (resolvedAuditors.length > 0) {
-      await addAuditorRelationships(
-        resolvedAuditors.map(a => ({ auditorScreenName: a, orgScreenName }))
-      )
-      stats.relationships.auditors = resolvedAuditors.length
-    }
-  }
-
-  console.log(`✅ ICP relationships processed:`)
-  console.log(`   Fuzzy matched: ${stats.matched.competitors} competitors, ${stats.matched.investors} investors, ${stats.matched.partners} partners, ${stats.matched.auditors} auditors`)
-  console.log(`   Created nodes: ${stats.created.competitors} competitors, ${stats.created.investors} investors, ${stats.created.partners} partners, ${stats.created.auditors} auditors`)
-  console.log(`   Skipped: ${stats.skipped.competitors} competitors, ${stats.skipped.investors} investors, ${stats.skipped.partners} partners, ${stats.skipped.auditors} auditors`)
-  console.log(`   Relationships: ${stats.relationships.competitors} COMPETES_WITH, ${stats.relationships.investors} INVESTED_IN, ${stats.relationships.partners} PARTNERS_WITH, ${stats.relationships.auditors} AUDITS`)
+  stats.relationships.competitors = resolvedByCategory.competitors.length
+  stats.relationships.investors = resolvedByCategory.investors.length
+  stats.relationships.partners = resolvedByCategory.partners.length
+  stats.relationships.auditors = resolvedByCategory.auditors.length
 
   return stats
 }
@@ -3526,11 +3459,9 @@ export async function fetchOrganizationsBatch(usernames: string[]): Promise<Twit
             const data = await response.json()
             return data
           } else {
-            console.warn(`⚠️ SocialAPI returned ${response.status} for @${username}`)
             return null
           }
-        } catch (error: any) {
-          console.error(`❌ Error fetching @${username}:`, error.message)
+        } catch {
           return null
         }
       })
@@ -3560,203 +3491,110 @@ export async function fetchOrganizationFromSocialAPI(username: string): Promise<
   return results.length > 0 ? results[0] : null
 }
 
-// Ultra-fast employment data processing with parallel operations
+async function reconcileInferredEmploymentRelationships(profiles: Array<{
+  userScreenName: string
+  worksAt: string[]
+  workedAt: string[]
+  memberOf: string[]
+}>): Promise<void> {
+  if (!profiles.length) return
+
+  await runQuery(`
+    UNWIND $profiles AS profile
+    MATCH (u:User)
+    WHERE toLower(u.screenName) = toLower(profile.userScreenName)
+    OPTIONAL MATCH (u)-[r:WORKS_AT|WORKED_AT|MEMBER_OF]->(o:User)
+    WHERE coalesce(r.status, 'inferred') <> 'user_confirmed'
+      AND CASE type(r)
+        WHEN 'WORKS_AT' THEN NOT toLower(o.screenName) IN profile.worksAt
+        WHEN 'WORKED_AT' THEN NOT toLower(o.screenName) IN profile.workedAt
+        WHEN 'MEMBER_OF' THEN NOT toLower(o.screenName) IN profile.memberOf
+        ELSE false
+      END
+    DELETE r
+  `, { profiles })
+}
+
+// Reconcile one complete model snapshot. Relationship types remain independent, so a
+// person can retain WORKS_AT, MEMBER_OF and SocialAPI-owned AFFILIATED_WITH to one org.
 export async function processEmploymentData(profiles: any[]): Promise<void> {
   if (!profiles.length) return
 
-  console.log(`🚀 Processing employment data for ${profiles.length} profiles`)
-  const startTime = Date.now()
+  const {
+    orgUsernames,
+    worksAtRelationships,
+    workedAtRelationships,
+    memberOfRelationships,
+    departmentUpdates,
+    reconciliationProfiles,
+  } = extractOrganizationData(profiles)
 
-  // Extract all organization data in single pass
-  const { orgUsernames, worksAtRelationships, workedAtRelationships, memberOfRelationships, departmentUpdates } = extractOrganizationData(profiles)
-
-  console.log(`📊 Extracted data:`)
-  console.log(`   - Unique organizations: ${orgUsernames.length}`)
-  console.log(`   - WORKS_AT relationships: ${worksAtRelationships.length}`)
-  console.log(`   - WORKED_AT relationships: ${workedAtRelationships.length}`)
-  console.log(`   - MEMBER_OF relationships: ${memberOfRelationships.length}`)
-  console.log(`   - Department updates: ${departmentUpdates.length}`)
-
-  if (orgUsernames.length === 0) {
-    console.log('❌ No organizations found to process')
-    return
+  if (orgUsernames.length) {
+    await ensureOrganizationsExistOptimized(orgUsernames)
   }
 
-  // Log some examples for debugging
-  if (orgUsernames.length > 0) {
-    console.log(`   Organizations: ${orgUsernames.slice(0, 3).join(', ')}${orgUsernames.length > 3 ? '...' : ''}`)
+  await reconcileInferredEmploymentRelationships(reconciliationProfiles)
+
+  await Promise.all([
+    addWorksAtRelationships(worksAtRelationships),
+    addWorkedAtRelationships(workedAtRelationships),
+    addMemberOfRelationships(memberOfRelationships),
+  ])
+
+  if (departmentUpdates.length) {
+    await runQuery(`
+      UNWIND $updates AS update
+      MATCH (u:User)
+      WHERE toLower(u.screenName) = toLower(update.userScreenName)
+      SET u.department = update.department
+    `, { updates: departmentUpdates })
   }
-  if (worksAtRelationships.length > 0) {
-    console.log(`   Example WORKS_AT: @${worksAtRelationships[0].userScreenName} → @${worksAtRelationships[0].orgScreenName}`)
-  }
-  if (memberOfRelationships.length > 0) {
-    console.log(`   Example MEMBER_OF: @${memberOfRelationships[0].userScreenName} → @${memberOfRelationships[0].orgScreenName}`)
-  }
-
-  // Parallel execution of all operations that don't have dependencies
-  const operations = []
-
-  // 1. Ensure organizations exist (this will create/update org nodes using screenName as primary key)
-  operations.push(
-    ensureOrganizationsExistOptimized(orgUsernames).then(orgMap => {
-      console.log(`🗺️  Organization mapping complete: ${orgMap.size} organizations available`)
-
-      // Now we can directly use the screenName-based relationships without conversion
-      console.log(`🔗 Using direct screenName relationships:`)
-      console.log(`   - WORKS_AT relationships: ${worksAtRelationships.length}`)
-      console.log(`   - WORKED_AT relationships: ${workedAtRelationships.length}`)
-      console.log(`   - MEMBER_OF relationships: ${memberOfRelationships.length}`)
-
-      // Check for existing relationships to avoid duplicates
-      return checkExistingEmploymentRelationshipsScreenName(worksAtRelationships, workedAtRelationships, memberOfRelationships)
-        .then(({ existingWorksAt, existingWorkedAt, existingMemberOf }) => {
-          console.log(`🔍 Existing relationships:`)
-          console.log(`   - Existing WORKS_AT: ${existingWorksAt.length}`)
-          console.log(`   - Existing WORKED_AT: ${existingWorkedAt.length}`)
-          console.log(`   - Existing MEMBER_OF: ${existingMemberOf.length}`)
-
-          // Filter out existing relationships
-          const newWorksAt = worksAtRelationships.filter(rel =>
-            !existingWorksAt.some(existing =>
-              existing.userScreenName.toLowerCase() === rel.userScreenName.toLowerCase() &&
-              existing.orgScreenName.toLowerCase() === rel.orgScreenName.toLowerCase()
-            )
-          )
-
-          const newWorkedAt = workedAtRelationships.filter(rel =>
-            !existingWorkedAt.some(existing =>
-              existing.userScreenName.toLowerCase() === rel.userScreenName.toLowerCase() &&
-              existing.orgScreenName.toLowerCase() === rel.orgScreenName.toLowerCase()
-            )
-          )
-
-          const newMemberOf = memberOfRelationships.filter(rel =>
-            !existingMemberOf.some(existing =>
-              existing.userScreenName.toLowerCase() === rel.userScreenName.toLowerCase() &&
-              existing.orgScreenName.toLowerCase() === rel.orgScreenName.toLowerCase()
-            )
-          )
-
-          console.log(`📝 New relationships to create:`)
-          console.log(`   - New WORKS_AT: ${newWorksAt.length}`)
-          console.log(`   - New WORKED_AT: ${newWorkedAt.length}`)
-          console.log(`   - New MEMBER_OF: ${newMemberOf.length}`)
-
-          // Execute relationship operations in parallel
-          const relationshipOps = []
-
-          if (newWorksAt.length > 0) {
-            console.log(`   → Adding ${newWorksAt.length} WORKS_AT relationships...`)
-            relationshipOps.push(addWorksAtRelationships(newWorksAt))
-          }
-
-          if (newWorkedAt.length > 0) {
-            console.log(`   → Adding ${newWorkedAt.length} WORKED_AT relationships...`)
-            relationshipOps.push(addWorkedAtRelationships(newWorkedAt))
-          }
-
-          if (newMemberOf.length > 0) {
-            console.log(`   → Adding ${newMemberOf.length} MEMBER_OF relationships...`)
-            relationshipOps.push(addMemberOfRelationships(newMemberOf))
-          }
-
-          return Promise.all(relationshipOps).then(() => ({ newWorksAt, newWorkedAt, newMemberOf, existingWorksAt, existingWorkedAt, existingMemberOf }))
-        })
-    })
-  )
-
-  // 2. Update departments in parallel (need to convert to userId-based for now)
-  if (departmentUpdates.length > 0) {
-    console.log(`   → Converting ${departmentUpdates.length} department updates to userId-based...`)
-
-    // Convert screenName-based department updates to userId-based
-    const userIdDepartmentUpdates = await Promise.all(
-      departmentUpdates.map(async (update) => {
-        const userQuery = `
-          MATCH (u:User)
-          WHERE toLower(u.screenName) = toLower($screenName)
-          RETURN u.userId as userId
-          LIMIT 1
-        `
-        const result = await runQuery(userQuery, { screenName: update.userScreenName })
-        return result.length > 0 ? { userId: result[0].userId, department: update.department } : null
-      })
-    )
-
-    const validDepartmentUpdates = userIdDepartmentUpdates.filter(update => update !== null) as Array<{ userId: string, department: string }>
-
-    if (validDepartmentUpdates.length > 0) {
-      console.log(`   → Updating ${validDepartmentUpdates.length} user departments...`)
-      operations.push(updateUserDepartmentsOptimized(validDepartmentUpdates))
-    }
-  }
-
-  // Execute all operations in parallel
-  const results = await Promise.all(operations)
-  const relationshipResults = results[0] as any
-
-  const duration = Date.now() - startTime
-  console.log(`✅ Employment data processing complete in ${duration}ms`)
-
-  if (relationshipResults) {
-    console.log(`📈 Final Results:`)
-    console.log(`   - New WORKS_AT: ${relationshipResults.newWorksAt?.length || 0} (${relationshipResults.existingWorksAt?.length || 0} already existed)`)
-    console.log(`   - New WORKED_AT: ${relationshipResults.newWorkedAt?.length || 0} (${relationshipResults.existingWorkedAt?.length || 0} already existed)`)
-    console.log(`   - New MEMBER_OF: ${relationshipResults.newMemberOf?.length || 0} (${relationshipResults.existingMemberOf?.length || 0} already existed)`)
-  }
-  console.log(`   - Department updates: ${departmentUpdates.length}`)
 }
 
 // Extract all organization and employment data from profiles in a single pass
 // Updated to handle flattened employment structure
 export function extractOrganizationData(profiles: any[]): {
   orgUsernames: string[]
-  worksAtRelationships: Array<{ userScreenName: string, orgScreenName: string }>
-  workedAtRelationships: Array<{ userScreenName: string, orgScreenName: string }>
-  memberOfRelationships: Array<{ userScreenName: string, orgScreenName: string }>
+  worksAtRelationships: Array<{ userScreenName: string, orgScreenName: string, source: string, observedAt: string, status: string }>
+  workedAtRelationships: Array<{ userScreenName: string, orgScreenName: string, source: string, observedAt: string, status: string }>
+  memberOfRelationships: Array<{ userScreenName: string, orgScreenName: string, kinds: string[], source: string, observedAt: string, status: string }>
   departmentUpdates: Array<{ userScreenName: string, department: string }>
+  reconciliationProfiles: Array<{ userScreenName: string, worksAt: string[], workedAt: string[], memberOf: string[] }>
 } {
   const orgUsernames = new Set<string>()
-  const worksAtRelationships: Array<{ userScreenName: string, orgScreenName: string }> = []
-  const workedAtRelationships: Array<{ userScreenName: string, orgScreenName: string }> = []
-  const memberOfRelationships: Array<{ userScreenName: string, orgScreenName: string }> = []
+  const worksAtRelationships: Array<{ userScreenName: string, orgScreenName: string, source: string, observedAt: string, status: string }> = []
+  const workedAtRelationships: Array<{ userScreenName: string, orgScreenName: string, source: string, observedAt: string, status: string }> = []
+  const memberOfRelationships: Array<{ userScreenName: string, orgScreenName: string, kinds: string[], source: string, observedAt: string, status: string }> = []
   const departmentUpdates: Array<{ userScreenName: string, department: string }> = []
-
-  let profilesProcessed = 0
-  let profilesWithEmploymentData = 0
+  const reconciliationProfiles: Array<{ userScreenName: string, worksAt: string[], workedAt: string[], memberOf: string[] }> = []
 
   profiles.forEach(profile => {
     const userScreenName = profile.screen_name
     if (!userScreenName) return
 
-    profilesProcessed++
-
     // Check for flattened employment data structure
     const employmentData = profile._employment_data
     if (!employmentData) {
-      console.warn(`⚠️  Profile @${userScreenName} has no employment data, skipping...`)
       return
     }
 
-    // Validate that employment data has at least one organization (current, past, or member_of)
-    const hasCurrentOrgs = employmentData.current_organizations &&
-      Array.isArray(employmentData.current_organizations) &&
-      employmentData.current_organizations.length > 0
-
-    const hasPastOrgs = employmentData.past_organizations &&
-      Array.isArray(employmentData.past_organizations) &&
-      employmentData.past_organizations.length > 0
-
-    const hasMemberOf = employmentData.member_of &&
-      Array.isArray(employmentData.member_of) &&
-      employmentData.member_of.length > 0
-
-    if (!hasCurrentOrgs && !hasPastOrgs && !hasMemberOf) {
-      console.log(`ℹ️  Profile @${userScreenName} has empty employment data (no organizations to process)`)
-      return
+    const cleanHandles = (values: unknown): string[] => Array.isArray(values)
+      ? Array.from(new Set(values
+        .filter((value): value is string => typeof value === 'string')
+        .map(value => value.replace(/^@/, '').toLowerCase())
+        .filter(Boolean)))
+      : []
+    const currentHandles = cleanHandles(employmentData.current_organizations)
+    const pastHandles = cleanHandles(employmentData.past_organizations)
+    const memberHandles = cleanHandles(employmentData.member_of)
+    if (employmentData.complete_snapshot !== false) {
+      reconciliationProfiles.push({
+        userScreenName,
+        worksAt: currentHandles,
+        workedAt: pastHandles,
+        memberOf: memberHandles,
+      })
     }
-
-    profilesWithEmploymentData++
 
     // Extract department from flattened structure
     if (employmentData.department) {
@@ -3772,7 +3610,7 @@ export function extractOrganizationData(profiles: any[]): {
         const cleanOrg = org.replace(/^@/, '')
         if (cleanOrg && cleanOrg.length > 0) {
           orgUsernames.add(cleanOrg.toLowerCase())
-          worksAtRelationships.push({ userScreenName, orgScreenName: cleanOrg })
+          worksAtRelationships.push({ userScreenName, orgScreenName: cleanOrg, source: 'x_bio', observedAt: new Date().toISOString(), status: 'inferred' })
         }
       })
     }
@@ -3783,7 +3621,7 @@ export function extractOrganizationData(profiles: any[]): {
         const cleanOrg = org.replace(/^@/, '')
         if (cleanOrg && cleanOrg.length > 0) {
           orgUsernames.add(cleanOrg.toLowerCase())
-          workedAtRelationships.push({ userScreenName, orgScreenName: cleanOrg })
+          workedAtRelationships.push({ userScreenName, orgScreenName: cleanOrg, source: 'x_bio', observedAt: new Date().toISOString(), status: 'inferred' })
         }
       })
     }
@@ -3793,24 +3631,32 @@ export function extractOrganizationData(profiles: any[]): {
       employmentData.member_of.forEach((org: string) => {
         const cleanOrg = org.replace(/^@/, '')
         if (cleanOrg && cleanOrg.length > 0) {
+          const detail = Array.isArray(employmentData.member_of_details)
+            ? employmentData.member_of_details.find((candidate: any) =>
+                typeof candidate?.screen_name === 'string' &&
+                candidate.screen_name.replace(/^@/, '').toLowerCase() === cleanOrg.toLowerCase())
+            : undefined
           orgUsernames.add(cleanOrg.toLowerCase())
-          memberOfRelationships.push({ userScreenName, orgScreenName: cleanOrg })
+          memberOfRelationships.push({
+            userScreenName,
+            orgScreenName: cleanOrg,
+            kinds: Array.isArray(detail?.kinds) && detail.kinds.length ? detail.kinds : ['unknown'],
+            source: detail?.source || 'x_bio',
+            observedAt: detail?.observedAt || new Date().toISOString(),
+            status: detail?.status || 'inferred',
+          })
         }
       })
     }
   })
-
-  console.log(`🔍 extractOrganizationData Summary:`)
-  console.log(`   - Profiles processed: ${profilesProcessed}`)
-  console.log(`   - Profiles with employment data: ${profilesWithEmploymentData}`)
-  console.log(`   - Unique organizations found: ${orgUsernames.size}`)
 
   return {
     orgUsernames: Array.from(orgUsernames),
     worksAtRelationships,
     workedAtRelationships,
     memberOfRelationships,
-    departmentUpdates
+    departmentUpdates,
+    reconciliationProfiles,
   }
 }
 
@@ -4121,8 +3967,6 @@ export async function updateUserDepartmentsOptimized(updates: Array<{ userId: st
 export async function ensureOrganizationsExistOptimized(orgUsernames: string[]): Promise<Map<string, string>> {
   if (orgUsernames.length === 0) return new Map()
 
-  console.log(`🔍 Ensuring ${orgUsernames.length} organizations exist (batch lookup)...`)
-
   const orgMap = new Map<string, string>()
   const orgsToFetch: string[] = []
   const orgsToUpdate: string[] = []
@@ -4162,15 +4006,9 @@ export async function ensureOrganizationsExistOptimized(orgUsernames: string[]):
     }
   })
 
-  console.log(`📊 Organization status:`)
-  console.log(`   - Already exist: ${orgMap.size}`)
-  console.log(`   - Need fetching: ${orgsToFetch.length}`)
-  console.log(`   - Need updating: ${orgsToUpdate.length}`)
-
   // Fetch new organizations from SocialAPI
   let fetchedOrgs: any[] = []
   if (orgsToFetch.length > 0) {
-    console.log(`📥 Fetching ${orgsToFetch.length} new organizations from SocialAPI`)
     fetchedOrgs = await fetchOrganizationsBatch(orgsToFetch)
   }
 
@@ -4219,8 +4057,6 @@ export async function ensureOrganizationsExistOptimized(orgUsernames: string[]):
 
   // Process organizations using batch function instead of individual calls
   if (orgsToProcess.length > 0) {
-    console.log(`💾 Batch processing ${orgsToProcess.length} organizations...`)
-
     // Use the batch function for much better performance
     await createOrUpdateUsersWithScreenNameMergeBatch(orgsToProcess)
 
@@ -4229,17 +4065,6 @@ export async function ensureOrganizationsExistOptimized(orgUsernames: string[]):
       orgMap.set(org.screenName.toLowerCase(), org.userId)
     })
 
-    console.log(`✅ Organization batch processing complete for ${orgsToProcess.length} organizations`)
-  } else if (orgMap.size === orgUsernames.length) {
-    console.log(`✅ All ${orgUsernames.length} organizations are up-to-date`)
-  }
-
-  console.log(`🎯 Organization mapping complete: ${orgMap.size} total organizations available`)
-
-  // Log a few examples for debugging
-  if (orgMap.size > 0) {
-    const examples = Array.from(orgMap.entries()).slice(0, 3)
-    console.log(`   Examples: ${examples.map(([name, id]) => `@${name}→${id}`).join(', ')}`)
   }
 
   return orgMap
@@ -4596,8 +4421,6 @@ export async function updateOrganizationClassification(
  * Get all properties for an organization to use in ICP analysis optimization
  */
 export async function getOrganizationProperties(identifier: string): Promise<Record<string, any> | null> {
-  console.log(`🔍 [Neo4j] Fetching organization properties for: ${identifier}`)
-
   // Try by userId first, then by screenName
   let query = `
     MATCH (u:User {userId: $identifier})
@@ -4619,86 +4442,11 @@ export async function getOrganizationProperties(identifier: string): Promise<Rec
   }
 
   if (results.length === 0) {
-    console.log(`❌ [Neo4j] Organization not found: ${identifier}`)
     return null
   }
 
   const properties = results[0].props
-  console.log(`✅ [Neo4j] Found organization with ${Object.keys(properties).length} properties`)
-
   return properties
-}
-
-/**
- * Update organization properties with new data from ICP analysis
- * Uses centralized mapping utilities to eliminate drift
- */
-export async function updateOrganizationProperties(
-  userId: string,
-  newProperties: Record<string, any>
-): Promise<void> {
-  console.log(`[Neo4j] Updating organization properties for: ${userId}`)
-  console.log(`[Neo4j] Input properties keys: ${Object.keys(newProperties).length}`)
-
-  // Filter out null/undefined/empty values
-  const validProperties: Record<string, any> = {}
-  Object.entries(newProperties).forEach(([key, value]) => {
-    if (value !== null && value !== undefined && value !== '') {
-      validProperties[key] = value
-    }
-  })
-
-  if (Object.keys(validProperties).length === 0) {
-    console.log(`[Neo4j] No valid properties to update for ${userId}`)
-    return
-  }
-
-  console.log(`[Neo4j] Processing ${Object.keys(validProperties).length} valid properties`)
-
-  // Build dynamic SET clause
-  const setClause = Object.keys(validProperties)
-    .map(key => `u.${key} = $${key}`)
-    .join(', ')
-
-  const query = `
-    MATCH (u:User {userId: $userId})
-    SET ${setClause}, u.lastUpdated = datetime()
-    RETURN u.userId as updatedUserId
-  `
-
-  const params = { userId, ...validProperties }
-  await runQuery(query, params)
-
-  console.log(`[Neo4j] Updated ${Object.keys(validProperties).length} properties for organization ${userId}`)
-}
-
-/**
- * Remove specific properties from an organization user in Neo4j
- * Sets properties to null which effectively removes them in Neo4j
- * Uses canonical forbidden properties list by default
- */
-export async function removeOrganizationProperties(
-  userId: string,
-  keys: string[] = ["password", "email", "privateKey", "secret"] // Basic forbidden list instead of FORBIDDEN_PROPERTIES
-): Promise<void> {
-  if (!keys || keys.length === 0) {
-    console.log(`[Neo4j] No properties to remove for ${userId}`)
-    return
-  }
-
-  console.log(`[Neo4j] Removing ${keys.length} properties from ${userId}: ${keys.join(', ')}`)
-
-  // Build dynamic SET clause to null (Neo4j removes properties when set to null)
-  const removeClause = keys.map(k => `u.${k} = null`).join(', ')
-
-  const query = `
-    MATCH (u:User {userId: $userId})
-    SET ${removeClause}
-    RETURN u.userId as updatedUserId
-  `
-
-  await runQuery(query, { userId })
-  console.log(`[Neo4j] Removed ${keys.length} properties for organization ${userId}`)
 }
 
 /**
@@ -4706,8 +4454,6 @@ export async function removeOrganizationProperties(
  * Uses centralized mapping to reconstruct canonical object structure
  */
 export async function getOrganizationForUI(identifier: string): Promise<Record<string, any> | null> {
-  console.log(`🔍 [Neo4j] Retrieving organization data for UI: ${identifier}`)
-
   // Try by userId first, then by screenName (same logic as getOrganizationProperties)
   let query = `
     MATCH (u:User {userId: $identifier})
@@ -4729,25 +4475,9 @@ export async function getOrganizationForUI(identifier: string): Promise<Record<s
   }
 
   if (!result || result.length === 0) {
-    console.log(`❌ [Neo4j] No organization found for ${identifier}`)
     return null
   }
 
   const nodeProps = result[0].props
-  console.log(`✅ [Neo4j] Found organization with ${Object.keys(nodeProps).length} properties`)
-
-  // Use centralized inflation that handles mapping and backward compatibility
-  const inflatedData = nodeProps // Direct assignment instead of inflateForUI
-
-  console.log(`✅ [Neo4j] Inflated ${Object.keys(nodeProps).length} flat properties → ${JSON.stringify(inflatedData).length} chars UI object`)
-
-  return inflatedData
-}
-
-/**
- * Clean up all forbidden properties from an organization
- * Convenience function to remove all canonical forbidden properties
- */
-export async function cleanupForbiddenProperties(userId: string): Promise<void> {
-  await removeOrganizationProperties(userId, ["password", "email", "privateKey", "secret"]) // Basic list instead of FORBIDDEN_PROPERTIES
+  return nodeProps
 }

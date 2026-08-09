@@ -1,150 +1,47 @@
-import { updateOrganizationProperties } from '@/services';
-import { runQuery } from '@/lib/neo4j';
-
-interface AnalysisData {
-  [key: string]: any;
-}
+import { ICP_ANALYSIS_FIELDS, type ICPAnalysis } from '@/lib/icp-schema'
+import { runQuery } from '@/lib/neo4j'
 
 interface ClassificationData {
-  orgType?: string;
-  orgSubtype?: string[];
-  web3Focus?: string;
+  orgType?: string
+  orgSubtype?: string[]
+  web3Focus?: string
 }
 
-export class Neo4jAnalysisMapper {
-  private static readonly ARRAY_FIELDS = [
-    'github', 'competitors', 'key_features', 'audience', 'geography', 'narratives', 
-    'partners', 'recent_updates', 'investors', 'utilities', 'chains', 'tech_stack', 
-    'dev_tools', 'engagement_patterns', 'retention_factors', 'age_groups', 'experience', 
-    'roles', 'motivations', 'decision_factors', 'interaction_preferences', 'activity_patterns', 
-    'conversion_factors', 'loyalty_indicators', 'yield', 'platforms', 'gameplay', 'game_token', 
-    'nft_assets', 'assets', 'fiat', 'sectors', 'investments', 'model', 'category', 'clients', 
-    'initiatives', 'benefits', 'user_archetypes', 'messaging_strategy', 'auditor',
-    'utility_features', 'marketplace_integrations', 'asset_types', 'community_features'
-  ];
-  
-  private static readonly EXCLUDED_FIELDS = [
-    'twitter_username', 'timestamp_utc', 'classification_used'
-  ];
+function toNeo4jProperty(value: ICPAnalysis[keyof ICPAnalysis]): string | number | null {
+  if (value === null || value === '') return null
+  if (Array.isArray(value) || typeof value === 'object') return JSON.stringify(value)
+  return value
+}
 
-  /**
-   * Transform analysis data to Neo4j-compatible format
-   */
+/** Persists a complete canonical snapshot and removes stale analysis properties. */
+export class Neo4jAnalysisMapper {
   static transformAnalysisForNeo4j(
-    analysis: AnalysisData, 
+    analysis: ICPAnalysis,
     classification?: ClassificationData
-  ): Record<string, any> {
-    const properties: Record<string, any> = {};
-    
-    Object.entries(analysis).forEach(([key, value]) => {
-      if (this.EXCLUDED_FIELDS.includes(key) || value == null || value === '') {
-        return;
-      }
-      
-      // Handle arrays and objects - JSON stringify them
-      if (this.ARRAY_FIELDS.includes(key) || Array.isArray(value) || (typeof value === 'object' && value !== null)) {
-        properties[key] = JSON.stringify(value);
-      } else {
-        properties[key] = value;
-      }
-    });
-    
-    // Add metadata
-    properties.last_icp_analysis = new Date().toISOString();
-    
-    // Store classification data in individual fields instead of JSON
-    if (classification) {
-      if (classification.orgType) {
-        properties.orgType = classification.orgType;
-      }
-      if (classification.orgSubtype) {
-        properties.orgSubtype = JSON.stringify(classification.orgSubtype);
-      }
-      if (classification.web3Focus) {
-        properties.web3Focus = classification.web3Focus;
-      }
-    }
-    
-    return properties;
+  ): Record<string, string | number | null> {
+    const properties = Object.fromEntries(
+      ICP_ANALYSIS_FIELDS.map(field => [field, toNeo4jProperty(analysis[field])])
+    ) as Record<string, string | number | null>
+
+    properties.last_icp_analysis = analysis.timestamp_utc
+    if (classification?.orgType) properties.orgType = classification.orgType
+    if (classification?.orgSubtype) properties.orgSubtype = JSON.stringify(classification.orgSubtype)
+    if (classification?.web3Focus) properties.web3Focus = classification.web3Focus
+    return properties
   }
 
-  /**
-   * Store analysis data to Neo4j with error handling
-   */
   static async storeAnalysisToNeo4j(
     userId: string,
-    analysis: AnalysisData,
+    analysis: ICPAnalysis,
     classification?: ClassificationData
   ): Promise<void> {
-    try {
-      const properties = this.transformAnalysisForNeo4j(analysis, classification);
-      
-      console.log(`📊 Preparing to store ${Object.keys(properties).length} properties to Neo4j`);
-      console.log(`   📋 Key fields: ${Object.keys(properties).slice(0, 10).join(', ')}...`);
-      
-      if (Object.keys(properties).length > 0) {
-        await updateOrganizationProperties(userId, properties);
-        console.log(`✅ Successfully stored complete flattened ICP analysis to Neo4j`);
-        console.log(`   📊 Total properties stored: ${Object.keys(properties).length}`);
-      } else {
-        console.log(`⚠️  No properties extracted from analysis to store`);
-      }
-    } catch (error) {
-      console.error(`❌ Failed to store complete analysis to Neo4j:`, error);
-      throw error;
-    }
-  }
+    const properties = this.transformAnalysisForNeo4j(analysis, classification)
+    const result = await runQuery(`
+      MATCH (u:User {userId: $userId})
+      SET u += $properties
+      RETURN u.userId AS userId
+    `, { userId, properties })
 
-  /**
-   * Get statistics about what fields are being stored
-   */
-  static getStorageStats(analysis: AnalysisData): {
-    totalFields: number;
-    arrayFields: number;
-    excludedFields: number;
-    storableFields: number;
-  } {
-    const allFields = Object.keys(analysis);
-    const arrayFields = allFields.filter(key => 
-      this.ARRAY_FIELDS.includes(key) || 
-      Array.isArray(analysis[key]) || 
-      (typeof analysis[key] === 'object' && analysis[key] !== null)
-    );
-    const excludedFields = allFields.filter(key => this.EXCLUDED_FIELDS.includes(key));
-    const storableFields = allFields.filter(key => 
-      !this.EXCLUDED_FIELDS.includes(key) && 
-      analysis[key] != null && 
-      analysis[key] !== ''
-    );
-
-    return {
-      totalFields: allFields.length,
-      arrayFields: arrayFields.length,
-      excludedFields: excludedFields.length,
-      storableFields: storableFields.length
-    };
-  }
-
-  /**
-   * One-time cleanup function to remove redundant classification_used field
-   */
-  static async removeRedundantClassificationField(): Promise<{ cleaned: number }> {
-    try {
-      const query = `
-        MATCH (u:User)
-        WHERE u.classification_used IS NOT NULL
-        REMOVE u.classification_used
-        RETURN count(u) as cleaned
-      `;
-      
-      const result = await runQuery(query, {});
-      const cleaned = result[0]?.cleaned || 0;
-      
-      console.log(`✅ Cleaned ${cleaned} records by removing redundant classification_used field`);
-      return { cleaned };
-    } catch (error) {
-      console.error('❌ Failed to clean redundant classification_used field:', error);
-      throw error;
-    }
+    if (!result.length) throw new Error('Organization was not found while storing ICP analysis')
   }
 }

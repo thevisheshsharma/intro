@@ -7,6 +7,7 @@ export enum VibeType {
   INDIVIDUAL = 'individual',
   ORGANIZATION = 'organization',
   SPAM = 'spam',
+  UNKNOWN = 'unknown',
   UNCLASSIFIED = ''
 }
 

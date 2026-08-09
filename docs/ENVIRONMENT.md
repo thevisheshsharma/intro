@@ -20,10 +20,11 @@
 
 ## Setup
 
-1. Copy `.env.example` to `.env.local`.
-2. Retrieve development values from the approved owner after historical credentials are rotated.
-3. Never reuse production secrets locally.
-4. Start with `pnpm dev` and perform only read-safe checks until the target database is confirmed.
+1. Use Node.js 22 or newer.
+2. Copy `.env.example` to `.env.local`.
+3. Retrieve development values from the approved owner after historical credentials are rotated.
+4. Never reuse production secrets locally.
+5. Start with `pnpm dev` and perform only read-safe checks until the target database is confirmed.
 
 ## Stripe trial configuration
 
@@ -40,7 +41,7 @@
 
 ## Variable cleanup backlog
 
-- Consolidate `GROK_API_KEY` and `XAI_API_KEY` behind one server-only variable.
+- `XAI_API_KEY` is the single server-only credential for xAI/Grok.
 - Consolidate `NEXT_PUBLIC_APP_URL` and `NEXT_PUBLIC_BASE_URL`.
 - Add startup validation that distinguishes required, optional, public, and server-only variables.
 - Provide a non-secret CI configuration or provider mocks so the application can build without production services.

@@ -3,12 +3,15 @@ import { z } from 'zod'
 import { COST_BEARING_RATE_LIMITS, requireUserAccess } from '@/lib/security/api-access'
 import { parseJsonBody, RequestValidationError } from '@/lib/security/request'
 import { createSafeRouteLogger } from '@/lib/safe-logger'
+import { mapWithConcurrency } from '@/lib/async-map'
 
 const logger = createSafeRouteLogger('find-from-org')
 
 const findFromOrgSchema = z.object({
   orgUsername: z.string().trim().min(1).max(50),
 }).strict()
+
+export const maxDuration = 300
 import { findOrgAffiliatesWithGrok } from '@/lib/grok'
 import { classifyProfilesWithGrok } from '@/lib/classifier'
 import { validateVibe, logValidationError, VibeType } from '@/lib/validation'
@@ -133,7 +136,7 @@ export async function POST(request: NextRequest) {
           logger.log(`   → ✅ SocialAPI org: Found @${data.screen_name}`)
           return data
         } else {
-          throw new Error(`SocialAPI returned ${response.status}: ${await response.text()}`)
+          throw new Error(`SocialAPI returned ${response.status}`)
         }
       })(),
       
@@ -372,8 +375,7 @@ export async function POST(request: NextRequest) {
             results.affiliatedUsers = []
           } else {
             logger.warn(`   → ⚠️  Affiliates failed: ${affiliatesResponse.status}`)
-            const responseText = await affiliatesResponse.text().catch(() => 'Unknown error')
-            results.errors.push(`Affiliates failed: ${affiliatesResponse.status} - ${responseText}`)
+            results.errors.push(`Affiliates failed: ${affiliatesResponse.status}`)
             results.affiliatedUsers = []
           }
         } catch (affiliatesError: any) {
@@ -973,6 +975,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const grokCandidateHandles = new Set(results.grokUsers.map(handle => handle.toLowerCase()))
+    allProfiles.forEach(profile => {
+      if (grokCandidateHandles.has(profile.screen_name?.toLowerCase())) {
+        profile._grok_candidate_for = orgUsername
+      }
+    })
+
     // Step 5: Combined profile filtering and categorization (optimized single pass)
     logger.log('🏢 Filtering and categorizing profiles in single pass...')
     logger.log(`   📝 Organization name variations: ${globalOrgVariations.join(', ')}`)
@@ -1260,6 +1269,7 @@ export async function POST(request: NextRequest) {
           },
           _relevance_reason: 'existing_works_at_relationship',
           _employment_data: {
+            complete_snapshot: false,
             current_organizations: [orgUsername],
             past_organizations: [],
             member_of: [],
@@ -1354,7 +1364,8 @@ export async function POST(request: NextRequest) {
       logger.log(`   → Only ${usersNeedingGrokAnalysis.length} users need Grok analysis (saved ${usersWithExistingRelationships.length + usersIdentifiedAsOrganizations.length} expensive AI calls)`)
       
       try {
-        const batchSize = 10 // Optimized batch size with reasoning model and increased tokens
+        // Smaller structured-output batches are more reliable; all profiles are still processed.
+        const batchSize = 5
         
         // Create all batches first
         const batches: Array<{
@@ -1375,8 +1386,7 @@ export async function POST(request: NextRequest) {
         const totalBatches = batches.length
         logger.log(`   → Processing ${totalBatches} batches in parallel (${usersNeedingGrokAnalysis.length} total profiles)`)
         
-        // Process all batches in parallel (same as before)
-        const batchPromises = batches.map(async (batchInfo) => {
+        const batchResults = await mapWithConcurrency(batches, 2, async (batchInfo) => {
           try {
             logger.log(`   → Starting batch ${batchInfo.batchNumber}/${totalBatches} (${batchInfo.size} profiles)`)
             
@@ -1384,7 +1394,8 @@ export async function POST(request: NextRequest) {
             const batchProfiles = batchInfo.profiles.map(profile => ({
               screen_name: profile.screen_name,
               name: profile.name || '',
-              description: profile.description || ''
+              description: profile.description || '',
+              candidate_organization: profile._grok_candidate_for,
             }))
             
             // Analyze with Grok using unified function
@@ -1398,6 +1409,8 @@ export async function POST(request: NextRequest) {
                 current_organizations: result.current_organizations,
                 department: result.department,
                 past_organizations: result.past_organizations,
+                member_of: result.member_of,
+                member_of_details: result.member_of_details,
                 orgType: result.orgType,
                 orgSubtype: result.orgSubtype,
                 web3Focus: result.web3Focus
@@ -1426,18 +1439,18 @@ export async function POST(request: NextRequest) {
           }
         })
         
-        // Wait for all batches to complete
-        const batchResults = await Promise.allSettled(batchPromises)
-        
-        // Process all results (same logic as before)
+        // Process responses by X handle, never by array position.
         batchResults.forEach((result, index) => {
           if (result.status === 'fulfilled') {
             const batchResult = result.value
             
             if (batchResult && batchResult.success && batchResult.analysis && batchResult.analysis.profiles && Array.isArray(batchResult.analysis.profiles) && batchResult.originalProfiles && Array.isArray(batchResult.originalProfiles)) {
               // Process successful analysis
-              batchResult.analysis.profiles.forEach((analyzed: any, idx: number) => {
-                const originalProfile = batchResult.originalProfiles[idx]
+              const originalsByHandle = new Map(
+                batchResult.originalProfiles.map((profile: any) => [String(profile.screen_name).toLowerCase(), profile])
+              )
+              batchResult.analysis.profiles.forEach((analyzed: any) => {
+                const originalProfile = originalsByHandle.get(String(analyzed.screen_name).toLowerCase())
                 
                 if (!originalProfile || !analyzed) return
                 
@@ -1469,9 +1482,11 @@ export async function POST(request: NextRequest) {
                 } else {
                   // Keep as individual and store flattened employment data directly
                   originalProfile._employment_data = {
+                    complete_snapshot: true,
                     current_organizations: analyzed.current_organizations || [],
                     past_organizations: analyzed.past_organizations || [],
                     member_of: analyzed.member_of || [],
+                    member_of_details: analyzed.member_of_details || [],
                     department: analyzed.department || 'other'
                   }
                   finalIndividuals.push(originalProfile)
@@ -1495,20 +1510,9 @@ export async function POST(request: NextRequest) {
               })
               
             } else {
-              // Handle failed batch - safely handle profiles
+              // A failed classification must not be persisted as empty relationships.
               logger.warn(`   → ⚠️  Batch ${index + 1} failed or returned invalid data`)
               if (batchResult && batchResult.originalProfiles && Array.isArray(batchResult.originalProfiles)) {
-                batchResult.originalProfiles.forEach(profile => {
-                  if (profile && typeof profile === 'object') {
-                    profile._employment_data = {
-                      current_organizations: [],
-                      past_organizations: [],
-                      member_of: [],
-                      department: 'other'
-                    }
-                    finalIndividuals.push(profile)
-                  }
-                })
                 const errorMsg = batchResult.error || 'Unknown batch error'
                 const batchNum = batchResult.batchNumber || index + 1
                 results.errors.push(`Grok analysis failed for batch ${batchNum}: ${errorMsg}`)
@@ -1521,24 +1525,6 @@ export async function POST(request: NextRequest) {
             logger.error(`   → ❌ Batch promise ${index + 1} rejected:`, result.reason)
             results.errors.push(`Batch ${index + 1} promise failed: ${result.reason?.message || 'Unknown error'}`)
             
-            // Try to recover profiles from the original batch if possible
-            const batchIndex = index
-            if (batchIndex < batches.length) {
-              const originalBatch = batches[batchIndex]
-              if (originalBatch && originalBatch.profiles && Array.isArray(originalBatch.profiles)) {
-                originalBatch.profiles.forEach((profile: any) => {
-                  if (profile && typeof profile === 'object') {
-                    profile._employment_data = {
-                      current_organizations: [],
-                      past_organizations: [],
-                      member_of: [],
-                      department: 'other'
-                    }
-                    finalIndividuals.push(profile)
-                  }
-                })
-              }
-            }
           }
         })
         
@@ -1551,18 +1537,6 @@ export async function POST(request: NextRequest) {
       } catch (grokError: any) {
         logger.error('❌ Grok analysis failed completely:', grokError.message)
         results.errors.push(`Grok analysis error: ${grokError.message}`)
-        // Fallback: use all users without enrichment
-        usersNeedingGrokAnalysis.forEach(profile => {
-          if (profile && typeof profile === 'object') {
-            profile._employment_data = {
-              current_organizations: [],
-              past_organizations: [],
-              member_of: [],
-              department: 'other'
-            }
-            finalIndividuals.push(profile)
-          }
-        })
       }
     } else {
       logger.log('   → No profiles need Grok analysis - all have existing employment data!')
@@ -2016,18 +1990,21 @@ export async function POST(request: NextRequest) {
     
     finalIndividuals.forEach((profile) => {
       const employmentData = profile._employment_data
-      let hasOrgAffiliation = false
-      
-      if (employmentData?.current_organizations && Array.isArray(employmentData.current_organizations)) {
-        // Check if any of the current organizations match the searched org
-        const orgs = employmentData.current_organizations
-        hasOrgAffiliation = orgs.some((org: string) => {
+      const relationshipHandles = [
+        ...(Array.isArray(employmentData?.current_organizations) ? employmentData.current_organizations : []),
+        ...(Array.isArray(employmentData?.past_organizations) ? employmentData.past_organizations : []),
+        ...(Array.isArray(employmentData?.member_of) ? employmentData.member_of : []),
+      ]
+      const hasClassifiedRelationship = relationshipHandles.some((org: string) => {
           const orgLower = org.toLowerCase()
           return orgLower === orgScreenName || 
                  orgLower === orgScreenNameWithoutAt ||
                  orgLower === `@${orgScreenNameWithoutAt}`
-        })
-      }
+      })
+      const isOfficialAffiliate = results.affiliatedUsers.some((affiliate: any) =>
+        affiliate.screen_name?.toLowerCase() === profile.screen_name?.toLowerCase()
+      )
+      const hasOrgAffiliation = hasClassifiedRelationship || isOfficialAffiliate
       
       if (hasOrgAffiliation) {
         directAffiliates.push(profile)

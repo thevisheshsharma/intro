@@ -13,8 +13,8 @@ Status values:
 | Onboarding | Partial | Job ownership and profile/completion persistence are server-authoritative; the 60-second `waitUntil` worker is not yet a durable queue. |
 | Trial subscriptions | Partial | An explicit card-required fourteen-day Stripe trial follows the free preview; Stripe owns lifecycle state and local reconciliation no longer independently expires trials, while provider-backed journey tests and reminder delivery remain. |
 | Pathfinder | Partial | API authentication, entitlement, actor identity, durable quotas, and guard tests are implemented; provider integration and browser coverage remain. |
-| People Intelligence | Partial | API authentication, entitlement, durable quotas, request caps, and redacted route logging are implemented; the large route still needs modular extraction. |
-| Company Intelligence | Partial | Read/write/analyze APIs now enforce entitlement and bounded inputs; domain and provider boundaries remain coupled. |
+| People Intelligence | Partial | API authentication, entitlement, durable quotas, redacted route logging, typed xAI classification, and independent multi-type organization relationships are implemented; the large route still needs modular extraction and provider-backed browser coverage. |
+| Company Intelligence | Partial | Entitlement, input validation, grounded Web/X research, a canonical flat schema, replace-style persistence, and a 60-day cache are implemented; ownership/sharing policy and provider-backed browser coverage remain. |
 | Stripe Checkout and portal | Partial | Checkout and portal are Privy-owned, billing is isolated from social identities, and webhooks refresh canonical Stripe state into dedicated entitlement records; preview replay/concurrency testing, legacy backfill verification, and schema rollout remain. |
 | Ping / message outreach | Marketed only | No verified message drafting, sending, or response-tracking workflow. |
 | Team collaboration | Marketed only | Pricing/marketing references teams without a verified workspace or membership model. |
