@@ -2,9 +2,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   fetchOnboardingCompletion,
+  getOnboardingAuthState,
   startOnboardingAnalysis,
   TwitterLinkRequiredError,
 } from './onboarding-client'
+
+describe('getOnboardingAuthState', () => {
+  it('waits for Privy before deciding whether to redirect', () => {
+    expect(getOnboardingAuthState(false, false)).toBe('loading')
+  })
+
+  it('requires authentication once Privy is ready', () => {
+    expect(getOnboardingAuthState(true, false)).toBe('unauthenticated')
+    expect(getOnboardingAuthState(true, true)).toBe('authenticated')
+  })
+})
 
 describe('fetchOnboardingCompletion', () => {
   afterEach(() => {

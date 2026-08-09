@@ -14,6 +14,7 @@ import { AlertCircle, RefreshCcw } from 'lucide-react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import {
     fetchOnboardingCompletion,
+    getOnboardingAuthState,
     startOnboardingAnalysis,
     TwitterLinkRequiredError,
 } from '@/lib/onboarding-client'
@@ -44,10 +45,15 @@ export default function OnboardingPage() {
         (account: any) => account.type === 'twitter_oauth'
     )
     const twitterUsername = user ? extractTwitterUsername(user) : null
+    const authState = getOnboardingAuthState(ready, authenticated)
 
     // Check if onboarding is already complete - redirect to dashboard
     useEffect(() => {
-        if (!ready || !authenticated) return
+        if (authState === 'loading') return
+        if (authState === 'unauthenticated') {
+            router.replace('/?login=required')
+            return
+        }
 
         let active = true
 
@@ -79,7 +85,7 @@ export default function OnboardingPage() {
         return () => {
             active = false
         }
-    }, [router, ready, authenticated, getAccessToken, completionCheckAttempt])
+    }, [router, authState, getAccessToken, completionCheckAttempt])
 
     const startAnalysis = useCallback(async () => {
         if (!twitterUsername || analysisStartedRef.current) return

@@ -4,6 +4,8 @@ const DEFAULT_ANALYSIS_START_TIMEOUT_MS = 30_000
 type AccessTokenGetter = () => Promise<string | null>
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
+export type OnboardingAuthState = 'loading' | 'unauthenticated' | 'authenticated'
+
 interface FetchOnboardingCompletionOptions {
   getAccessToken: AccessTokenGetter
   fetcher?: Fetcher
@@ -21,6 +23,14 @@ export class TwitterLinkRequiredError extends Error {
     super('Twitter account not linked')
     this.name = 'TwitterLinkRequiredError'
   }
+}
+
+export function getOnboardingAuthState(
+  ready: boolean,
+  authenticated: boolean,
+): OnboardingAuthState {
+  if (!ready) return 'loading'
+  return authenticated ? 'authenticated' : 'unauthenticated'
 }
 
 export async function fetchOnboardingCompletion({
